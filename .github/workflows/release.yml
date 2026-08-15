@@ -3,15 +3,17 @@
 # **No token exists anywhere.** npm stores a trusted publisher — this repository, this workflow
 # file, this environment — and mints a short-lived credential for the run that matches. Nothing to
 # rotate, nothing to leak, nothing in the repository's secrets. (Trusted publishing needs npm CLI
-# >= 11.5.1 and Node >= 22.14, which is why both are pinned up below.)
+# >= 11.5.1 and Node >= 22.14, which is why both are pinned below.)
 #
 # **Publishing a GitHub Release is the trigger.** Not a tag push: a tag is cheap and gets created
 # for all sorts of reasons, and every stray one starting a publish — even one that only stops at the
 # approval gate — turns the gate into noise you learn to click through. Publishing a Release is
 # unambiguous; nobody does it by accident.
 #
-# The release is still required to come off `main`, and package.json is required to carry the tag's
-# version. Both can fail loudly here precisely because getting this far was deliberate.
+# **CI is a prerequisite, not a re-implementation.** The `ci` job below calls the real CI workflow,
+# so the full matrix — macOS, Windows and Linux against Node 20 and 22, plus lint — has to pass on
+# the tagged commit before anything is published. Inlining a copy of the gate here would be a second
+# definition free to drift from the one every pull request is measured against.
 name: release
 
 on:
@@ -31,9 +33,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # The Release's tag, not the default branch: `on: release` checks out the default branch
-          # unless told otherwise, and building the wrong commit is the one mistake here that
-          # produces a plausible artifact rather than an error.
+          # For a release event GITHUB_REF is already the tag ref, so checkout would land here
+          # anyway. Named explicitly because building the wrong commit is the one mistake here that
+          # produces a plausible artifact rather than an error, and that is worth being loud about.
           ref: ${{ github.event.release.tag_name }}
           # The containment check below reads other refs, so a shallow single-branch fetch is not enough.
           fetch-depth: 0
@@ -81,12 +83,6 @@ jobs:
         with:
           node-version: '22'
 
-      - name: the full gate, on the exact commit being published
-        run: |
-          set -euo pipefail
-          find bin src test scripts -name '*.mjs' -o -name '*.js' | xargs -n1 node --check
-          npm test
-
       - name: pack, and record exactly what was gated
         id: pack
         env:
@@ -99,14 +95,21 @@ jobs:
             echo "::error::expected $tarball; npm pack produced: $(ls ./*.tgz 2>/dev/null || echo nothing)"
             exit 1
           fi
-          # Carried to the publish job, which re-packs and refuses if the bytes differ — so what
-          # was gated is provably what ships, without shipping an artifact npm can't attest.
+          # Carried to the publish job, which re-packs and refuses if the bytes differ — so what was
+          # gated is provably what ships, without shipping an artifact npm can't attest.
           echo "sha256=$(sha256sum "$tarball" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
           tar -tzf "$tarball" | sort
 
+  ci:
+    name: CI must pass on the tagged commit
+    needs: verify
+    # A called workflow runs at the caller's ref, and for a release event that ref is the tag — so
+    # this is the real CI, on the exact commit being published.
+    uses: ./.github/workflows/ci.yml
+
   publish:
     name: publish to npm
-    needs: verify
+    needs: [verify, ci]
     runs-on: ubuntu-latest
     # The environment is what makes this wait for a human, and it is also half of what npm trusts:
     # the publisher is registered against this repository *and* this environment, so a workflow that

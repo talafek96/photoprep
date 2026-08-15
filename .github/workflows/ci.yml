@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Callable, so the release workflow can require this exact definition to pass on the tagged
+  # commit rather than keeping a second, quietly diverging copy of the gate.
+  workflow_call:
 
 jobs:
   # photoprep has no dependencies and no build step, so the matrix is the whole point: the parts most
