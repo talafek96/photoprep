@@ -72,6 +72,17 @@ window.__result;   // what was written, and what the person changed
 Stage full-resolution sources in the `work/` folder of the user directory above; they're served at
 `/work/<name>`. Writes are authorised by the token in the URL the CLI prints.
 
+Better for a whole shoot — open the folder itself, so exports can land beside the originals:
+
+```js
+await window.__openFolder('/path/to/shoot');   // loads every photo; dest becomes <shoot>/photoprep-watermarked
+window.__setBesideName('marked-for-ig');       // override the subfolder name
+```
+
+The subfolder is named after the tool on purpose, so it can never collide with a `Watermarked`
+folder you keep your own exports in. It's one path segment — separators are stripped, so the name
+can't escape the source folder.
+
 ### Review mode
 
 ```bash
@@ -96,6 +107,21 @@ npm test          # server contract, CLI startup, page parsing — no dependenci
 ```
 
 CI runs the same tests on macOS, Windows and Linux against Node 20 and 22.
+
+## Releasing
+
+Everything is driven by git. The release script bumps `package.json`, tags that exact commit, and
+pushes both, so the manifest and the tag can never disagree:
+
+```bash
+node scripts/release.mjs patch --dry-run   # say what would happen, change nothing
+node scripts/release.mjs minor             # bump, tag, push, and draft the GitHub Release
+```
+
+**Pushing does not publish.** The tag leaves a *draft* GitHub Release; publishing that Release is
+what triggers `release.yml`, which re-runs the whole gate on the tagged commit, refuses anything not
+contained in `main` or whose `package.json` disagrees with the tag, and only then publishes — over
+OIDC, with provenance, and with no npm token stored anywhere.
 
 ## License
 

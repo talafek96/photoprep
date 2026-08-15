@@ -1,0 +1,155 @@
+# Publish a tagged release to npm over OIDC.
+#
+# **No token exists anywhere.** npm stores a trusted publisher — this repository, this workflow
+# file, this environment — and mints a short-lived credential for the run that matches. Nothing to
+# rotate, nothing to leak, nothing in the repository's secrets. (Trusted publishing needs npm CLI
+# >= 11.5.1 and Node >= 22.14, which is why both are pinned up below.)
+#
+# **Publishing a GitHub Release is the trigger.** Not a tag push: a tag is cheap and gets created
+# for all sorts of reasons, and every stray one starting a publish — even one that only stops at the
+# approval gate — turns the gate into noise you learn to click through. Publishing a Release is
+# unambiguous; nobody does it by accident.
+#
+# The release is still required to come off `main`, and package.json is required to carry the tag's
+# version. Both can fail loudly here precisely because getting this far was deliberate.
+name: release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify the tag deserves a release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      sha256: ${{ steps.pack.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The Release's tag, not the default branch: `on: release` checks out the default branch
+          # unless told otherwise, and building the wrong commit is the one mistake here that
+          # produces a plausible artifact rather than an error.
+          ref: ${{ github.event.release.tag_name }}
+          # The containment check below reads other refs, so a shallow single-branch fetch is not enough.
+          fetch-depth: 0
+
+      - name: the tag must be a release version
+        id: version
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::$TAG is not a vMAJOR.MINOR.PATCH release tag. Pre-release and dated"
+            echo "::error::tags are deliberately not publishable: the version scheme this project"
+            echo "::error::publishes under has three parts and nothing else."
+            exit 1
+          fi
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: the released commit must be on main
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin refs/heads/main:refs/remotes/origin/main
+          commit="$(git rev-parse HEAD)"
+          if ! git merge-base --is-ancestor "$commit" origin/main; then
+            echo "::error::$commit is not contained in main. A release is cut from the trunk;"
+            echo "::error::releasing any other commit publishes something that was never reviewed"
+            echo "::error::there. Use scripts/release.mjs, which tags a commit on main."
+            exit 1
+          fi
+
+      - name: package.json must carry the tag's version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          manifest="$(node -p "require('./package.json').version")"
+          if [ "$manifest" != "$VERSION" ]; then
+            echo "::error::package.json says $manifest but the tag says $VERSION. The release"
+            echo "::error::script bumps both in one commit, so this means the tag was moved or"
+            echo "::error::created by hand. npm would publish $manifest regardless of the tag."
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: the full gate, on the exact commit being published
+        run: |
+          set -euo pipefail
+          find bin src test scripts -name '*.mjs' -o -name '*.js' | xargs -n1 node --check
+          npm test
+
+      - name: pack, and record exactly what was gated
+        id: pack
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          npm pack --silent
+          tarball="photoprep-$VERSION.tgz"
+          if [ ! -f "$tarball" ]; then
+            echo "::error::expected $tarball; npm pack produced: $(ls ./*.tgz 2>/dev/null || echo nothing)"
+            exit 1
+          fi
+          # Carried to the publish job, which re-packs and refuses if the bytes differ — so what
+          # was gated is provably what ships, without shipping an artifact npm can't attest.
+          echo "sha256=$(sha256sum "$tarball" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          tar -tzf "$tarball" | sort
+
+  publish:
+    name: publish to npm
+    needs: verify
+    runs-on: ubuntu-latest
+    # The environment is what makes this wait for a human, and it is also half of what npm trusts:
+    # the publisher is registered against this repository *and* this environment, so a workflow that
+    # did not go through it cannot publish even if it asked for the token.
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/photoprep
+    permissions:
+      # Lets the job request an OIDC token. It grants no write access to the repository.
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: npm must be new enough for trusted publishing
+        run: |
+          set -euo pipefail
+          npm install -g npm@latest
+          npm --version
+
+      - name: the artifact must be byte-identical to the one that was gated
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+          EXPECTED: ${{ needs.verify.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          npm pack --silent
+          actual="$(sha256sum "photoprep-$VERSION.tgz" | cut -d' ' -f1)"
+          if [ "$actual" != "$EXPECTED" ]; then
+            echo "::error::the tarball differs from the one the gate ran against"
+            echo "::error::gated:  $EXPECTED"
+            echo "::error::now:    $actual"
+            exit 1
+          fi
+
+      - name: publish
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: npm publish "photoprep-$VERSION.tgz" --provenance --access public

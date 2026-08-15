@@ -86,7 +86,7 @@
       <input type="text" id="dest" placeholder="blank = photoprep's out folder" style="flex:1"></div>
     <div class="row" style="margin-top:6px">
       <button id="besideSource" style="flex:0 0 auto" title="Save into a subfolder next to the photos you opened">↩ Beside source</button>
-      <input type="text" id="besideName" value="Watermarked" title="Subfolder name" style="flex:1"></div>
+      <input type="text" id="besideName" value="photoprep-watermarked" title="Subfolder name — kept tool-specific so it can't collide with a folder you made yourself" style="flex:1"></div>
     <p class="hint" id="destNote">Click Choose… for a folder picker, or type a path (absolute, ~ ok). Picker overrides the text path.</p>
     <label>If a file already exists</label>
     <div class="seg" id="onExist"><button data-e="rename" class="on">Auto-rename</button><button data-e="overwrite">Overwrite</button></div>
@@ -290,6 +290,21 @@ document.getElementById('expAll').onclick=exportAll;
 // A dropped file arrives with bytes and a name but NO path, so photoprep can't know where it came
 // from. Opening a folder is the only way it can — and it's what makes "beside the source" possible.
 let SOURCE_DIR = '';
+
+// Deliberately tool-specific: a plain "Watermarked" would collide with the folder a photographer
+// already keeps their OWN marked exports in, and photoprep must never write into that.
+const BESIDE_DEFAULT = 'photoprep-watermarked';
+function besideName() {
+  const raw = (document.getElementById('besideName').value || '').trim();
+  // one path segment only — separators would let the name escape the source folder
+  const clean = raw.replace(/[\\/]+/g, '-').replace(/^\.+/, '').slice(0, 60);
+  return clean || BESIDE_DEFAULT;
+}
+const applyBeside = () => { if (SOURCE_DIR) window.__setDest(SOURCE_DIR + '/' + besideName()); };
+try {
+  const saved = localStorage.getItem('photoprepBesideName');
+  if (saved) document.getElementById('besideName').value = saved;
+} catch (e) { /* private browsing */ }
 document.getElementById('openFolder').onclick = async () => {
   const btn = document.getElementById('openFolder'), note = document.getElementById('srcNote');
   btn.disabled = true; note.textContent = 'Waiting for the folder picker…';
@@ -304,8 +319,7 @@ document.getElementById('openFolder').onclick = async () => {
       id: f.name, name: f.name, url: '/file?path=' + encodeURIComponent(list.dir + '/' + f.name),
     })));
     // Default the destination beside the sources, which is the usual intent when you open a folder.
-    const sub = (document.getElementById('besideName').value || 'Watermarked').replace(/[\/]/g, '');
-    window.__setDest(list.dir + '/' + sub);
+    applyBeside();
     note.textContent = list.files.length + ' photo(s) from ' + list.dir;
     toast('opened ' + list.files.length + ' photo(s)');
   } catch (e) { note.textContent = 'Could not open that folder.'; }
@@ -313,14 +327,12 @@ document.getElementById('openFolder').onclick = async () => {
 };
 // keep the destination in step while it still points beside the source
 document.getElementById('besideName').oninput = function () {
-  if (!SOURCE_DIR) return;
-  const sub = (this.value || 'Watermarked').replace(/[\/]/g, '');
-  window.__setDest(SOURCE_DIR + '/' + sub);
+  try { localStorage.setItem('photoprepBesideName', besideName()); } catch (e) {}
+  applyBeside();
 };
 document.getElementById('besideSource').onclick = () => {
   if (!SOURCE_DIR) { toast('open a folder first'); return; }
-  const sub = (document.getElementById('besideName').value || 'Watermarked').replace(/[\/]/g, '');
-  window.__setDest(SOURCE_DIR + '/' + sub);
+  applyBeside();
   toast('saving beside the source');
 };
 
@@ -343,6 +355,26 @@ window.__suggestFor=(id,w)=>{ const it=IMGS.find(x=>x.id===id); if(!it)return'no
 window.__suggestAll=w=>{ IMGS.forEach(it=>{ applySuggest(it,w); it.sug=snap(it.wm); }); if(C()){syncControls(C().wm);draw();flagDelta();} return'ok'; };
 window.__exportAll=()=>exportAll();
 window.__setDest=p=>{ const d=PPSave.setDest(p); document.getElementById('dest').value=d; document.getElementById('destNote').textContent=d?('Path: '+d):'Click Choose… for a folder picker, or type a path.'; return 'ok'; };
+// Batch/automation: point the tool at a folder and choose where its exports land, without the UI.
+window.__openFolder = async dir => {
+  const list = await fetch('/list?dir=' + encodeURIComponent(dir)).then(r => r.json());
+  if (!list.ok) return list;
+  SOURCE_DIR = list.dir;
+  await window.__addImages(list.files.map(f => ({
+    id: f.name, name: f.name, url: '/file?path=' + encodeURIComponent(list.dir + '/' + f.name),
+  })));
+  applyBeside();
+  document.getElementById('srcNote').textContent = list.files.length + ' photo(s) from ' + list.dir;
+  return { ok: true, dir: list.dir, count: list.files.length, dest: document.getElementById('dest').value };
+};
+window.__setBesideName = name => {
+  document.getElementById('besideName').value = String(name || '');
+  const used = besideName();
+  document.getElementById('besideName').value = used;
+  try { localStorage.setItem('photoprepBesideName', used); } catch (e) {}
+  applyBeside();
+  return used;
+};
 window.__result=null; window.__configLoaded=false;
 fetch('/config/watermarks.json').then(r=>r.ok?r.json():null).then(c=>{ if(c)return applyConfig(c); }).catch(()=>{}).finally(()=>{ window.__ready=true; layout(); });
 </script>
