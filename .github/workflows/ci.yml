@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # photoprep has no dependencies and no build step, so the matrix is the whole point: the parts most
+  # likely to break per-platform are paths, the user-config directory, and the native folder dialog.
+  test:
+    name: Test (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+        node: ['20', '22']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Smoke tests
+        run: node test/smoke.js
+      - name: CLI starts and serves
+        shell: bash
+        run: node test/cli.js
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Every JS file parses
+        run: |
+          set -e
+          find bin src test -name '*.js' -print0 | xargs -0 -n1 node --check
+          echo "all JS parses"
+      - name: Inline page scripts parse
+        run: node test/pages.js
+      - name: package.json is valid and self-consistent
+        run: |
+          node -e "
+            const p = require('./package.json');
+            const fs = require('fs');
+            if (!p.name || !p.version || !p.license) throw new Error('missing package metadata');
+            for (const f of Object.values(p.bin)) if (!fs.existsSync(f)) throw new Error('bin missing: ' + f);
+            for (const f of p.files) if (!fs.existsSync(f)) throw new Error('files[] entry missing: ' + f);
+            console.log(p.name + '@' + p.version + ' ok');
+          "

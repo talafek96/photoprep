@@ -15,9 +15,10 @@
 //                     the tool can read back what you changed and why  [for AI-assisted runs]
 //   --idle <minutes>  exit after this long with no requests (0 = never)
 const { createServer } = require('../src/server');
+const { openBrowser } = require('../src/open-browser');
 const P = require('../src/paths');
 
-const TOOLS = ['layout', 'watermark'];
+const TOOLS = ['layout', 'watermark', 'settings'];
 
 function parse(argv) {
   const o = { tool: '', folder: '', open: true };
@@ -50,10 +51,17 @@ async function main() {
   // Machine-readable first line, so an automation driver can pick up the port without parsing prose.
   console.log('PORT ' + port);
   console.log('photoprep ready — ' + target);
+  if (o.open) console.log('  (if a page doesn\'t appear, paste that URL into your browser)');
   console.log('brand config: ' + app.paths.configPath);
   console.log('exports default to: ' + app.paths.outDir);
   if (o.review) console.log('review mode: ON — approve/reject + notes are reported back to ' + app.paths.feedbackDir);
-  if (o.open) console.log('(browser auto-launch lands in a later phase — open the URL above for now)');
+
+  if (o.open) {
+    openBrowser(target, err => {
+      if (err) console.log('\nCouldn\'t open a browser automatically — open the URL above yourself.');
+      else console.log('\nOpened in your browser. Leave this window running; close it when you\'re done.');
+    });
+  }
 }
 
 main().catch(err => { console.error(String(err && err.stack || err)); process.exit(1); });

@@ -24,8 +24,10 @@ const DEFAULT_IDLE_MS = 8 * 60 * 60 * 1000;   // a GUI app may sit open all day;
 function createServer(opts = {}) {
   const dirs = P.ensure();
   const webRoot = opts.webRoot || path.join(PKG, 'web');
-  const assetsDir = P.brandAssetsDir(opts.assetsDir);
-  const configPath = P.brandConfigPath(opts.configPath);
+  // Not const: editing the brand from Settings forks the bundled sample brand into the user's own
+  // directory and re-points these, so an npx upgrade can never overwrite someone's marks.
+  let assetsDir = P.brandAssetsDir(opts.assetsDir);
+  let configPath = P.brandConfigPath(opts.configPath);
   const workDir = opts.workDir || path.join(dirs.root, 'work');
   const outDir = opts.outDir || dirs.out;
   const feedbackDir = path.join(dirs.root, 'feedback');
@@ -37,11 +39,64 @@ function createServer(opts = {}) {
   const token = opts.token || crypto.randomBytes(16).toString('hex');
   for (const d of [workDir, outDir, feedbackDir]) fs.mkdirSync(d, { recursive: true });
 
-  const mounts = [
+  // A function, not an array: assetsDir can be re-pointed at runtime by the brand fork above.
+  const mounts = () => [
     { prefix: '/assets/', dir: assetsDir },
     { prefix: '/work/', dir: workDir },
     { prefix: '/', dir: webRoot },
   ];
+
+  // --- brand helpers ---------------------------------------------------------------------------
+  const readCfg = () => JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  // Mark images live under assetsDir at whatever subpath the config's basePath implies, so a brand
+  // kept elsewhere (say, alongside a set of skills) keeps its own layout.
+  const markDir = cfg => path.join(assetsDir, (cfg.basePath || '/assets/').replace(/^\/+assets\/?/, ''));
+  const isBundled = () => configPath.startsWith(PKG) || assetsDir.startsWith(PKG);
+
+  // Editing the sample brand shipped inside the package would be lost on the next upgrade — so the
+  // first write copies it into the user's directory and continues there.
+  function ensureWritableBrand() {
+    if (configPath.startsWith(PKG)) {
+      const dest = path.join(dirs.config, 'watermarks.json');
+      if (!fs.existsSync(dest)) fs.copyFileSync(configPath, dest);
+      configPath = dest;
+    }
+    if (assetsDir.startsWith(PKG)) {
+      for (const f of fs.readdirSync(assetsDir)) {
+        const to = path.join(dirs.assets, f);
+        if (!fs.existsSync(to)) fs.copyFileSync(path.join(assetsDir, f), to);
+      }
+      assetsDir = dirs.assets;
+    }
+  }
+
+  // Never trust a posted config: a `file` that escaped its directory would let the page read or
+  // overwrite anything the server can reach.
+  function sanitizeCfg(incoming) {
+    const cfg = incoming && typeof incoming === 'object' ? incoming : {};
+    const marks = Array.isArray(cfg.watermarks) ? cfg.watermarks : [];
+    return {
+      _comment: cfg._comment || 'photoprep brand. Edit in the app: Settings > Brand.',
+      basePath: typeof cfg.basePath === 'string' && /^\/assets\/[\w\-./]*$/.test(cfg.basePath) ? cfg.basePath : '/assets/',
+      threshold: Number.isFinite(cfg.threshold) ? cfg.threshold : 128,
+      defaults: cfg.defaults && typeof cfg.defaults === 'object' ? cfg.defaults : {},
+      watermarks: marks.filter(w => w && w.id && w.file).map(w => ({
+        id: String(w.id).replace(/[^\w\-]/g, ''),
+        file: path.basename(String(w.file)),
+        label: String(w.label || w.id).slice(0, 80),
+        group: String(w.group || 'general').replace(/[^\w\-]/g, '') || 'general',
+        tone: String(w.tone || '').slice(0, 20),
+      })),
+      groups: cfg.groups && typeof cfg.groups === 'object' ? cfg.groups : {},
+    };
+  }
+
+  const writeCfg = cfg => {
+    ensureWritableBrand();
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2) + '\n');
+    return configPath;
+  };
 
   let idleTimer;
   const bumpIdle = () => {
@@ -89,7 +144,7 @@ function createServer(opts = {}) {
     bumpIdle();
     const url = new URL(req.url, 'http://127.0.0.1');
     const route = decodeURIComponent(url.pathname);
-    const needsAuth = ['/save', '/feedback', '/save-defaults', '/pickdir'].includes(route);
+    const needsAuth = ['/save', '/feedback', '/save-defaults', '/pickdir'].includes(route) || route.startsWith('/brand');
     if (needsAuth && !authed(req, url)) return send(res, 403, 'forbidden');
 
     // --- who am I: lets a caller confirm the server is photoprep and which brand it loaded ---
@@ -172,11 +227,107 @@ function createServer(opts = {}) {
     // --- the active brand config, wherever it actually lives ---
     if (req.method === 'GET' && route === '/config/watermarks.json') return serveFile(res, configPath, false);
 
+    // --- brand: what's loaded now -----------------------------------------------------------
+    if (req.method === 'GET' && route === '/brand') {
+      try {
+        const cfg = readCfg();
+        const dir = markDir(cfg);
+        return json(res, {
+          ok: true,
+          config: cfg,
+          configPath,
+          assetsDir,
+          markDir: dir,
+          usingSamples: isBundled(),
+          marks: cfg.watermarks.map(w => ({ ...w, url: (cfg.basePath || '/assets/') + w.file, exists: fs.existsSync(path.join(dir, w.file)) })),
+        });
+      } catch (e) { return json(res, { ok: false, error: String(e) }, 500); }
+    }
+
+    // --- brand: add a mark image (body = raw image bytes) ------------------------------------
+    if (req.method === 'POST' && route === '/brand/mark') {
+      const name = (url.searchParams.get('name') || '').trim();
+      if (name !== path.basename(name) || !/^[\w.\- ]+\.(png|webp|svg)$/i.test(name)) return send(res, 400, 'bad name');
+      return body(req, buf => {
+        if (!buf.length) return json(res, { ok: false, error: 'empty file' }, 400);
+        try {
+          ensureWritableBrand();
+          const cfg = readCfg();
+          const dir = markDir(cfg);
+          fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(path.join(dir, name), buf);
+          json(res, { ok: true, file: name, path: path.join(dir, name) });
+        } catch (e) { json(res, { ok: false, error: String(e) }, 500); }
+      });
+    }
+
+    // --- brand: replace the whole config (labels, kits, defaults) ----------------------------
+    if (req.method === 'POST' && route === '/brand/config') {
+      return body(req, buf => {
+        try {
+          const cfg = sanitizeCfg(JSON.parse(buf.toString() || '{}'));
+          if (!cfg.watermarks.length) return json(res, { ok: false, error: 'a brand needs at least one mark' }, 400);
+          json(res, { ok: true, path: writeCfg(cfg), config: cfg });
+        } catch (e) { json(res, { ok: false, error: String(e) }, 500); }
+      });
+    }
+
+    // --- brand: remove a mark ---------------------------------------------------------------
+    if (req.method === 'DELETE' && route === '/brand/mark') {
+      const id = (url.searchParams.get('id') || '').trim();
+      try {
+        ensureWritableBrand();
+        const cfg = readCfg();
+        const gone = cfg.watermarks.find(w => w.id === id);
+        if (!gone) return json(res, { ok: false, error: 'no such mark' }, 404);
+        cfg.watermarks = cfg.watermarks.filter(w => w.id !== id);
+        // Leave the image on disk: another entry (or an exported bundle) may still reference it,
+        // and an undo is then just re-adding the row.
+        return json(res, { ok: true, path: writeCfg(sanitizeCfg(cfg)), removed: gone.id });
+      } catch (e) { return json(res, { ok: false, error: String(e) }, 500); }
+    }
+
+    // --- brand: export as one portable file (images inlined) ---------------------------------
+    if (req.method === 'GET' && route === '/brand/export') {
+      try {
+        const cfg = readCfg();
+        const dir = markDir(cfg);
+        const files = {};
+        for (const w of cfg.watermarks) {
+          const p = path.join(dir, w.file);
+          if (fs.existsSync(p)) files[w.file] = fs.readFileSync(p).toString('base64');
+        }
+        return json(res, { photoprepBrand: 1, exported: new Date().toISOString(), config: cfg, files });
+      } catch (e) { return json(res, { ok: false, error: String(e) }, 500); }
+    }
+
+    // --- brand: import a bundle --------------------------------------------------------------
+    if (req.method === 'POST' && route === '/brand/import') {
+      return body(req, buf => {
+        try {
+          const bundle = JSON.parse(buf.toString() || '{}');
+          if (!bundle || bundle.photoprepBrand !== 1) return json(res, { ok: false, error: 'not a photoprep brand file' }, 400);
+          const cfg = sanitizeCfg(bundle.config);
+          if (!cfg.watermarks.length) return json(res, { ok: false, error: 'bundle has no marks' }, 400);
+          ensureWritableBrand();
+          const dir = markDir(cfg);
+          fs.mkdirSync(dir, { recursive: true });
+          let wrote = 0;
+          for (const [name, b64] of Object.entries(bundle.files || {})) {
+            if (name !== path.basename(name) || !/^[\w.\- ]+\.(png|webp|svg)$/i.test(name)) continue;
+            fs.writeFileSync(path.join(dir, name), Buffer.from(String(b64), 'base64'));
+            wrote++;
+          }
+          json(res, { ok: true, path: writeCfg(cfg), marks: cfg.watermarks.length, files: wrote });
+        } catch (e) { json(res, { ok: false, error: String(e) }, 500); }
+      });
+    }
+
     // --- static ---
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'method not allowed');
     let rel = route === '/' ? '/index.html' : route;
     if (rel.endsWith('/')) rel += 'index.html';
-    for (const m of mounts) {
+    for (const m of mounts()) {
       if (!rel.startsWith(m.prefix)) continue;
       const full = path.resolve(m.dir, '.' + rel.slice(m.prefix.length - 1));
       if (full !== m.dir && !full.startsWith(m.dir + path.sep)) return send(res, 403, 'forbidden');

@@ -89,6 +89,63 @@ const check = (name, cond, extra) => {
     .every(h => wmHtml.includes(h)));
   check('tools no longer carry duplicated helpers', !/function detect\(img\)/.test(layoutHtml + wmHtml));
 
+  // --- brand management (Settings) -------------------------------------------------------------
+  const brand0 = await fetch(base + '/brand', { headers: auth }).then(r => r.json());
+  check('/brand reports the loaded brand', brand0.ok && brand0.marks.length > 0);
+  check('/brand flags that these are the bundled samples', brand0.usingSamples === true);
+  check('/brand needs auth', (await fetch(base + '/brand')).status === 403);
+
+  const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>');
+  const up = await fetch(base + '/brand/mark?name=mine.svg', { method: 'POST', body: svg, headers: auth }).then(r => r.json());
+  check('a mark image can be uploaded', up.ok && fs.existsSync(up.path), up.error);
+  check('uploading forks the sample brand into the user dir', up.path && up.path.startsWith(HOME), up.path);
+
+  const badUp = await fetch(base + '/brand/mark?name=../evil.svg', { method: 'POST', body: svg, headers: auth });
+  check('/brand/mark rejects a traversing name', badUp.status === 400);
+
+  const savedBrand = await fetch(base + "/brand/config", {
+    method: 'POST', headers: auth,
+    body: JSON.stringify({
+      basePath: '/assets/', defaults: { anchor: 'tl', sizePct: 30 },
+      watermarks: [{ id: 'mine', file: 'mine.svg', label: 'My mark', group: 'own', tone: 'dark' }],
+      groups: { own: { mode: 'brightness', onDark: 'mine', onLight: 'mine' } },
+    }),
+  }).then(r => r.json());
+  check('brand config saves', savedBrand.ok && savedBrand.config.watermarks[0].id === 'mine', savedBrand.error);
+  check('saved brand lands in the user dir, not the package', savedBrand.path.startsWith(HOME), savedBrand.path);
+
+  const evil = await fetch(base + '/brand/config', {
+    method: 'POST', headers: auth,
+    body: JSON.stringify({ watermarks: [{ id: 'x', file: '../../../etc/passwd', label: 'x', group: 'g' }] }),
+  }).then(r => r.json());
+  check('a traversing mark path is sanitized to a bare filename', evil.ok && evil.config.watermarks[0].file === 'passwd', evil.config && evil.config.watermarks[0].file);
+
+  const empty = await fetch(base + '/brand/config', { method: 'POST', headers: auth, body: JSON.stringify({ watermarks: [] }) });
+  check('a brand with no marks is refused', empty.status === 400);
+
+  // put the good brand back, then round-trip it through export/import
+  await fetch(base + '/brand/config', {
+    method: 'POST', headers: auth,
+    body: JSON.stringify({ basePath: '/assets/', defaults: { anchor: 'tl', sizePct: 30 },
+      watermarks: [{ id: 'mine', file: 'mine.svg', label: 'My mark', group: 'own', tone: 'dark' }],
+      groups: { own: { mode: 'brightness', onDark: 'mine', onLight: 'mine' } } }),
+  });
+  const bundle = await fetch(base + '/brand/export', { headers: auth }).then(r => r.json());
+  check('brand exports as a portable bundle', bundle.photoprepBrand === 1 && !!bundle.files['mine.svg']);
+
+  await fetch(base + '/brand/mark?id=mine', { method: 'DELETE', headers: auth });
+  const afterDel = await fetch(base + '/brand', { headers: auth }).then(r => r.json());
+  check('a mark can be removed', afterDel.config.watermarks.length === 0);
+
+  const imported = await fetch(base + '/brand/import', { method: 'POST', headers: auth, body: JSON.stringify(bundle) }).then(r => r.json());
+  check('the bundle imports back', imported.ok && imported.marks === 1 && imported.files === 1, imported.error);
+  const restored = await fetch(base + '/brand', { headers: auth }).then(r => r.json());
+  check('imported brand is byte-identical to what was exported', restored.config.watermarks[0].id === 'mine' && restored.marks[0].exists);
+  check('imported brand keeps its defaults', restored.config.defaults.anchor === 'tl' && restored.config.defaults.sizePct === 30);
+
+  const notBundle = await fetch(base + '/brand/import', { method: 'POST', headers: auth, body: JSON.stringify({ hello: 1 }) });
+  check('a foreign json file is refused as a brand', notBundle.status === 400);
+
   // --- review mode is off by default ---
   const rt = await fetch(base + '/runtime.json').then(r => r.json());
   check('review is off unless asked for', rt.review === false);

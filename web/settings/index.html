@@ -1,0 +1,334 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>photoprep — settings</title>
+<link rel="stylesheet" href="/shared/theme.css">
+<style>
+  /* Settings is a document, not an instrument — it opts out of the two-column app grid. */
+  body { display:block; overflow:auto; position:relative; }
+  /* One ambient pool behind the header, and nothing else glowing on the page. */
+  body::before {
+    content:''; position:fixed; left:50%; top:-220px; width:760px; height:420px; transform:translateX(-50%);
+    background:radial-gradient(ellipse at center, rgba(76,159,254,.10) 0%, transparent 70%);
+    pointer-events:none; z-index:0;
+  }
+  main { position:relative; z-index:1; max-width:860px; margin:0 auto; padding:48px 24px 96px; }
+  a.back { color:var(--mut); text-decoration:none; font-size:12px; }
+  a.back:hover { color:var(--fg); }
+  h1 { font-size:26px; letter-spacing:-.02em; margin:14px 0 4px; }
+  .lede { color:var(--mut); margin:0 0 8px; font-size:13.5px; }
+  section {
+    margin-top:28px; padding:20px; border:1px solid rgba(255,255,255,.09); border-radius:12px;
+    background:rgba(255,255,255,.025); box-shadow:inset 0 1px 0 0 rgba(255,255,255,.05);
+  }
+  section > h2 { font-size:13px; margin:0 0 3px; letter-spacing:.01em; }
+  section > .note { color:var(--mut); font-size:11.5px; margin:0 0 16px; line-height:1.6; }
+
+  /* marks */
+  #marks { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:12px; }
+  .mark { border:1px solid rgba(255,255,255,.09); border-radius:10px; overflow:hidden; background:rgba(0,0,0,.25); }
+  .mark .prev {
+    height:96px; display:flex; align-items:center; justify-content:center; padding:10px;
+    background-color:#1a1a1a;
+    background-image:linear-gradient(45deg,#232323 25%,transparent 25%),linear-gradient(-45deg,#232323 25%,transparent 25%),
+                     linear-gradient(45deg,transparent 75%,#232323 75%),linear-gradient(-45deg,transparent 75%,#232323 75%);
+    background-size:16px 16px; background-position:0 0,0 8px,8px -8px,-8px 0;
+  }
+  /* Preview each mark against the background it's MEANT for: a dark mark is used on light photos,
+     so showing it on a dark checkerboard would render it invisible. */
+  .mark.ondark .prev { background-color:#e9e9e9; background-image:none; }
+  .mark .prev img { max-width:100%; max-height:76px; }
+  .mark .meta { padding:9px 10px 11px; display:grid; gap:6px; }
+  .mark .meta input, .mark .meta select { font-size:11.5px; padding:5px 7px; }
+  .mark .rowb { display:flex; gap:6px; align-items:center; }
+  /* min-width:0 or the flexible input collapses to nothing beside the select */
+  .mark .rowb input { flex:1 1 auto; min-width:0; }
+  .mark .rowb select { flex:0 0 auto; width:auto; max-width:44%; }
+  .mark .rowb button { flex:0 0 auto; padding:5px 8px; font-size:11px; }
+  .missing { color:var(--warn); font-size:10.5px; }
+
+  /* anchor pad */
+  #anchorPad { display:grid; grid-template-columns:repeat(3,34px); gap:5px; }
+  #anchorPad button { padding:8px 0; font-size:13px; }
+  #anchorPad button.on { background:var(--acc); color:#001; border-color:var(--acc); }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:18px; align-items:start; }
+  .placePrev { width:112px; height:140px; border:1px solid rgba(255,255,255,.14); border-radius:6px; position:relative; background:#0d0d0d; }
+  .placePrev i { position:absolute; background:var(--acc); opacity:.75; border-radius:2px; display:block; }
+
+  .actions { display:flex; gap:9px; flex-wrap:wrap; align-items:center; }
+  /* Its own surface, or it reads as buttons floating loose over whatever it happens to cover. */
+  #saveBar {
+    position:sticky; bottom:0; margin-top:24px; padding:14px 16px;
+    border:1px solid rgba(255,255,255,.09); border-radius:12px;
+    background:rgba(24,24,24,.92); backdrop-filter:blur(8px);
+    box-shadow:inset 0 1px 0 0 rgba(255,255,255,.05);
+  }
+  .spacer { flex:1; }
+  #status { font-size:11.5px; color:var(--ok); min-height:16px; }
+  #status.err { color:var(--warn); }
+  .pill { display:inline-block; padding:2px 9px; border:1px solid rgba(255,255,255,.14); border-radius:999px; font-size:10.5px; color:var(--mut); }
+
+  /* entrances: distance covered fast, then settle */
+  @keyframes rise { from { opacity:0; transform:translateY(14px); filter:blur(4px); } to { opacity:1; transform:none; filter:none; } }
+  .rise { animation:rise .55s cubic-bezier(.16,1,.3,1) both; }
+  @media (prefers-reduced-motion:reduce) { .rise { animation:none; } }
+  button:active { transform:scale(.985); }
+  :focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
+</style>
+<body>
+<main>
+  <a class="back" href="/">← photoprep</a>
+  <h1 class="rise">Settings</h1>
+  <p class="lede rise" style="animation-delay:.05s">Your marks and how they sit on a photo by default.</p>
+  <p><span class="pill" id="wherePill">…</span></p>
+
+  <section class="rise" style="animation-delay:.10s">
+    <h2>Your marks</h2>
+    <p class="note">Drop in a PNG (transparent background), WebP or SVG. Group marks into <b>kits</b> —
+      the watermark tool picks the best variant <i>within</i> a kit for each photo, and never mixes kits.</p>
+    <div id="marks"></div>
+    <div class="drop" id="dropMark" style="margin-top:12px">Drop / click — add a mark image</div>
+  </section>
+
+  <section class="rise" style="animation-delay:.15s">
+    <h2>Default placement</h2>
+    <p class="note">Where a mark lands on a new photo. You can still move it per photo in the tool.</p>
+    <div class="grid2">
+      <div>
+        <label style="margin-top:0">Corner</label>
+        <div id="anchorPad">
+          <button data-a="tl">↖</button><button data-a="tc">↑</button><button data-a="tr">↗</button>
+          <button data-a="ml">←</button><button data-a="mc">✛</button><button data-a="mr">→</button>
+          <button data-a="bl">↙</button><button data-a="bc">↓</button><button data-a="br">↘</button>
+        </div>
+        <label>Inset X <span id="ixV">5</span>%</label><input type="range" id="ix" min="0" max="50" value="5">
+        <label>Inset Y <span id="iyV">5</span>%</label><input type="range" id="iy" min="0" max="50" value="5">
+        <label>Size <span id="szV">25</span>%</label><input type="range" id="sz" min="6" max="60" value="25">
+        <label>Opacity <span id="opV">55</span>%</label><input type="range" id="op" min="10" max="100" value="55">
+      </div>
+      <div>
+        <label style="margin-top:0">Preview</label>
+        <div class="placePrev" id="placePrev"><i></i></div>
+        <label style="margin-top:14px">Export format</label>
+        <div class="seg" id="fmt"><button data-f="jpeg" class="on">JPEG</button><button data-f="png">PNG</button></div>
+        <div id="qWrap"><label>Quality <span id="qV">100</span></label><input type="range" id="q" min="1" max="100" value="100"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="rise" style="animation-delay:.20s">
+    <h2>Kit rules</h2>
+    <p class="note">How the tool auto-picks a variant inside a kit.
+      <b>By brightness</b> swaps light/dark marks against the background behind the mark.
+      <b>By legibility</b> tries variants in order and takes the subtlest one that still reads.</p>
+    <div id="kits"></div>
+  </section>
+
+  <section class="rise" style="animation-delay:.25s">
+    <h2>Move your brand</h2>
+    <p class="note">Export packs your marks and settings into one file — keep it as a backup, or import it
+      on another machine to get set up in one step.</p>
+    <div class="actions">
+      <button id="exportBrand">⬇ Export brand file</button>
+      <button id="importBrand">⬆ Import brand file</button>
+    </div>
+  </section>
+
+  <div class="actions" id="saveBar">
+    <button class="primary" id="save">Save settings</button>
+    <span id="status"></span>
+    <span class="spacer"></span>
+    <button id="reload">Discard changes</button>
+  </div>
+</main>
+
+<script src="/shared/util.js"></script>
+<script>
+let CFG = null, DIRTY = false;
+const S = (t, err) => { const el = document.getElementById('status'); el.textContent = t; el.classList.toggle('err', !!err); };
+const api = (u, o) => fetch(u, o).then(r => r.json());
+
+function load() {
+  return api('/brand').then(b => {
+    if (!b.ok) return S(b.error || 'could not read the brand', true);
+    CFG = b.config;
+    document.getElementById('wherePill').textContent = b.usingSamples
+      ? 'sample marks — add your own below' : 'your brand · ' + b.configPath;
+    renderMarks(b);
+    renderDefaults();
+    renderKits();
+    DIRTY = false; S('');
+  });
+}
+
+function renderMarks(b) {
+  const box = document.getElementById('marks');
+  box.innerHTML = '';
+  if (!CFG.watermarks.length) { box.innerHTML = '<p class="note" style="margin:0">No marks yet — drop one in below.</p>'; return; }
+  CFG.watermarks.forEach(w => {
+    const m = b.marks.find(x => x.id === w.id) || {};
+    const d = document.createElement('div');
+    d.className = 'mark' + (w.tone === 'dark' ? ' ondark' : '');
+    d.innerHTML = `
+      <div class="prev">${m.exists ? `<img src="${m.url}?v=${Date.now()}" alt="">` : '<span class="missing">image missing</span>'}</div>
+      <div class="meta">
+        <input type="text" value="${(w.label || w.id).replace(/"/g, '&quot;')}" data-f="label" placeholder="name">
+        <div class="rowb">
+          <input type="text" value="${w.group}" data-f="group" placeholder="kit" style="flex:1" title="Marks sharing a kit are variants of each other">
+          <select data-f="tone" title="Used by the brightness rule">
+            ${['', 'dark', 'light', 'bold', 'subtle'].map(t => `<option value="${t}"${w.tone === t ? ' selected' : ''}>${t || '—'}</option>`).join('')}
+          </select>
+          <button data-del title="Remove this mark">✕</button>
+        </div>
+      </div>`;
+    d.querySelectorAll('[data-f]').forEach(inp => inp.oninput = () => {
+      w[inp.dataset.f] = inp.value.trim();
+      d.classList.toggle('ondark', w.tone === 'dark');
+      DIRTY = true; S('unsaved changes');
+    });
+    d.querySelector('[data-del]').onclick = () => {
+      if (!confirm('Remove "' + (w.label || w.id) + '" from your brand?\n\n(The image file stays on disk.)')) return;
+      api('/brand/mark?id=' + encodeURIComponent(w.id), { method: 'DELETE' })
+        .then(r => r.ok ? load().then(() => S('removed')) : S(r.error, true));
+    };
+    box.appendChild(d);
+  });
+}
+
+function renderDefaults() {
+  const d = CFG.defaults || (CFG.defaults = {});
+  const set = (id, v, lbl) => { document.getElementById(id).value = v; if (lbl) txt(lbl, v); };
+  set('ix', d.insetX != null ? d.insetX : 5, 'ixV');
+  set('iy', d.insetY != null ? d.insetY : 5, 'iyV');
+  set('sz', d.sizePct != null ? d.sizePct : 25, 'szV');
+  set('op', Math.round((d.opacity != null ? d.opacity : .55) * 100), 'opV');
+  set('q', Math.round((d.quality != null ? d.quality : 1) * 100), 'qV');
+  document.querySelectorAll('#anchorPad button').forEach(b => b.classList.toggle('on', b.dataset.a === (d.anchor || 'br')));
+  document.querySelectorAll('#fmt button').forEach(b => b.classList.toggle('on', b.dataset.f === (d.format || 'jpeg')));
+  document.getElementById('qWrap').style.display = (d.format || 'jpeg') === 'jpeg' ? '' : 'none';
+  drawPlace();
+}
+
+// A miniature of the real geometry: same anchor + inset + size maths the tool uses.
+function drawPlace() {
+  const d = CFG.defaults, box = document.getElementById('placePrev'), i = box.querySelector('i');
+  const W = box.clientWidth, H = box.clientHeight;
+  const w = (d.sizePct || 25) / 100 * W, h = w * 0.3;
+  const a = d.anchor || 'br', ix = (d.insetX || 0) / 100 * W, iy = (d.insetY || 0) / 100 * H;
+  const x = a[1] === 'l' ? ix : a[1] === 'r' ? W - w - ix : (W - w) / 2;
+  const y = a[0] === 't' ? iy : a[0] === 'b' ? H - h - iy : (H - h) / 2;
+  Object.assign(i.style, { left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px', opacity: d.opacity != null ? d.opacity : .55 });
+}
+
+function renderKits() {
+  const box = document.getElementById('kits');
+  const kits = [...new Set(CFG.watermarks.map(w => w.group))];
+  CFG.groups = CFG.groups || {};
+  box.innerHTML = '';
+  if (!kits.length) { box.innerHTML = '<p class="note" style="margin:0">Kits appear once you add marks.</p>'; return; }
+  kits.forEach(k => {
+    const rule = CFG.groups[k] = CFG.groups[k] || { mode: 'brightness' };
+    const inKit = CFG.watermarks.filter(w => w.group === k);
+    const opts = sel => inKit.map(w => `<option value="${w.id}"${sel === w.id ? ' selected' : ''}>${w.label || w.id}</option>`).join('');
+    const d = document.createElement('div');
+    d.style.cssText = 'border:1px solid rgba(255,255,255,.09);border-radius:9px;padding:11px 13px;margin-bottom:9px';
+    d.innerHTML = `
+      <b style="font-size:12px">${k}</b> <span class="note" style="margin:0">· ${inKit.length} mark(s)</span>
+      <label>Pick a variant</label>
+      <div class="seg" data-mode>
+        <button data-m="brightness"${rule.mode !== 'legibility' ? ' class="on"' : ''}>By brightness</button>
+        <button data-m="legibility"${rule.mode === 'legibility' ? ' class="on"' : ''}>By legibility</button>
+      </div>
+      <div data-bright style="display:${rule.mode === 'legibility' ? 'none' : 'block'}">
+        <label>On a dark background</label><select data-onDark>${opts(rule.onDark)}</select>
+        <label>On a light background</label><select data-onLight>${opts(rule.onLight)}</select>
+      </div>
+      <div data-leg style="display:${rule.mode === 'legibility' ? 'block' : 'none'}">
+        <label>Try in this order (subtlest first)</label><input type="text" data-order value="${(rule.order || inKit.map(w => w.id)).join(', ')}">
+        <label>Minimum standout <span data-minv>${rule.minStandout != null ? rule.minStandout : 40}</span></label>
+        <input type="range" data-min min="5" max="120" value="${rule.minStandout != null ? rule.minStandout : 40}">
+      </div>`;
+    const mark = () => { DIRTY = true; S('unsaved changes'); };
+    d.querySelectorAll('[data-mode] button').forEach(b => b.onclick = () => {
+      d.querySelectorAll('[data-mode] button').forEach(x => x.classList.remove('on'));
+      b.classList.add('on');
+      rule.mode = b.dataset.m;
+      d.querySelector('[data-bright]').style.display = rule.mode === 'legibility' ? 'none' : 'block';
+      d.querySelector('[data-leg]').style.display = rule.mode === 'legibility' ? 'block' : 'none';
+      mark();
+    });
+    d.querySelector('[data-onDark]').onchange = e => { rule.onDark = e.target.value; mark(); };
+    d.querySelector('[data-onLight]').onchange = e => { rule.onLight = e.target.value; mark(); };
+    d.querySelector('[data-order]').oninput = e => { rule.order = e.target.value.split(',').map(s => s.trim()).filter(Boolean); mark(); };
+    d.querySelector('[data-min]').oninput = e => { rule.minStandout = +e.target.value; d.querySelector('[data-minv]').textContent = e.target.value; mark(); };
+    if (!rule.onDark) rule.onDark = (inKit.find(w => w.tone === 'light') || inKit[0] || {}).id;
+    if (!rule.onLight) rule.onLight = (inKit.find(w => w.tone === 'dark') || inKit[0] || {}).id;
+    box.appendChild(d);
+  });
+}
+
+// --- defaults wiring ---
+const bindDefault = (id, key, lbl, scale) => rng(id, v => {
+  CFG.defaults[key] = scale ? +v / 100 : +v;
+  if (lbl) txt(lbl, v);
+  drawPlace(); DIRTY = true; S('unsaved changes');
+});
+bindDefault('ix', 'insetX', 'ixV'); bindDefault('iy', 'insetY', 'iyV');
+bindDefault('sz', 'sizePct', 'szV'); bindDefault('op', 'opacity', 'opV', true);
+bindDefault('q', 'quality', 'qV', true);
+document.querySelectorAll('#anchorPad button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#anchorPad button').forEach(x => x.classList.remove('on'));
+  b.classList.add('on'); CFG.defaults.anchor = b.dataset.a; drawPlace(); DIRTY = true; S('unsaved changes');
+});
+seg('fmt', 'f', v => {
+  CFG.defaults.format = v;
+  document.getElementById('qWrap').style.display = v === 'jpeg' ? '' : 'none';
+  DIRTY = true; S('unsaved changes');
+});
+addEventListener('resize', () => CFG && drawPlace());
+
+// --- add a mark ---
+wireDrop(document.getElementById('dropMark'), (img, name) => {
+  fetch(img.src).then(r => r.blob()).then(blob =>
+    fetch('/brand/mark?name=' + encodeURIComponent(name.replace(/[^\w.\- ]+/g, '_')), { method: 'POST', body: blob })
+      .then(r => r.json()).then(r => {
+        if (!r.ok) return S(r.error || 'upload failed', true);
+        const id = name.replace(/\.[^.]+$/, '').replace(/[^\w\-]/g, '-').toLowerCase();
+        CFG.watermarks.push({ id, file: r.file, label: name.replace(/\.[^.]+$/, ''), group: 'general', tone: '' });
+        return save().then(load).then(() => S('added ' + r.file));
+      }));
+}, true);
+
+// --- save / import / export ---
+function save() {
+  return api('/brand/config', { method: 'POST', body: JSON.stringify(CFG) }).then(r => {
+    if (!r.ok) { S(r.error || 'save failed', true); throw new Error(r.error); }
+    DIRTY = false; S('saved'); return r;
+  });
+}
+document.getElementById('save').onclick = () => save().then(load).then(() => S('saved'));
+document.getElementById('reload').onclick = () => load().then(() => S('reloaded from disk'));
+
+document.getElementById('exportBrand').onclick = () => api('/brand/export').then(b => {
+  const blob = new Blob([JSON.stringify(b, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'my-brand.photoprep.json';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  S('exported ' + Object.keys(b.files || {}).length + ' mark image(s)');
+});
+document.getElementById('importBrand').onclick = () => {
+  const i = document.createElement('input');
+  i.type = 'file'; i.accept = '.json,application/json';
+  i.onchange = () => {
+    const f = i.files[0]; if (!f) return;
+    if (!confirm('Import "' + f.name + '"?\n\nThis replaces your current marks and settings.')) return;
+    f.text().then(t => fetch('/brand/import', { method: 'POST', body: t }).then(r => r.json()).then(r =>
+      r.ok ? load().then(() => S('imported ' + r.marks + ' mark(s)')) : S(r.error || 'import failed', true)));
+  };
+  i.click();
+};
+addEventListener('beforeunload', e => { if (DIRTY) { e.preventDefault(); e.returnValue = ''; } });
+load();
+</script>
+</body>

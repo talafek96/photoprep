@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Photoprep
+Comment=Get photos ready to post — frame them, mark them, done.
+Exec=sh -c 'cd "$(dirname "%k")/.." && node bin/cli.js'
+Terminal=true
+Categories=Graphics;Photography;

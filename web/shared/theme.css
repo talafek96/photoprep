@@ -1,6 +1,11 @@
 /* Shared dark theme for the photoprep tools. Anything genuinely specific to one tool stays in that
    tool's own <style> block; everything here was byte-identical between them before the extraction. */
 :root {
+  /* Declares that this page already IS dark. Without it, Chrome's auto-dark-mode re-darkens the few
+     deliberately light surfaces we have (the light-mark preview, a white collage background), which
+     would misrepresent exactly the thing the user is trying to judge. */
+  color-scheme: dark;
+
   --bg:#111; --panel:#1b1b1b; --fg:#eee; --mut:#9aa;
   --acc:#4c9ffe; --snap:#ff4d6d; --ok:#39c46e; --warn:#e6a23c;
 }
