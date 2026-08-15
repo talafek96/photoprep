@@ -11,7 +11,16 @@
     "collage",
     "batch"
   ],
-  "license": "MIT",
+  "license": "Apache-2.0",
+  "author": "Tal Afek",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/talafek96/photoprep.git"
+  },
+  "homepage": "https://github.com/talafek96/photoprep#readme",
+  "bugs": {
+    "url": "https://github.com/talafek96/photoprep/issues"
+  },
   "type": "commonjs",
   "bin": {
     "photoprep": "bin/cli.js"
