@@ -1,0 +1,38 @@
+{
+  "_comment": "Neutral starter brand shipped with photoprep. Your own marks live in the user config directory (Settings > Brand in the app) or in a folder you pass with --config/--assets; this file is never edited in place.",
+  "basePath": "/assets/",
+  "threshold": 128,
+  "defaults": {
+    "anchor": "br",
+    "insetX": 5,
+    "insetY": 5,
+    "sizePct": 25,
+    "opacity": 0.55,
+    "format": "jpeg",
+    "quality": 1
+  },
+  "watermarks": [
+    {
+      "id": "sample-dark",
+      "file": "sample-dark.svg",
+      "label": "Sample · dark",
+      "group": "sample",
+      "tone": "dark"
+    },
+    {
+      "id": "sample-light",
+      "file": "sample-light.svg",
+      "label": "Sample · light",
+      "group": "sample",
+      "tone": "light"
+    }
+  ],
+  "groups": {
+    "sample": {
+      "mode": "brightness",
+      "onDark": "sample-light",
+      "onLight": "sample-dark",
+      "threshold": 128
+    }
+  }
+}

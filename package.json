@@ -1,0 +1,37 @@
+{
+  "name": "photoprep",
+  "version": "0.1.0",
+  "description": "Local, GUI-first workshop for prepping photos to post: frame landscapes (stack / pano-split) and watermark them. Runs as an app in your browser; scriptable for automation.",
+  "keywords": [
+    "photo",
+    "watermark",
+    "instagram",
+    "carousel",
+    "panorama",
+    "collage",
+    "batch"
+  ],
+  "license": "MIT",
+  "type": "commonjs",
+  "bin": {
+    "photoprep": "bin/cli.js"
+  },
+  "main": "src/server.js",
+  "files": [
+    "bin",
+    "src",
+    "web",
+    "assets",
+    "config",
+    "launchers",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node bin/cli.js",
+    "test": "node test/smoke.js"
+  },
+  "dependencies": {}
+}
