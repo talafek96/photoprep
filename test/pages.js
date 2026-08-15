@@ -38,5 +38,15 @@ for (const file of walk(WEB)) {
   console.log('  ok   ' + rel + ' (' + blocks.length + ' inline block(s))');
 }
 
+// [hidden] must actually hide: an author `display` rule beats the browser's default, and that
+// silently un-hides conditional UI (the review badge shipped visible on a non-review server).
+const theme = fs.readFileSync(path.join(WEB, 'shared', 'theme.css'), 'utf8');
+if (!/\[hidden\]\s*\{[^}]*display\s*:\s*none\s*!important/.test(theme)) {
+  console.log('  FAIL theme.css must force [hidden] { display:none !important }');
+  failures++;
+} else {
+  console.log('  ok   [hidden] is enforced in theme.css');
+}
+
 console.log(failures ? '\n' + failures + ' problem(s) in ' + checked + ' script block(s)' : '\nall pages parse');
 process.exit(failures ? 1 : 0);

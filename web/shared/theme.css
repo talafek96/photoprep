@@ -68,6 +68,10 @@ button.primary { background:var(--acc); color:#001; border-color:var(--acc); fon
   border-radius:6px; padding:8px; margin-bottom:10px; display:none;
 }
 
+/* An author `display` rule silently beats the browser's [hidden] { display:none }, so anything given
+   a display value would keep showing while marked hidden. Make hidden actually mean hidden. */
+[hidden] { display:none !important; }
+
 /* --- review mode (opt-in: the server serves runtime.review, see shared/runtime.js) -------------- */
 /* Hidden by default so a person using the tool on their own never sees an approve/reject workflow
    that only exists to report back to an assistant. */
