@@ -110,6 +110,15 @@ canvas#c.drag { cursor:grabbing; }
   background:var(--surface); border-left:1px solid var(--border); padding:16px 17px; overflow:auto;
   box-shadow:var(--highlight);
 }
+/* Every page needs a way back to the home screen — a tool you can only leave by editing the URL is
+   a dead end. Shared so the tools and Settings present it identically. */
+a.backlink {
+  display:inline-block; font-family:var(--mono); font-size:9.5px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--faint); text-decoration:none; margin-bottom:10px;
+  transition:color .15s var(--ease-io);
+}
+a.backlink:hover { color:var(--accent); }
+
 h1 { font-size:13px; margin:0 0 2px; letter-spacing:-.01em; }
 .sub { color:var(--mut); font-size:11px; margin:0 0 14px; }
 fieldset {

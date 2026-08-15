@@ -38,6 +38,20 @@ for (const file of walk(WEB)) {
   console.log('  ok   ' + rel + ' (' + blocks.length + ' inline block(s))');
 }
 
+// Every page except the home screen must offer a way back to it. A tool you can only leave by
+// editing the URL is a dead end, which is exactly what shipped before this check existed.
+for (const file of walk(WEB)) {
+  const rel = path.relative(WEB, file);
+  if (rel === 'index.html') continue;
+  const html = fs.readFileSync(file, 'utf8');
+  if (!/class="backlink"[^>]*href="\/"/.test(html)) {
+    console.log('  FAIL ' + rel + ' has no link back to the home screen');
+    failures++;
+  } else {
+    console.log('  ok   ' + rel + ' links home');
+  }
+}
+
 // [hidden] must actually hide: an author `display` rule beats the browser's default, and that
 // silently un-hides conditional UI (the review badge shipped visible on a non-review server).
 const theme = fs.readFileSync(path.join(WEB, 'shared', 'theme.css'), 'utf8');
