@@ -31,6 +31,9 @@
 
   <fieldset><legend>Images</legend>
     <div class="drop" id="dropImgs">Drop / click — add images (multi-select ok)</div>
+    <button id="openFolder" style="width:100%">📂 Open a folder of photos…</button>
+    <p class="hint" id="srcNote">Opening a folder also sets the destination beside it, in a subfolder —
+      dropped files can't do that, because a drop gives the page no path.</p>
     <div class="row"><button id="prev">‹ Prev</button><button id="next">Next ›</button></div>
     <label>Output name (this image)</label>
     <input type="text" id="outName" placeholder="filename (no extension)">
@@ -80,7 +83,10 @@
     <p id="pngNote" class="hint" style="display:none">PNG is fully lossless — no quality setting; larger files.</p>
     <label>Destination folder</label>
     <div class="row"><button id="pickDir" style="flex:0 0 auto">📁 Choose…</button>
-      <input type="text" id="dest" placeholder="blank = tool's work/out" style="flex:1"></div>
+      <input type="text" id="dest" placeholder="blank = photoprep's out folder" style="flex:1"></div>
+    <div class="row" style="margin-top:6px">
+      <button id="besideSource" style="flex:0 0 auto" title="Save into a subfolder next to the photos you opened">↩ Beside source</button>
+      <input type="text" id="besideName" value="Watermarked" title="Subfolder name" style="flex:1"></div>
     <p class="hint" id="destNote">Click Choose… for a folder picker, or type a path (absolute, ~ ok). Picker overrides the text path.</p>
     <label>If a file already exists</label>
     <div class="seg" id="onExist"><button data-e="rename" class="on">Auto-rename</button><button data-e="overwrite">Overwrite</button></div>
@@ -280,6 +286,44 @@ async function exportAll(){ if(!IMGS.length)return; const ext=exportFmt==='png'?
   const mb=exported.reduce((a,x)=>a+(x.bytes||0),0)/1048576, rn=exported.filter(x=>x.renamed).length;
   document.getElementById('expTag').textContent='✓ exported '+exported.length+'/'+items.length+' · '+exportFmt+' · '+mb.toFixed(1)+'MB'+(rejected.length?' · '+rejected.length+' rejected':'')+(withNotes.length?' · '+withNotes.length+' note(s)':''); toast('done'); }
 document.getElementById('expAll').onclick=exportAll;
+// --- open a folder of photos -------------------------------------------------------------------
+// A dropped file arrives with bytes and a name but NO path, so photoprep can't know where it came
+// from. Opening a folder is the only way it can — and it's what makes "beside the source" possible.
+let SOURCE_DIR = '';
+document.getElementById('openFolder').onclick = async () => {
+  const btn = document.getElementById('openFolder'), note = document.getElementById('srcNote');
+  btn.disabled = true; note.textContent = 'Waiting for the folder picker…';
+  try {
+    const pick = await fetch('/pickdir?start=' + encodeURIComponent(SOURCE_DIR)).then(r => r.json());
+    if (!pick.ok) { note.textContent = pick.canceled ? 'Nothing opened.' : 'No folder picker available — drop files instead.'; return; }
+    const list = await fetch('/list?dir=' + encodeURIComponent(pick.path)).then(r => r.json());
+    if (!list.ok) { note.textContent = list.error || 'Could not read that folder.'; return; }
+    if (!list.files.length) { note.textContent = 'No photos in ' + pick.path; return; }
+    SOURCE_DIR = list.dir;
+    await window.__addImages(list.files.map(f => ({
+      id: f.name, name: f.name, url: '/file?path=' + encodeURIComponent(list.dir + '/' + f.name),
+    })));
+    // Default the destination beside the sources, which is the usual intent when you open a folder.
+    const sub = (document.getElementById('besideName').value || 'Watermarked').replace(/[\/]/g, '');
+    window.__setDest(list.dir + '/' + sub);
+    note.textContent = list.files.length + ' photo(s) from ' + list.dir;
+    toast('opened ' + list.files.length + ' photo(s)');
+  } catch (e) { note.textContent = 'Could not open that folder.'; }
+  finally { btn.disabled = false; }
+};
+// keep the destination in step while it still points beside the source
+document.getElementById('besideName').oninput = function () {
+  if (!SOURCE_DIR) return;
+  const sub = (this.value || 'Watermarked').replace(/[\/]/g, '');
+  window.__setDest(SOURCE_DIR + '/' + sub);
+};
+document.getElementById('besideSource').onclick = () => {
+  if (!SOURCE_DIR) { toast('open a folder first'); return; }
+  const sub = (document.getElementById('besideName').value || 'Watermarked').replace(/[\/]/g, '');
+  window.__setDest(SOURCE_DIR + '/' + sub);
+  toast('saving beside the source');
+};
+
 document.getElementById('saveDef').onclick=()=>{ const it=C(); if(!it){toast('load an image first');return;}
   const wm=it.wm, d={ anchor:wm.anchor, insetX:wm.insX, insetY:wm.insY, sizePct:wm.sizePct, opacity:+(+wm.op).toFixed(2) };
   CONFIG.defaults=Object.assign({},CONFIG.defaults,d);   // apply to newly added images this session

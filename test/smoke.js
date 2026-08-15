@@ -146,6 +146,36 @@ const check = (name, cond, extra) => {
   const notBundle = await fetch(base + '/brand/import', { method: 'POST', headers: auth, body: JSON.stringify({ hello: 1 }) });
   check('a foreign json file is refused as a brand', notBundle.status === 400);
 
+  // --- opening a folder (what makes "export beside the source" possible) ----------------------
+  const photoDir = path.join(HOME, 'photos');
+  fs.mkdirSync(photoDir, { recursive: true });
+  fs.writeFileSync(path.join(photoDir, 'b.jpg'), png);
+  fs.writeFileSync(path.join(photoDir, 'a.jpg'), png);
+  fs.writeFileSync(path.join(photoDir, 'notes.txt'), 'ignored');
+
+  const unopened = await fetch(base + '/file?path=' + encodeURIComponent(path.join(photoDir, 'a.jpg')), { headers: auth });
+  check('/file refuses a folder that was never opened', unopened.status === 403);
+
+  const listed = await fetch(base + '/list?dir=' + encodeURIComponent(photoDir), { headers: auth }).then(r => r.json());
+  check('/list returns the photos, sorted', listed.ok && listed.files.map(f => f.name).join() === 'a.jpg,b.jpg', JSON.stringify(listed.files));
+  check('/list ignores non-images', listed.ok && !listed.files.some(f => f.name === 'notes.txt'));
+
+  const opened = await fetch(base + '/file?path=' + encodeURIComponent(path.join(photoDir, 'a.jpg')), { headers: auth });
+  check('/file serves a photo once its folder is opened', opened.status === 200);
+
+  const escape = await fetch(base + '/file?path=' + encodeURIComponent(path.join(HOME, 'config', 'watermarks.json')), { headers: auth });
+  check('/file will not read outside the opened folder', escape.status === 403);
+
+  const relList = await fetch(base + '/list?dir=some/where', { headers: auth });
+  check('/list rejects a relative dir', relList.status === 400);
+  check('/list needs auth', (await fetch(base + '/list?dir=' + encodeURIComponent(photoDir))).status === 403);
+
+  // the point of all this: writing back beside the sources
+  const beside = await fetch(base + '/save?name=a.jpg&dir=' + encodeURIComponent(path.join(photoDir, 'Watermarked')), {
+    method: 'POST', body: png, headers: auth,
+  }).then(r => r.json());
+  check('exports can be written beside the source', beside.ok && beside.path.includes(path.join('photos', 'Watermarked')), beside.path);
+
   // --- review mode is off by default ---
   const rt = await fetch(base + '/runtime.json').then(r => r.json());
   check('review is off unless asked for', rt.review === false);

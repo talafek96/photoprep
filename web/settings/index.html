@@ -126,6 +126,9 @@
     <div class="actions">
       <button id="exportBrand">⬇ Export brand file</button>
       <button id="importBrand">⬆ Import brand file</button>
+      <!-- a real element rather than one conjured on click: it can be driven by tests, and the
+           browser keeps the chosen file around for a retry -->
+      <input type="file" id="importFile" accept=".json,application/json" class="visually-hidden">
     </div>
   </section>
 
@@ -313,16 +316,23 @@ document.getElementById('exportBrand').onclick = () => api('/brand/export').then
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   S('exported ' + Object.keys(b.files || {}).length + ' mark image(s)');
 });
-document.getElementById('importBrand').onclick = () => {
-  const i = document.createElement('input');
-  i.type = 'file'; i.accept = '.json,application/json';
-  i.onchange = () => {
-    const f = i.files[0]; if (!f) return;
-    if (!confirm('Import "' + f.name + '"?\n\nThis replaces your current marks and settings.')) return;
-    f.text().then(t => fetch('/brand/import', { method: 'POST', body: t }).then(r => r.json()).then(r =>
-      r.ok ? load().then(() => S('imported ' + r.marks + ' mark(s)')) : S(r.error || 'import failed', true)));
-  };
-  i.click();
+const importInput = document.getElementById('importFile');
+document.getElementById('importBrand').onclick = () => importInput.click();
+importInput.onchange = () => {
+  const f = importInput.files[0];
+  if (!f) return;
+  if (!confirm('Import "' + f.name + '"?\n\nThis replaces your current marks and settings.')) {
+    importInput.value = '';
+    return;
+  }
+  S('importing ' + f.name + ' …');
+  f.text()
+    .then(t => fetch('/brand/import', { method: 'POST', body: t }).then(r => r.json()))
+    .then(r => r.ok ? load().then(() => S('imported ' + r.marks + ' mark(s), ' + r.files + ' image(s)'))
+                    : S(r.error || 'import failed', true))
+    .catch(e => S('import failed: ' + e, true))
+    // let the same file be chosen again after a failed attempt
+    .finally(() => { importInput.value = ''; });
 };
 addEventListener('beforeunload', e => { if (DIRTY) { e.preventDefault(); e.returnValue = ''; } });
 load();

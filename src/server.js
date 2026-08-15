@@ -31,6 +31,8 @@ function createServer(opts = {}) {
   const workDir = opts.workDir || path.join(dirs.root, 'work');
   const outDir = opts.outDir || dirs.out;
   const feedbackDir = path.join(dirs.root, 'feedback');
+  // Folders the user opened through the picker this session; /file will read from these and nowhere else.
+  const openedDirs = new Set();
   const idleMs = opts.idleMs != null ? opts.idleMs : Number(process.env.PHOTOPREP_IDLE_MS || DEFAULT_IDLE_MS);
   // Opt-in (`--review`): surfaces the approve / reject / note-to-assistant workflow and lets the page
   // report what the person actually decided. Off by default — someone using photoprep on their own has
@@ -144,7 +146,7 @@ function createServer(opts = {}) {
     bumpIdle();
     const url = new URL(req.url, 'http://127.0.0.1');
     const route = decodeURIComponent(url.pathname);
-    const needsAuth = ['/save', '/feedback', '/save-defaults', '/pickdir'].includes(route) || route.startsWith('/brand');
+    const needsAuth = ['/save', '/feedback', '/save-defaults', '/pickdir', '/list', '/file'].includes(route) || route.startsWith('/brand');
     if (needsAuth && !authed(req, url)) return send(res, 403, 'forbidden');
 
     // --- who am I: lets a caller confirm the server is photoprep and which brand it loaded ---
@@ -187,6 +189,33 @@ function createServer(opts = {}) {
             : json(res, { ok: true, path: dest, name: finalName, renamed: finalName !== name, bytes: buf.length }));
         });
       });
+    }
+
+    // --- open a folder of photos: GET /list?dir=<abs> -------------------------------------------
+    // Dropping a file gives the page bytes and a filename but never a path, so a dropped photo can
+    // never know where it came from. Opening a folder is what makes "export beside the source"
+    // possible at all.
+    if (req.method === 'GET' && route === '/list') {
+      const raw = (url.searchParams.get('dir') || '').trim();
+      if (!raw.startsWith('~') && !path.isAbsolute(raw)) return send(res, 400, 'dir must be absolute');
+      const dir = P.expand(raw);
+      try {
+        if (!fs.statSync(dir).isDirectory()) return json(res, { ok: false, error: 'not a folder' }, 400);
+        const files = fs.readdirSync(dir)
+          .filter(f => /\.(jpe?g|png|webp|avif)$/i.test(f) && !f.startsWith('.'))
+          .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+          .map(f => ({ name: f, size: fs.statSync(path.join(dir, f)).size }));
+        openedDirs.add(dir);      // only folders the user explicitly opened become readable
+        return json(res, { ok: true, dir, files });
+      } catch (e) { return json(res, { ok: false, error: String(e.message || e) }, 404); }
+    }
+
+    // --- read one photo from a folder the user opened: GET /file?path=<abs> ----------------------
+    if (req.method === 'GET' && route === '/file') {
+      const p = P.expand(url.searchParams.get('path'));
+      // Confined to folders opened in this session — otherwise this would read anything on the disk.
+      if (!p || !openedDirs.has(path.dirname(p))) return send(res, 403, 'forbidden');
+      return serveFile(res, p, false);
     }
 
     // --- native folder dialog: GET /pickdir?start=<abs path> ---
