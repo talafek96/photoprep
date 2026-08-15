@@ -11,6 +11,8 @@
 //   --assets <dir>    folder holding the mark images the config refers to
 //   --port <n>        fixed port (default: an unused one)
 //   --no-open         start the server but don't launch a browser  [for automation]
+//   --review          turn on the approve / reject / note-to-assistant workflow, so whoever drove
+//                     the tool can read back what you changed and why  [for AI-assisted runs]
 //   --idle <minutes>  exit after this long with no requests (0 = never)
 const { createServer } = require('../src/server');
 const P = require('../src/paths');
@@ -22,6 +24,7 @@ function parse(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--no-open') o.open = false;
+    else if (a === '--review') o.review = true;
     else if (a === '--config') o.configPath = argv[++i];
     else if (a === '--assets') o.assetsDir = argv[++i];
     else if (a === '--port') o.port = Number(argv[++i]);
@@ -49,6 +52,7 @@ async function main() {
   console.log('photoprep ready — ' + target);
   console.log('brand config: ' + app.paths.configPath);
   console.log('exports default to: ' + app.paths.outDir);
+  if (o.review) console.log('review mode: ON — approve/reject + notes are reported back to ' + app.paths.feedbackDir);
   if (o.open) console.log('(browser auto-launch lands in a later phase — open the URL above for now)');
 }
 

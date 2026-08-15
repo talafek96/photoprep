@@ -1,23 +1,59 @@
 <!doctype html>
 <meta charset="utf-8">
 <title>photoprep</title>
+<link rel="stylesheet" href="/shared/theme.css">
 <style>
-  body { margin:0; min-height:100vh; display:grid; place-items:center; background:#111; color:#eee;
-         font:14px/1.6 -apple-system,system-ui,sans-serif; }
-  main { max-width:520px; padding:32px; }
-  h1 { font-size:20px; margin:0 0 4px; letter-spacing:-.01em; }
-  p.sub { color:#9aa; margin:0 0 24px; }
-  ul { padding-left:18px; color:#9aa; } code { color:#4c9ffe; }
+  /* The home screen is the one page that isn't a two-column tool, so it opts out of the app grid. */
+  body { display:block; overflow:auto; }
+  main { max-width:720px; margin:0 auto; padding:56px 24px; }
+  h1 { font-size:22px; letter-spacing:-.01em; margin:0 0 4px; }
+  .lede { color:var(--mut); margin:0 0 32px; font-size:13.5px; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px; }
+  a.card {
+    display:block; padding:20px; border:1px solid #333; border-radius:10px; background:var(--panel);
+    color:var(--fg); text-decoration:none; transition:border-color .12s, transform .12s;
+  }
+  a.card:hover { border-color:var(--acc); transform:translateY(-1px); }
+  a.card h2 { margin:0 0 6px; font-size:15px; }
+  a.card p { margin:0; color:var(--mut); font-size:12px; line-height:1.6; }
+  .glyph { font-size:20px; display:block; margin-bottom:10px; }
+  footer { margin-top:36px; color:var(--mut); font-size:11.5px; line-height:1.8; }
+  footer code { color:var(--acc); }
+  .badge { display:inline-block; padding:1px 7px; border:1px solid #3a3a3a; border-radius:999px; font-size:10.5px; color:var(--mut); }
 </style>
 <body>
 <main>
   <h1>photoprep</h1>
-  <p class="sub">Local workshop for prepping photos to post.</p>
-  <p>The server is running. The home screen, the two tools, and Settings land in the next phases:</p>
-  <ul>
-    <li><code>/layout/</code> — stack two landscapes, or split a panorama</li>
-    <li><code>/watermark/</code> — batch watermarking</li>
-    <li><code>/settings/</code> — your brand marks and defaults</li>
-  </ul>
+  <p class="lede">Get photos ready to post — frame them, mark them, done.</p>
+
+  <div class="cards">
+    <a class="card" href="/layout/">
+      <span class="glyph">⬍</span>
+      <h2>Layout</h2>
+      <p>Stack two landscapes into one portrait frame, or split a panorama into slices that scroll
+         like one wide shot. Exports clean and unmarked.</p>
+    </a>
+    <a class="card" href="/watermark/">
+      <span class="glyph">◆</span>
+      <h2>Watermark</h2>
+      <p>Add your mark to one photo or a whole batch. Nine-point placement, drag to position,
+         auto-picks the variant that stays legible.</p>
+    </a>
+  </div>
+
+  <footer>
+    <span class="badge" id="brandBadge">loading brand…</span>
+    <span class="badge" id="reviewBadge" hidden>review mode</span>
+    <p>Exports land in <code id="outPath">…</code> unless you choose a folder in the tool.<br>
+       Bring your own watermarks with <code>--assets</code> and <code>--config</code>.</p>
+  </footer>
 </main>
+<script>
+fetch('/health').then(r => r.json()).then(h => {
+  document.getElementById('outPath').textContent = h.outDir || '?';
+  const own = h.configPath && !/default-watermarks\.json$/.test(h.configPath);
+  document.getElementById('brandBadge').textContent = own ? 'your brand' : 'sample marks';
+  if (h.review) document.getElementById('reviewBadge').hidden = false;
+}).catch(() => {});
+</script>
 </body>

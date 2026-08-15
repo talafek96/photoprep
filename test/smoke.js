@@ -74,7 +74,43 @@ const check = (name, cond, extra) => {
   const persisted = JSON.parse(fs.readFileSync(path.join(HOME, 'config', 'watermarks.json'), 'utf8'));
   check('the persisted config reloads with the new default', persisted.defaults.sizePct === 33);
 
+  // --- the tools and their shared modules are actually reachable ---
+  for (const p of ['/layout/', '/watermark/', '/shared/theme.css', '/shared/util.js',
+                   '/shared/detect.js', '/shared/save.js', '/shared/runtime.js']) {
+    const r = await fetch(base + p);
+    check('serves ' + p, r.status === 200, r.status);
+  }
+
+  const layoutHtml = await fetch(base + '/layout/').then(r => r.text());
+  const wmHtml = await fetch(base + '/watermark/').then(r => r.text());
+  check('layout keeps its automation hooks', ['__loadPanels', '__loadImage', '__loadCandidates', '__setDest', '__setPreviewUser', '__result']
+    .every(h => layoutHtml.includes(h)));
+  check('watermark keeps its automation hooks', ['__addImages', '__suggestFor', '__suggestAll', '__setDest', '__exportAll', '__applyConfig', '__addWatermark', '__result']
+    .every(h => wmHtml.includes(h)));
+  check('tools no longer carry duplicated helpers', !/function detect\(img\)/.test(layoutHtml + wmHtml));
+
+  // --- review mode is off by default ---
+  const rt = await fetch(base + '/runtime.json').then(r => r.json());
+  check('review is off unless asked for', rt.review === false);
+  const fbOff = await fetch(base + '/feedback?name=x.json', { method: 'POST', body: '{}', headers: auth });
+  check('/feedback is refused when review is off', fbOff.status === 404);
+
   app.server.close();
+
+  // --- ...and on when the flag is passed ---
+  const rApp = createServer({ idleMs: 0, review: true });
+  const r2 = await rApp.listen(0);
+  const rBase = 'http://127.0.0.1:' + r2.port;
+  const rAuth = { cookie: 'pp_token=' + r2.token };
+  const rt2 = await fetch(rBase + '/runtime.json').then(r => r.json());
+  check('--review turns review on', rt2.review === true);
+  const fbOn = await fetch(rBase + '/feedback?name=run.json', { method: 'POST', headers: rAuth, body: JSON.stringify({ tool: 'watermark' }) })
+    .then(r => r.json());
+  check('/feedback records the run in review mode', fbOn.ok === true && fs.existsSync(fbOn.path), fbOn.error);
+  const health2 = await fetch(rBase + '/health').then(r => r.json());
+  check('/health reports the review flag', health2.review === true);
+  rApp.server.close();
+
   fs.rmSync(HOME, { recursive: true, force: true });
   console.log(failures ? '\n' + failures + ' check(s) failed' : '\nall checks passed');
   process.exit(failures ? 1 : 0);

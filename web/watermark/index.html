@@ -1,0 +1,301 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Watermark — batch</title>
+<link rel="stylesheet" href="/shared/theme.css">
+<style>
+  /* watermark-specific: fixed-size thumbnails, the move cursor over a mark, the 9-point anchor grid */
+  canvas#c.onmark { cursor:move; }
+  #strip { min-height:96px; }
+  .thumb { width:64px; height:80px; }
+  .thumb canvas { width:100%; height:100%; }
+  .thumb .dup { position:absolute; top:2px; right:2px; font-size:11px; }
+  .thumb .ok { position:absolute; top:2px; left:2px; font-size:10px; color:var(--ok); }
+  #anchors { display:grid; grid-template-columns:repeat(3,1fr); gap:5px; margin-top:4px; }
+  #anchors button { padding:9px 0; font-size:14px; }
+  #anchors button.on { background:var(--acc); color:#001; border-color:var(--acc); }
+  #sugTag { font-size:10.5px; color:var(--warn); margin:6px 0 0; min-height:14px; }
+</style>
+<body>
+<div id="left">
+  <div id="stage"><canvas id="c"></canvas></div>
+  <div id="strip"></div>
+</div>
+<div id="panel">
+  <h1>Watermark — batch</h1>
+  <p class="sub" id="counter">No images loaded.</p>
+  <div id="dupWarn">⚠︎ This image may <b>already carry a watermark</b> (corner detail spike). Turn it <b>Off</b> for this one, or use an un-watermarked source.</div>
+
+  <fieldset><legend>Images</legend>
+    <div class="drop" id="dropImgs">Drop / click — add images (multi-select ok)</div>
+    <div class="row"><button id="prev">‹ Prev</button><button id="next">Next ›</button></div>
+    <label>Output name (this image)</label>
+    <input type="text" id="outName" placeholder="filename (no extension)" style="width:100%;background:#0d0d0d;color:var(--fg);border:1px solid #333;border-radius:6px;padding:6px 8px">
+    <p class="hint" id="outPrev" style="color:var(--ok)"></p>
+  </fieldset>
+
+  <fieldset><legend>Watermark (this image)</legend>
+    <label style="margin-top:0">Kit <span class="hint" style="margin:0">(None = don't watermark this one)</span></label>
+    <div class="seg" id="kits"></div>
+    <label>Variant</label>
+    <select id="wmSel"><option value="">— none —</option></select>
+    <button id="autoC" style="margin-top:6px">◐ Auto-pick variant by contrast (within kit)</button>
+    <label>Position preset</label>
+    <div id="anchors">
+      <button data-a="tl">↖</button><button data-a="tc">↑</button><button data-a="tr">↗</button>
+      <button data-a="ml">←</button><button data-a="mc">✛</button><button data-a="mr">→</button>
+      <button data-a="bl">↙</button><button data-a="bc">↓</button><button data-a="br" class="on">↘</button>
+    </div>
+    <p class="hint">…or drag the mark on the canvas — snaps to thirds &amp; center.</p>
+    <label>Inset X <span id="insXV">5</span>%</label><input type="range" id="insX" min="0" max="50" value="5">
+    <label>Inset Y <span id="insYV">5</span>%</label><input type="range" id="insY" min="0" max="50" value="5">
+    <label>Size <span id="wmSzV">25</span>%</label><input type="range" id="wmSz" min="6" max="60" value="25">
+    <label>Opacity <span id="wmOpV">55</span>%</label><input type="range" id="wmOp" min="10" max="100" value="55">
+    <button id="saveDef" style="margin-top:10px;width:100%">★ Save placement as default</button>
+    <p class="hint">Stores anchor · insets · size · opacity as the default for new images (this + future sessions).</p>
+    <p id="sugTag"></p>
+  </fieldset>
+
+  <fieldset data-review-only><legend>Review (this image)</legend>
+    <div class="seg" id="approve"><button data-a="1" class="on">✓ Approve</button><button data-a="0">✕ Reject</button></div>
+    <label>Note to assistant (optional)</label>
+    <textarea id="comment" rows="2" placeholder="feedback — why rejected, what to change, or just a note" style="width:100%;background:#0d0d0d;color:var(--fg);border:1px solid #333;border-radius:6px;padding:6px 8px;font:inherit;resize:vertical"></textarea>
+  </fieldset>
+
+  <fieldset><legend>Batch</legend>
+    <button id="applyAll" style="width:100%">⇊ Apply this placement to all</button>
+  </fieldset>
+
+  <fieldset><legend>Export — file settings</legend>
+    <label style="margin-top:0">Image format</label>
+    <div class="seg" id="fmt"><button data-f="jpeg" class="on">JPEG</button><button data-f="png">PNG</button></div>
+    <div id="qWrap">
+      <label>Quality <span id="qV">100</span></label>
+      <input type="range" id="q" min="1" max="100" value="100">
+      <p class="hint" style="margin-top:2px">Higher = larger file, less compression. 100 ≈ visually lossless.</p>
+    </div>
+    <p id="pngNote" class="hint" style="display:none">PNG is fully lossless — no quality setting; larger files.</p>
+    <label>Destination folder</label>
+    <div class="row"><button id="pickDir" style="flex:0 0 auto">📁 Choose…</button>
+      <input type="text" id="dest" placeholder="blank = tool's work/out" style="flex:1;background:#0d0d0d;color:var(--fg);border:1px solid #333;border-radius:6px;padding:6px 8px"></div>
+    <p class="hint" id="destNote">Click Choose… for a folder picker, or type a path (absolute, ~ ok). Picker overrides the text path.</p>
+    <label>If a file already exists</label>
+    <div class="seg" id="onExist"><button data-e="rename" class="on">Auto-rename</button><button data-e="overwrite">Overwrite</button></div>
+    <p class="hint" id="renameNote">Auto-rename: if <code>name.jpg</code> exists in the folder, it saves <code>name_1.jpg</code>, then <code>name_2.jpg</code>, … — never overwrites.</p>
+  </fieldset>
+
+  <button class="primary" id="expAll" style="width:100%">⬇ Export approved (full-res)</button>
+  <p id="expTag"></p>
+  <p class="hint">Exports at full source resolution, in the format chosen above.</p>
+  <p class="hint" data-review-only>Only <b>approved</b> images are written. Rejected ones aren't — but their notes come back to the assistant so it can adjust, and notes on approved images come back too.</p>
+</div>
+
+<script src="/shared/util.js"></script>
+<script src="/shared/detect.js"></script>
+<script src="/shared/save.js"></script>
+<script src="/shared/runtime.js"></script>
+<script>
+const DISP_LONG=1200;
+const cv=document.getElementById('c'), ctx=cv.getContext('2d',{willReadFrequently:true});
+let CONFIG={ basePath:'/assets/', threshold:128, groups:{}, defaults:{} };
+const marks={};                 // id -> {img, group}
+let IMGS=[], cur=-1, exportFmt='jpeg', exportQ=1.0, snapLines=[];
+const groupOf=id=>(marks[id]&&marks[id].group)||'other';
+function C(){ return IMGS[cur]; }
+function defWM(){ const d=CONFIG.defaults||{}; return {on:true,id:'',sizePct:d.sizePct!=null?d.sizePct:22,op:d.opacity!=null?d.opacity:.55,place:'anchor',anchor:d.anchor||'br',insX:d.insetX!=null?d.insetX:3,insY:d.insetY!=null?d.insetY:3,fx:.85,fy:.85}; }
+
+// ---------- sizes ----------
+function dispDims(){ const im=C()&&C().img; if(!im) return {W:1080,H:1350}; const s=DISP_LONG/Math.max(im.width,im.height); return {W:Math.round(im.width*s),H:Math.round(im.height*s)}; }
+function exportDims(it){ return {W:it.img.width,H:it.img.height}; }
+
+// ---------- watermark box (fraction-based) ----------
+function wmBox(W,H,wm){ const mk=marks[wm.id]; if(!mk) return null;
+  const iw=wm.sizePct/100*W, ih=iw*mk.img.height/mk.img.width; let x,y;
+  if(wm.place==='free'){ x=wm.fx*W-iw/2; y=wm.fy*H-ih/2; }
+  else { const a=wm.anchor, ax=a[1]==='l'?0:a[1]==='r'?1:.5, ay=a[0]==='t'?0:a[0]==='b'?1:.5;
+    x=ax===0?wm.insX/100*W:ax===1?W-iw-wm.insX/100*W:(W-iw)/2; y=ay===0?wm.insY/100*H:ay===1?H-ih-wm.insY/100*H:(H-ih)/2; }
+  return {x:clamp(x,0,W-iw),y:clamp(y,0,H-ih),w:iw,h:ih}; }
+
+// ---------- render ----------
+function render(g,W,H,wm,img,forExport){ g.clearRect(0,0,W,H); g.drawImage(img,0,0,W,H);
+  if(wm.on&&marks[wm.id]){ const b=wmBox(W,H,wm); if(b){ g.save(); g.globalAlpha=wm.op; g.imageSmoothingQuality='high'; g.drawImage(marks[wm.id].img,b.x,b.y,b.w,b.h); g.restore(); } }
+  if(!forExport&&snapLines.length){ g.save(); g.strokeStyle='#ff4d6d'; g.lineWidth=Math.max(2,W/540); g.setLineDash([8,6]);
+    snapLines.forEach(l=>{ g.beginPath(); if(l.axis==='x'){g.moveTo(l.p*W,0);g.lineTo(l.p*W,H);}else{g.moveTo(0,l.p*H);g.lineTo(W,l.p*H);} g.stroke(); }); g.restore(); } }
+function draw(){ const it=C(); if(!it){ ctx.clearRect(0,0,cv.width,cv.height); return; } const {W,H}=dispDims(); if(cv.width!==W||cv.height!==H){cv.width=W;cv.height=H;} render(ctx,W,H,it.wm,it.img,false); }
+function layout(){ const it=C(); if(!it) return; const {W,H}=dispDims(); cv.width=W; cv.height=H;
+  const st=document.getElementById('stage'); const aw=st.clientWidth-36, ah=st.clientHeight-36; let h=ah, w=h*W/H; if(w>aw){w=aw;h=w*H/W;} cv.style.width=w+'px'; cv.style.height=h+'px'; render(ctx,W,H,it.wm,it.img,false); }
+addEventListener('resize',layout);
+new ResizeObserver(()=>layout()).observe(document.getElementById('stage'));
+
+// ---------- interaction ----------
+function toCv(e){ const b=cv.getBoundingClientRect(); return {x:(e.clientX-b.left)*cv.width/b.width,y:(e.clientY-b.top)*cv.height/b.height}; }
+function inBox(pt,b){ return b&&pt.x>=b.x-8&&pt.x<=b.x+b.w+8&&pt.y>=b.y-8&&pt.y<=b.y+b.h+8; }
+let drag=null;
+cv.addEventListener('pointermove',e=>{ const it=C(); if(!it||drag)return; const b=it.wm.on?wmBox(cv.width,cv.height,it.wm):null; cv.classList.toggle('onmark',inBox(toCv(e),b)); });
+cv.addEventListener('pointerdown',e=>{ const it=C(); if(!it||!it.wm.on)return; const b=wmBox(cv.width,cv.height,it.wm); if(!inBox(toCv(e),b))return;
+  const pt=toCv(e); drag={gx:pt.x-b.x,gy:pt.y-b.y,moved:false}; cv.classList.add('drag'); cv.setPointerCapture(e.pointerId); });
+cv.addEventListener('pointermove',e=>{ if(!drag)return; drag.moved=true; const it=C(), wm=it.wm, W=cv.width, H=cv.height, b=wmBox(W,H,wm); let x=toCv(e).x-drag.gx, y=toCv(e).y-drag.gy; snapLines=[];
+  const gx=[.05,1/3,.5,2/3,.95], gy=[.05,1/3,.5,2/3,.95], TH=0.02*W, LX=[x,x+b.w/2,x+b.w], LY=[y,y+b.h/2,y+b.h];
+  let bx=null; gx.forEach(f=>LX.forEach(lx=>{const d=Math.abs(lx-f*W);if(d<TH&&(!bx||d<bx.d))bx={d,shift:f*W-lx,p:f};}));
+  let by=null; gy.forEach(f=>LY.forEach(ly=>{const d=Math.abs(ly-f*H);if(d<TH&&(!by||d<by.d))by={d,shift:f*H-ly,p:f};}));
+  if(bx){x+=bx.shift;snapLines.push({axis:'x',p:bx.p});} if(by){y+=by.shift;snapLines.push({axis:'y',p:by.p});}
+  wm.place='free'; wm.fx=clamp01((x+b.w/2)/W); wm.fy=clamp01((y+b.h/2)/H);
+  document.querySelectorAll('#anchors button').forEach(z=>z.classList.remove('on')); draw(); flagDelta(); });
+// After a drag, resolve the free position into an anchor + inset% so the anchor buttons and Inset X/Y
+// sliders reflect where the mark was dropped (Lightroom-style).
+// Anchor to the NEAREST CORNER (by halves) and express the offset as an inset from that corner, so ANY
+// drop position is faithfully reproduced by wmBox — no snapping. INSET_MAX bounds the sliders wide enough
+// that a mark dragged to mid-frame still resolves (max needed ≈ 45%).
+const INSET_MAX=50;
+function commitDragToAnchor(wm){ const W=cv.width,H=cv.height, b=wmBox(W,H,wm); if(!b)return;
+  const cx=b.x+b.w/2, cy=b.y+b.h/2;
+  const hz = cx<W/2?'l':'r', vt = cy<H/2?'t':'b';
+  wm.place='anchor'; wm.anchor=vt+hz;
+  wm.insX=clamp(Math.round((hz==='l'? b.x : W-b.w-b.x)/W*100),0,INSET_MAX);
+  wm.insY=clamp(Math.round((vt==='t'? b.y : H-b.h-b.y)/H*100),0,INSET_MAX); }
+cv.addEventListener('pointerup',()=>{ if(drag){ const it=C(); if(it&&drag.moved&&it.wm.place==='free'){ commitDragToAnchor(it.wm); syncControls(it.wm); } snapLines=[]; draw(); flagDelta(); } drag=null; cv.classList.remove('drag'); });
+
+// ---------- files + detection ----------
+// Trim transparent padding so sizePct% means the VISIBLE logo is that % of the image (Lightroom-style),
+// and anchor insets measure from the real logo edge, not the PNG's empty margin.
+function trimAlpha(im){ const W=im.naturalWidth||im.width, H=im.naturalHeight||im.height;
+  const c=document.createElement('canvas'); c.width=W; c.height=H; const g=c.getContext('2d',{willReadFrequently:true}); g.drawImage(im,0,0);
+  let d; try{ d=g.getImageData(0,0,W,H).data; }catch(e){ return im; }
+  let minx=W,miny=H,maxx=-1,maxy=-1;
+  for(let y=0;y<H;y++){ for(let x=0;x<W;x++){ if(d[(y*W+x)*4+3]>10){ if(x<minx)minx=x; if(x>maxx)maxx=x; if(y<miny)miny=y; if(y>maxy)maxy=y; } } }
+  if(maxx<minx||maxy<miny) return im;                       // fully transparent — leave as-is
+  const bw=maxx-minx+1, bh=maxy-miny+1; if(bw===W&&bh===H) return im;   // nothing to trim
+  const t=document.createElement('canvas'); t.width=bw; t.height=bh; t.getContext('2d').drawImage(c,minx,miny,bw,bh,0,0,bw,bh); return t; }
+wireDrop(document.getElementById('dropImgs'),(im,nm)=>addImage(nm.replace(/\.[^.]+$/,''),nm,im),true);
+
+// ---------- images / thumbnails ----------
+function addImage(id,name,img,suggest){ const wm=defWM(); if(CONFIG.watermarks&&CONFIG.watermarks[0]) wm.id=CONFIG.watermarks[0].id;
+  const it={id,name,img,wm,sug:null,dup:detectWatermark(img).likely,result:null,outName:(name||'img').replace(/\.[^.]+$/,''),approved:true,comment:''}; if(suggest){applySuggest(it,suggest); if(suggest.out)it.outName=suggest.out; if(suggest.comment)it.comment=suggest.comment;} it.sug=snap(it.wm);
+  IMGS.push(it); buildStrip(); if(cur<0){cur=0;selectImg(0);} else updateCounter(); }
+function buildStrip(){ const strip=document.getElementById('strip'); strip.innerHTML='';
+  IMGS.forEach((it,i)=>{ const d=document.createElement('div'); d.className='thumb'+(i===cur?' on':''); d.onclick=()=>selectImg(i);
+    const tc=document.createElement('canvas'); tc.width=64; tc.height=80; const g=tc.getContext('2d');
+    const s=Math.max(64/it.img.width,80/it.img.height); const dw=it.img.width*s,dh=it.img.height*s; g.drawImage(it.img,(64-dw)/2,(80-dh)/2,dw,dh);
+    d.appendChild(tc); const nm=document.createElement('div'); nm.className='nm'; nm.textContent=it.name; d.appendChild(nm);
+    if(it.approved===false){ d.style.opacity='0.4'; const b=document.createElement('div');b.className='dup';b.style.color='#ff6b6b';b.textContent='✕';d.appendChild(b); }
+    else if(it.dup){ const b=document.createElement('div');b.className='dup';b.textContent='⚠︎';d.appendChild(b); }
+    if((it.comment||'').trim()){ const cm=document.createElement('div');cm.className='ok';cm.style.color='#7db';cm.textContent='✎';d.appendChild(cm); }
+    else if(it.result){ const o=document.createElement('div');o.className='ok';o.textContent='✓';d.appendChild(o); }
+    strip.appendChild(d); });
+  updateCounter(); }
+function updateCounter(){ document.getElementById('counter').textContent = IMGS.length? ('Image '+(cur+1)+' / '+IMGS.length+' — '+(C()?C().name:'')) : 'No images loaded.'; }
+function selectImg(i){ cur=i; const it=C(); syncControls(it.wm); document.getElementById('outName').value=it.outName||''; updateOutPrev();
+  document.querySelectorAll('#approve button').forEach(b=>b.classList.toggle('on',b.dataset.a===(it.approved?'1':'0'))); document.getElementById('comment').value=it.comment||'';
+  document.getElementById('dupWarn').style.display=it.dup?'block':'none';
+  document.querySelectorAll('#strip .thumb').forEach((t,k)=>t.classList.toggle('on',k===i)); updateCounter(); layout(); flagDelta(); }
+function syncControls(wm){ highlightKit();
+  document.getElementById('wmSel').value=wm.on?wm.id:''; document.querySelectorAll('#anchors button').forEach(b=>b.classList.toggle('on',wm.place==='anchor'&&b.dataset.a===wm.anchor));
+  set('insX',wm.insX,'insXV'); set('insY',wm.insY,'insYV'); set('wmSz',wm.sizePct,'wmSzV'); set('wmOp',Math.round(wm.op*100),'wmOpV'); }
+function set(id,v,lbl){ document.getElementById(id).value=v; if(lbl)document.getElementById(lbl).textContent=v; }
+
+// ---------- kit selector (General / Torii / None) ----------
+const cap=s=>s.charAt(0).toUpperCase()+s.slice(1);
+function buildKits(){ const box=document.getElementById('kits'); box.innerHTML='';
+  Object.keys(CONFIG.groups||{}).forEach(k=>{ const b=document.createElement('button'); b.dataset.k=k; b.textContent=cap(k); b.onclick=()=>selectKit(k); box.appendChild(b); });
+  const none=document.createElement('button'); none.dataset.k='none'; none.textContent='None'; none.onclick=()=>selectKit('none'); box.appendChild(none);
+  if(C()) highlightKit(); }
+function selectKit(k){ const it=C(); if(!it)return;
+  if(k==='none'){ it.wm.on=false; }
+  else { it.wm.on=true; const rule=CONFIG.groups[k]||{}; let def=rule.onLight; if(!def||!marks[def]){ const w=(CONFIG.watermarks||[]).find(w=>w.group===k); def=w&&w.id; } if(def&&marks[def]) it.wm.id=def; }
+  document.getElementById('wmSel').value=it.wm.on?it.wm.id:''; highlightKit(); draw(); flagDelta(); }
+function highlightKit(){ const it=C(); const active=it?(it.wm.on?groupOf(it.wm.id):'none'):null; document.querySelectorAll('#kits button').forEach(b=>b.classList.toggle('on',b.dataset.k===active)); }
+
+// ---------- controls ----------
+seg('fmt','f',v=>{ exportFmt=v; document.getElementById('qWrap').style.display=v==='jpeg'?'':'none'; document.getElementById('pngNote').style.display=v==='png'?'':'none'; updateOutPrev(); });
+rng('q',v=>{ exportQ=+v/100; txt('qV',v); });
+seg('onExist','e',v=>{ PPSave.onExist=v; updateRenameNote(); });
+seg('approve','a',v=>{ if(C()){ C().approved=(v==='1'); buildStrip(); } });
+document.getElementById('comment').oninput=function(){ if(C())C().comment=this.value; };
+document.getElementById('outName').oninput=function(){ if(C())C().outName=this.value.trim(); updateOutPrev(); };
+function updateOutPrev(){ const it=C(); const ext=exportFmt==='png'?'png':'jpg'; const base=it?((it.outName||it.name.replace(/\.[^.]+$/,'')||'img').replace(/[^\w.\- ]+/g,'_')):''; document.getElementById('outPrev').textContent=base?('→ saves as  '+base+'.'+ext):''; }
+function updateRenameNote(){ document.getElementById('renameNote').innerHTML = PPSave.onExist==='overwrite' ? 'Overwrite: replaces any existing file with the same name in the folder.' : 'Auto-rename: if <code>name.jpg</code> exists in the folder, it saves <code>name_1.jpg</code>, then <code>name_2.jpg</code>, … — never overwrites.'; }
+PPSave.wireDestPicker({ inputId:'dest', btnId:'pickDir', noteId:'destNote',
+  idleNote:'Click Choose… for a folder picker, or type a path (absolute, ~ ok). Picker overrides the text path.',
+  onPicked:p=>toast('folder: '+p.replace(/^\[|\]$/g,'').split('/').pop()) });
+rng('insX',v=>{ if(C()){C().wm.insX=+v;txt('insXV',v);C().wm.place='anchor';syncAnchor();draw();flagDelta();} });
+rng('insY',v=>{ if(C()){C().wm.insY=+v;txt('insYV',v);C().wm.place='anchor';syncAnchor();draw();flagDelta();} });
+rng('wmSz',v=>{ if(C()){C().wm.sizePct=+v;txt('wmSzV',v);draw();flagDelta();} });
+rng('wmOp',v=>{ if(C()){C().wm.op=+v/100;txt('wmOpV',v);draw();flagDelta();} });
+document.getElementById('wmSel').onchange=e=>{ if(!C())return; const v=e.target.value; C().wm.id=v; if(v)C().wm.on=true; highlightKit(); draw(); flagDelta(); };
+document.querySelectorAll('#anchors button').forEach(b=>b.onclick=()=>{ if(!C())return; document.querySelectorAll('#anchors button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); C().wm.place='anchor'; C().wm.anchor=b.dataset.a; draw(); flagDelta(); });
+function syncAnchor(){ document.querySelectorAll('#anchors button').forEach(b=>b.classList.toggle('on',C().wm.place==='anchor'&&b.dataset.a===C().wm.anchor)); }
+document.getElementById('prev').onclick=()=>{ if(cur>0)selectImg(cur-1); };
+document.getElementById('next').onclick=()=>{ if(cur<IMGS.length-1)selectImg(cur+1); };
+document.getElementById('autoC').onclick=()=>autoContrast();
+document.getElementById('applyAll').onclick=()=>{ const s=C().wm, keys=['place','anchor','insX','insY','fx','fy','sizePct','op']; IMGS.forEach(it=>{ keys.forEach(k=>it.wm[k]=s[k]); }); toast('applied placement to all '+IMGS.length); draw(); };
+
+// ---------- registry + kit-locked auto-contrast ----------
+function addOpt(id,label){ const s=document.getElementById('wmSel'); if([...s.options].some(o=>o.value===id))return; const o=document.createElement('option'); o.value=id; o.textContent=label||id; s.appendChild(o); const n=s.querySelector('option[value=""]'); if(n)n.remove(); }
+const lum6=(r,g,b)=>0.2126*r+0.7152*g+0.0722*b;
+function samplePatch(box){ const W=cv.width,H=cv.height, x=clamp(box.x|0,0,W-1),y=clamp(box.y|0,0,H-1),w=clamp(box.w|0,1,W-x),h=clamp(box.h|0,1,H-y); return {img:ctx.getImageData(x,y,w,h),w,h}; }
+function patchMean(p){ const d=p.img.data; let s=0,n=0; for(let i=0;i<d.length;i+=16){s+=lum6(d[i],d[i+1],d[i+2]);n++;} return s/n; }
+// how much a mark visually separates from THIS patch: mean |mark-lum − bg-lum| where the ink is (alpha-weighted)
+function standout(markId,p){ const mk=marks[markId]; if(!mk)return 0; const off=document.createElement('canvas'); off.width=p.w; off.height=p.h; const g=off.getContext('2d',{willReadFrequently:true}); g.drawImage(mk.img,0,0,p.w,p.h);
+  const md=g.getImageData(0,0,p.w,p.h).data, bd=p.img.data; let s=0,wsum=0; for(let i=0;i<md.length;i+=16){ const a=md[i+3]/255; if(a>0.06){ s+=a*Math.abs(lum6(md[i],md[i+1],md[i+2])-lum6(bd[i],bd[i+1],bd[i+2])); wsum+=a; } } return wsum?s/wsum:0; }
+function autoContrast(){ const it=C(); if(!it)return; if(!it.wm.on){toast('this image is set to None');return;} if(!it.wm.id){toast('pick a kit first');return;}
+  const grp=groupOf(it.wm.id), rule=CONFIG.groups[grp]||{};
+  const box=wmBox(cv.width,cv.height,it.wm)||{x:cv.width*.6,y:cv.height*.8,w:cv.width*.3,h:cv.height*.15};
+  const on=it.wm.on; it.wm.on=false; draw(); const p=samplePatch(box); it.wm.on=on;
+  const mode=rule.mode||(rule.onDark?'brightness':'legibility'); let pick=it.wm.id, why='';
+  if(mode==='brightness'){ const L=patchMean(p), th=rule.threshold!=null?rule.threshold:CONFIG.threshold, dark=L<th;
+    pick=dark?rule.onDark:rule.onLight; if(!marks[pick])pick=it.wm.id; why='bg '+Math.round(L)+' '+(dark?'dark→':'light→')+pick; }
+  else { // legibility: prefer the subtlest variant that still clears the standout floor; else the boldest / best
+    const order=(rule.order&&rule.order.length?rule.order:(CONFIG.watermarks||[]).filter(w=>w.group===grp).map(w=>w.id)).filter(id=>marks[id]);
+    const floor=rule.minStandout!=null?rule.minStandout:40, scored=order.map(id=>({id,sc:standout(id,p)}));
+    const okv=scored.find(o=>o.sc>=floor); pick=okv?okv.id:(scored.length?scored.reduce((a,b)=>b.sc>a.sc?b:a).id:it.wm.id);
+    why=scored.map(o=>o.id.replace(/^japan-/,'')+' '+Math.round(o.sc)).join(' · ')+' → '+pick.replace(/^japan-/,''); }
+  it.wm.id=pick; document.getElementById('wmSel').value=pick; highlightKit(); draw(); flagDelta(); toast('kit '+grp+' · '+why); }
+const toast=makeToast('sugTag');
+
+// ---------- suggestion / delta ----------
+function snap(wm){ return {on:wm.on,id:wm.id,sizePct:wm.sizePct,op:+wm.op.toFixed(2),place:wm.place,anchor:wm.anchor,insX:wm.insX,insY:wm.insY,fx:+wm.fx.toFixed(3),fy:+wm.fy.toFixed(3)}; }
+function diff(it){ if(!it.sug)return[]; const a=it.sug,b=snap(it.wm),out=[]; ['on','id','sizePct','op','place','anchor','insX','insY','fx','fy'].forEach(k=>{ if(a[k]!==b[k]&&!(a.place==='anchor'&&(k==='fx'||k==='fy'))&&!(a.place==='free'&&(k==='anchor'||k==='insX'||k==='insY')))out.push(k); }); return out; }
+function flagDelta(){ const el=document.getElementById('sugTag'); const it=C(); if(!it||!it.sug){el.textContent='';return;} const d=diff(it); el.textContent=d.length?('changed: '+d.join(', ')):'✓ matches suggestion'; }
+function applySuggest(it,w){ const wm=it.wm; ['on','id','place','anchor','insX','insY','fx','fy','sizePct','op'].forEach(k=>{ if(w[k]!=null)wm[k]=w[k]; }); }
+
+// ---------- export ----------
+async function exportAll(){ if(!IMGS.length)return; const ext=exportFmt==='png'?'png':'jpg', items=[]; const off=document.createElement('canvas'); let done=0;
+  const approved=IMGS.filter(it=>it.approved!==false);
+  for(let i=0;i<IMGS.length;i++){ const it=IMGS[i]; const common={id:it.id, src:it.name, approved:it.approved!==false, comment:(it.comment||'').trim(), on:it.wm.on, mark:it.wm.id, changed:diff(it).length>0, deltas:diff(it), dup:it.dup};
+    if(it.approved===false){ it.result=null; items.push(Object.assign({exported:false,out:null,saved:null},common)); continue; }
+    done++; document.getElementById('expTag').textContent='exporting '+done+'/'+approved.length+' …';
+    const {W,H}=exportDims(it); off.width=W; off.height=H; render(off.getContext('2d'),W,H,it.wm,it.img,true);
+    const bl=await PPSave.canvasBlob(off,exportFmt,exportQ); const base=(it.outName||it.name.replace(/\.[^.]+$/,'')||('img'+i)).replace(/[^\w.\- ]+/g,'_'); const fname=base+'.'+ext;
+    const w=await PPSave.writeOne(fname,bl);
+    const saved=w.saved, finalName=w.out||fname, bytes=w.bytes!=null?w.bytes:bl.size, renamed=!!w.renamed;
+    it.result=saved?{path:saved}:null;
+    items.push(Object.assign({exported:!!saved,out:finalName,saved,bytes,renamed},common)); }
+  buildStrip(); selectImg(cur);
+  const exported=items.filter(x=>x.exported), rejected=items.filter(x=>!x.approved), withNotes=items.filter(x=>x.comment);
+  window.__result={ tool:'watermark', format:exportFmt, quality:exportQ, onExist:PPSave.onExist, dest:PPSave.destLabel(), count:items.length, exportedCount:exported.length, rejectedCount:rejected.length, items, ts:Date.now() };
+  PPSave.postFeedback('wm_'+window.__result.ts+'.json', window.__result);   // review mode only: a durable copy for the assistant
+  const mb=exported.reduce((a,x)=>a+(x.bytes||0),0)/1048576, rn=exported.filter(x=>x.renamed).length;
+  document.getElementById('expTag').textContent='✓ exported '+exported.length+'/'+items.length+' · '+exportFmt+' · '+mb.toFixed(1)+'MB'+(rejected.length?' · '+rejected.length+' rejected':'')+(withNotes.length?' · '+withNotes.length+' note(s)':''); toast('done'); }
+document.getElementById('expAll').onclick=exportAll;
+document.getElementById('saveDef').onclick=()=>{ const it=C(); if(!it){toast('load an image first');return;}
+  const wm=it.wm, d={ anchor:wm.anchor, insetX:wm.insX, insetY:wm.insY, sizePct:wm.sizePct, opacity:+(+wm.op).toFixed(2) };
+  CONFIG.defaults=Object.assign({},CONFIG.defaults,d);   // apply to newly added images this session
+  fetch('/save-defaults',{method:'POST',body:JSON.stringify(d)}).then(r=>r.json())
+    .then(j=>toast(j&&j.ok?('✓ default saved · '+wm.anchor+' · inset '+wm.insX+'/'+wm.insY+' · '+wm.sizePct+'% · '+Math.round(wm.op*100)+'%'):'save failed'))
+    .catch(()=>toast('save failed')); };
+
+// ---------- config + hooks ----------
+function applyConfig(cfg){ CONFIG={ basePath:cfg.basePath||'/assets/watermarks/', threshold:cfg.threshold!=null?cfg.threshold:128, groups:cfg.groups||{}, defaults:cfg.defaults||{}, watermarks:cfg.watermarks||[] };
+  const d=CONFIG.defaults; if(d.format){exportFmt=d.format;document.querySelectorAll('#fmt button').forEach(b=>b.classList.toggle('on',b.dataset.f===d.format));} if(d.quality!=null){exportQ=d.quality;const qi=Math.round(d.quality*100);document.getElementById('q').value=qi;txt('qV',qi);}
+  document.getElementById('qWrap').style.display=exportFmt==='jpeg'?'':'none'; document.getElementById('pngNote').style.display=exportFmt==='png'?'':'none';
+  return Promise.all((cfg.watermarks||[]).map(w=>window.__addWatermark(w.id,CONFIG.basePath+w.file,w.label,w.group))).then(()=>{ window.__configLoaded=true; buildKits(); if(C()){ if(!C().wm.id&&CONFIG.watermarks[0])C().wm.id=CONFIG.watermarks[0].id; syncControls(C().wm); draw(); } }); }
+window.__applyConfig=applyConfig;
+window.__addWatermark=(id,url,label,group)=>new Promise(r=>urlToImg(url,im=>{marks[id]={img:trimAlpha(im),group:group||groupOf(id)};addOpt(id,label||id);r();}));
+window.__addImages=async list=>{ for(const o of list){ await new Promise(r=>urlToImg(o.url,im=>{addImage(o.id||o.name||('img'+IMGS.length),o.name||o.id||('img'+IMGS.length),im,o.suggest);r();})); } return 'ok'; };  // sequential = preserves input order
+window.__suggestFor=(id,w)=>{ const it=IMGS.find(x=>x.id===id); if(!it)return'no'; applySuggest(it,w); it.sug=snap(it.wm); if(C()===it){syncControls(it.wm);draw();flagDelta();} return'ok'; };
+window.__suggestAll=w=>{ IMGS.forEach(it=>{ applySuggest(it,w); it.sug=snap(it.wm); }); if(C()){syncControls(C().wm);draw();flagDelta();} return'ok'; };
+window.__exportAll=()=>exportAll();
+window.__setDest=p=>{ const d=PPSave.setDest(p); document.getElementById('dest').value=d; document.getElementById('destNote').textContent=d?('Path: '+d):'Click Choose… for a folder picker, or type a path.'; return 'ok'; };
+window.__result=null; window.__configLoaded=false;
+fetch('/config/watermarks.json').then(r=>r.ok?r.json():null).then(c=>{ if(c)return applyConfig(c); }).catch(()=>{}).finally(()=>{ window.__ready=true; layout(); });
+</script>
+</body>

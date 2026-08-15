@@ -30,6 +30,10 @@ function createServer(opts = {}) {
   const outDir = opts.outDir || dirs.out;
   const feedbackDir = path.join(dirs.root, 'feedback');
   const idleMs = opts.idleMs != null ? opts.idleMs : Number(process.env.PHOTOPREP_IDLE_MS || DEFAULT_IDLE_MS);
+  // Opt-in (`--review`): surfaces the approve / reject / note-to-assistant workflow and lets the page
+  // report what the person actually decided. Off by default — someone using photoprep on their own has
+  // nobody to report to, and the extra controls would just be noise.
+  const review = opts.review != null ? !!opts.review : process.env.PHOTOPREP_REVIEW === '1';
   const token = opts.token || crypto.randomBytes(16).toString('hex');
   for (const d of [workDir, outDir, feedbackDir]) fs.mkdirSync(d, { recursive: true });
 
@@ -90,8 +94,11 @@ function createServer(opts = {}) {
 
     // --- who am I: lets a caller confirm the server is photoprep and which brand it loaded ---
     if (route === '/health') {
-      return json(res, { ok: true, app: 'photoprep', configPath, assetsDir, outDir, workDir });
+      return json(res, { ok: true, app: 'photoprep', review, configPath, assetsDir, outDir, workDir });
     }
+
+    // --- switches the page reads at boot ---
+    if (route === '/runtime.json') return json(res, { review });
 
     // --- write a full-resolution export: POST /save?name=foo.jpg[&dir=/abs][&onExist=rename|overwrite] ---
     if (req.method === 'POST' && route === '/save') {
@@ -134,6 +141,7 @@ function createServer(opts = {}) {
 
     // --- the page's export report, kept on disk so an assistant can read the run afterwards ---
     if (req.method === 'POST' && route === '/feedback') {
+      if (!review) return json(res, { ok: false, disabled: true }, 404);
       let name = path.basename(url.searchParams.get('name') || '');
       if (!/^[\w.\-]+\.json$/i.test(name)) name = 'feedback_' + Date.now() + '.json';
       return body(req, buf => fs.writeFile(path.join(feedbackDir, name), buf, err => err
