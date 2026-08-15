@@ -1,18 +1,20 @@
 <!doctype html>
 <meta charset="utf-8">
 <title>Layout — collage candidates (framing)</title>
+<!-- Already dark by design; see the note in web/index.html. -->
+<meta name="darkreader-lock">
 <link rel="stylesheet" href="/shared/theme.css">
 <style>
   /* layout-specific: taller strip with an "add candidate" tile, the mode switcher, IG preview */
   #strip { min-height:104px; align-items:center; }
   .thumb .bad { position:absolute; top:2px; right:3px; font-size:12px; }
-  .thumb .note { position:absolute; top:2px; left:3px; font-size:10px; color:#7db; }
-  .addc { flex:0 0 auto; width:44px; height:84px; border:1.5px dashed #3a3a3a; border-radius:6px; color:var(--mut); font-size:22px; display:flex; align-items:center; justify-content:center; cursor:pointer; }
-  .addc:hover { border-color:var(--acc); color:var(--fg); }
+  .thumb .note { position:absolute; top:2px; left:3px; font-size:10px; color:var(--ok); }
+  .addc { flex:0 0 auto; width:44px; height:84px; border:1px dashed var(--border-strong); border-radius:var(--radius-sm); color:var(--faint); font-size:22px; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .addc:hover { border-color:var(--accent); color:var(--accent); }
   .drop { padding:12px; }
   .modebar { display:flex; gap:6px; margin-bottom:12px; }
   .modebar button { flex:1; padding:9px; }
-  .modebar button.on { background:#333; border-color:var(--acc); color:#fff; }
+  .modebar button.on { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); font-weight:600; }
   /* --- fake Instagram post preview --- */
   #igWrap { position:fixed; inset:0; background:rgba(0,0,0,.78); display:none; align-items:center; justify-content:center; z-index:50; }
   #igWrap.on { display:flex; }
@@ -74,7 +76,7 @@
     <label>Slices <span id="nsV">2</span></label><input type="range" id="nslices" min="2" max="5" value="2">
   </fieldset>
 
-  <fieldset><legend>Frame</legend>
+  <fieldset id="frameSet"><legend>Frame</legend>
     <div id="ratioWrap"><label>Ratio</label><div class="seg" id="ratio"><button data-r="0.8" class="on">4:5</button><button data-r="1">1:1</button></div></div>
     <div id="gutterWrap"><label>Gutter <span id="gutV">0</span></label><input type="range" id="gutter" min="0" max="80" value="0"></div>
     <div id="bgWrap"><label>Background</label><div class="seg" id="bg"><button data-c="#ffffff" class="on">White</button><button data-c="#000000">Black</button></div></div>
@@ -221,7 +223,7 @@ function buildStrip(){ const strip=document.getElementById('strip'); strip.inner
     const dd=dispDims(c), sc=Math.min(70/dd.W,84/dd.H), tw=Math.max(24,Math.round(dd.W*sc)), th=Math.round(dd.H*sc);
     const tc=document.createElement('canvas'); tc.width=tw; tc.height=th; render(tc.getContext('2d'),tw,th,c,true); d.appendChild(tc);
     const nm=document.createElement('div'); nm.className='nm'; nm.textContent=c.name; d.appendChild(nm);
-    if(c.approved===false){ d.style.opacity='0.4'; const b=document.createElement('div');b.className='bad';b.style.color='#ff6b6b';b.textContent='✕';d.appendChild(b); }
+    if(c.approved===false){ d.style.opacity='0.4'; const b=document.createElement('div');b.className='bad';b.style.color='var(--danger)';b.textContent='✕';d.appendChild(b); }
     if((c.comment||'').trim()){ const cm=document.createElement('div');cm.className='note';cm.textContent='✎';d.appendChild(cm); }
     strip.appendChild(d); });
   const add=document.createElement('div'); add.className='addc'; add.textContent='＋'; add.title='Add blank candidate'; add.onclick=()=>{ CANDS.push(newCand()); switchCand(CANDS.length-1); }; strip.appendChild(add);
@@ -230,7 +232,9 @@ function updateCounter(){ document.getElementById('counter').textContent = CANDS
 function showHideSrc(m){ const stack=m==='stack';
   document.getElementById('srcStack').style.display=stack?'':'none'; document.getElementById('srcSplit').style.display=stack?'none':'';
   document.getElementById('ovStack').style.display=stack?'':'none'; document.getElementById('ovSplit').style.display=stack?'none':'';
-  document.getElementById('ratioWrap').style.display=stack?'':'none'; document.getElementById('gutterWrap').style.display=stack?'':'none'; document.getElementById('bgWrap').style.display=stack?'':'none'; }
+  document.getElementById('ratioWrap').style.display=stack?'':'none'; document.getElementById('gutterWrap').style.display=stack?'':'none'; document.getElementById('bgWrap').style.display=stack?'':'none';
+  // every control inside Frame belongs to stack mode — hide the container too, rather than leaving an empty bordered box
+  document.getElementById('frameSet').style.display=stack?'':'none'; }
 function switchCand(i){ curC=i; const c=CC(); hoverIdx=-1;
   document.querySelectorAll('#mode button').forEach(b=>b.classList.toggle('on',b.dataset.m===c.mode)); showHideSrc(c.mode);
   document.querySelectorAll('#ratio button').forEach(b=>b.classList.toggle('on',b.dataset.r===String(c.ratio)));

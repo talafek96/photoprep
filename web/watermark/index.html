@@ -1,6 +1,8 @@
 <!doctype html>
 <meta charset="utf-8">
 <title>Watermark — batch</title>
+<!-- Already dark by design; see the note in web/index.html. -->
+<meta name="darkreader-lock">
 <link rel="stylesheet" href="/shared/theme.css">
 <style>
   /* watermark-specific: fixed-size thumbnails, the move cursor over a mark, the 9-point anchor grid */
@@ -10,9 +12,10 @@
   .thumb canvas { width:100%; height:100%; }
   .thumb .dup { position:absolute; top:2px; right:2px; font-size:11px; }
   .thumb .ok { position:absolute; top:2px; left:2px; font-size:10px; color:var(--ok); }
+  .thumb .dupdot { color:var(--warn); }
   #anchors { display:grid; grid-template-columns:repeat(3,1fr); gap:5px; margin-top:4px; }
   #anchors button { padding:9px 0; font-size:14px; }
-  #anchors button.on { background:var(--acc); color:#001; border-color:var(--acc); }
+  #anchors button.on { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); }
   #sugTag { font-size:10.5px; color:var(--warn); margin:6px 0 0; min-height:14px; }
 </style>
 <body>
@@ -29,7 +32,7 @@
     <div class="drop" id="dropImgs">Drop / click — add images (multi-select ok)</div>
     <div class="row"><button id="prev">‹ Prev</button><button id="next">Next ›</button></div>
     <label>Output name (this image)</label>
-    <input type="text" id="outName" placeholder="filename (no extension)" style="width:100%;background:#0d0d0d;color:var(--fg);border:1px solid #333;border-radius:6px;padding:6px 8px">
+    <input type="text" id="outName" placeholder="filename (no extension)">
     <p class="hint" id="outPrev" style="color:var(--ok)"></p>
   </fieldset>
 
@@ -58,7 +61,7 @@
   <fieldset data-review-only><legend>Review (this image)</legend>
     <div class="seg" id="approve"><button data-a="1" class="on">✓ Approve</button><button data-a="0">✕ Reject</button></div>
     <label>Note to assistant (optional)</label>
-    <textarea id="comment" rows="2" placeholder="feedback — why rejected, what to change, or just a note" style="width:100%;background:#0d0d0d;color:var(--fg);border:1px solid #333;border-radius:6px;padding:6px 8px;font:inherit;resize:vertical"></textarea>
+    <textarea id="comment" rows="2" placeholder="feedback — why rejected, what to change, or just a note"></textarea>
   </fieldset>
 
   <fieldset><legend>Batch</legend>
@@ -76,7 +79,7 @@
     <p id="pngNote" class="hint" style="display:none">PNG is fully lossless — no quality setting; larger files.</p>
     <label>Destination folder</label>
     <div class="row"><button id="pickDir" style="flex:0 0 auto">📁 Choose…</button>
-      <input type="text" id="dest" placeholder="blank = tool's work/out" style="flex:1;background:#0d0d0d;color:var(--fg);border:1px solid #333;border-radius:6px;padding:6px 8px"></div>
+      <input type="text" id="dest" placeholder="blank = tool's work/out" style="flex:1"></div>
     <p class="hint" id="destNote">Click Choose… for a folder picker, or type a path (absolute, ~ ok). Picker overrides the text path.</p>
     <label>If a file already exists</label>
     <div class="seg" id="onExist"><button data-e="rename" class="on">Auto-rename</button><button data-e="overwrite">Overwrite</button></div>
@@ -176,9 +179,9 @@ function buildStrip(){ const strip=document.getElementById('strip'); strip.inner
     const tc=document.createElement('canvas'); tc.width=64; tc.height=80; const g=tc.getContext('2d');
     const s=Math.max(64/it.img.width,80/it.img.height); const dw=it.img.width*s,dh=it.img.height*s; g.drawImage(it.img,(64-dw)/2,(80-dh)/2,dw,dh);
     d.appendChild(tc); const nm=document.createElement('div'); nm.className='nm'; nm.textContent=it.name; d.appendChild(nm);
-    if(it.approved===false){ d.style.opacity='0.4'; const b=document.createElement('div');b.className='dup';b.style.color='#ff6b6b';b.textContent='✕';d.appendChild(b); }
+    if(it.approved===false){ d.style.opacity='0.4'; const b=document.createElement('div');b.className='dup';b.style.color='var(--danger)';b.textContent='✕';d.appendChild(b); }
     else if(it.dup){ const b=document.createElement('div');b.className='dup';b.textContent='⚠︎';d.appendChild(b); }
-    if((it.comment||'').trim()){ const cm=document.createElement('div');cm.className='ok';cm.style.color='#7db';cm.textContent='✎';d.appendChild(cm); }
+    if((it.comment||'').trim()){ const cm=document.createElement('div');cm.className='ok';cm.style.color='var(--ok)';cm.textContent='✎';d.appendChild(cm); }
     else if(it.result){ const o=document.createElement('div');o.className='ok';o.textContent='✓';d.appendChild(o); }
     strip.appendChild(d); });
   updateCounter(); }

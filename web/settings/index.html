@@ -1,80 +1,79 @@
 <!doctype html>
 <meta charset="utf-8">
 <title>photoprep — settings</title>
+<!-- Already dark by design; see the note in web/index.html. -->
+<meta name="darkreader-lock">
 <link rel="stylesheet" href="/shared/theme.css">
 <style>
-  /* Settings is a document, not an instrument — it opts out of the two-column app grid. */
-  body { display:block; overflow:auto; position:relative; }
-  /* One ambient pool behind the header, and nothing else glowing on the page. */
-  body::before {
-    content:''; position:fixed; left:50%; top:-220px; width:760px; height:420px; transform:translateX(-50%);
-    background:radial-gradient(ellipse at center, rgba(76,159,254,.10) 0%, transparent 70%);
-    pointer-events:none; z-index:0;
-  }
-  main { position:relative; z-index:1; max-width:860px; margin:0 auto; padding:48px 24px 96px; }
-  a.back { color:var(--mut); text-decoration:none; font-size:12px; }
-  a.back:hover { color:var(--fg); }
-  h1 { font-size:26px; letter-spacing:-.02em; margin:14px 0 4px; }
-  .lede { color:var(--mut); margin:0 0 8px; font-size:13.5px; }
+  main { max-width:900px; margin:0 auto; padding:64px 28px 120px; }
+  a.back { font-family:var(--mono); font-size:10px; letter-spacing:.14em; text-transform:uppercase;
+           color:var(--faint); text-decoration:none; transition:color .15s var(--ease-io); }
+  a.back:hover { color:var(--accent); }
+  h1 { font-size:clamp(30px,5vw,44px); line-height:1; letter-spacing:-.03em; margin:18px 0 10px; font-weight:600; }
+  .lede { color:var(--mut); margin:0 0 10px; font-size:14px; max-width:52ch; text-wrap:pretty; }
+
   section {
-    margin-top:28px; padding:20px; border:1px solid rgba(255,255,255,.09); border-radius:12px;
-    background:rgba(255,255,255,.025); box-shadow:inset 0 1px 0 0 rgba(255,255,255,.05);
+    margin-top:22px; padding:22px; border:1px solid var(--border); border-radius:var(--radius-lg);
+    background:var(--surface); box-shadow:var(--highlight);
   }
-  section > h2 { font-size:13px; margin:0 0 3px; letter-spacing:.01em; }
-  section > .note { color:var(--mut); font-size:11.5px; margin:0 0 16px; line-height:1.6; }
+  /* vary the rhythm — a uniform stack of identical blocks is what reads as a template */
+  section.tight { margin-top:12px; padding:18px 22px; }
+  section > h2 { font-size:14px; margin:0 0 5px; letter-spacing:-.01em; }
+  section > .note { color:var(--faint); font-size:11.5px; margin:0 0 18px; line-height:1.7; max-width:62ch; }
 
   /* marks */
-  #marks { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:12px; }
-  .mark { border:1px solid rgba(255,255,255,.09); border-radius:10px; overflow:hidden; background:rgba(0,0,0,.25); }
+  #marks { display:grid; grid-template-columns:repeat(auto-fill,minmax(236px,1fr)); gap:12px; }
+  .mark { border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; background:var(--sunken);
+          transition:border-color .15s var(--ease-io); }
+  .mark:hover { border-color:var(--border-strong); }
   .mark .prev {
-    height:96px; display:flex; align-items:center; justify-content:center; padding:10px;
-    background-color:#1a1a1a;
-    background-image:linear-gradient(45deg,#232323 25%,transparent 25%),linear-gradient(-45deg,#232323 25%,transparent 25%),
-                     linear-gradient(45deg,transparent 75%,#232323 75%),linear-gradient(-45deg,transparent 75%,#232323 75%);
+    height:100px; display:flex; align-items:center; justify-content:center; padding:12px;
+    background-color:oklch(0.20 0 0);
+    background-image:linear-gradient(45deg,oklch(0.25 0 0) 25%,transparent 25%),linear-gradient(-45deg,oklch(0.25 0 0) 25%,transparent 25%),
+                     linear-gradient(45deg,transparent 75%,oklch(0.25 0 0) 75%),linear-gradient(-45deg,transparent 75%,oklch(0.25 0 0) 75%);
     background-size:16px 16px; background-position:0 0,0 8px,8px -8px,-8px 0;
   }
-  /* Preview each mark against the background it's MEANT for: a dark mark is used on light photos,
-     so showing it on a dark checkerboard would render it invisible. */
-  .mark.ondark .prev { background-color:#e9e9e9; background-image:none; }
+  /* Preview each mark against the background it is MEANT for: a dark mark shown on a dark
+     checkerboard is invisible, which is the one thing this preview exists to prevent. */
+  .mark.ondark .prev { background-color:oklch(0.93 0 0); background-image:none; }
   .mark .prev img { max-width:100%; max-height:76px; }
-  .mark .meta { padding:9px 10px 11px; display:grid; gap:6px; }
-  .mark .meta input, .mark .meta select { font-size:11.5px; padding:5px 7px; }
+  .mark .meta { padding:10px 11px 12px; display:grid; gap:7px; }
+  .mark .meta input, .mark .meta select { font-size:11.5px; padding:6px 8px; }
   .mark .rowb { display:flex; gap:6px; align-items:center; }
-  /* min-width:0 or the flexible input collapses to nothing beside the select */
+  /* min-width:0, or the flexible input collapses to nothing beside the select */
   .mark .rowb input { flex:1 1 auto; min-width:0; }
   .mark .rowb select { flex:0 0 auto; width:auto; max-width:44%; }
-  .mark .rowb button { flex:0 0 auto; padding:5px 8px; font-size:11px; }
-  .missing { color:var(--warn); font-size:10.5px; }
+  .mark .rowb button { flex:0 0 auto; padding:6px 9px; font-size:11px; }
+  .missing { color:var(--warn); font-size:10.5px; font-family:var(--mono); }
 
   /* anchor pad */
-  #anchorPad { display:grid; grid-template-columns:repeat(3,34px); gap:5px; }
-  #anchorPad button { padding:8px 0; font-size:13px; }
-  #anchorPad button.on { background:var(--acc); color:#001; border-color:var(--acc); }
-  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:18px; align-items:start; }
-  .placePrev { width:112px; height:140px; border:1px solid rgba(255,255,255,.14); border-radius:6px; position:relative; background:#0d0d0d; }
-  .placePrev i { position:absolute; background:var(--acc); opacity:.75; border-radius:2px; display:block; }
+  #anchorPad { display:grid; grid-template-columns:repeat(3,36px); gap:5px; }
+  #anchorPad button { padding:9px 0; font-size:13px; }
+  #anchorPad button.on { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:26px; align-items:start; }
+  @media (max-width:640px) { .grid2 { grid-template-columns:1fr; } }
+  .placePrev { width:120px; height:150px; border:1px solid var(--border); border-radius:var(--radius-sm);
+               position:relative; background:var(--sunken); overflow:hidden; }
+  .placePrev i { position:absolute; background:var(--accent); border-radius:1px; display:block; }
+
+  .kit { border:1px solid var(--border); border-radius:var(--radius); padding:13px 15px; margin-bottom:10px;
+         background:oklch(1 0 0 / 1.5%); }
+  .kit b { font-size:12.5px; }
 
   .actions { display:flex; gap:9px; flex-wrap:wrap; align-items:center; }
-  /* Its own surface, or it reads as buttons floating loose over whatever it happens to cover. */
   #saveBar {
-    position:sticky; bottom:0; margin-top:24px; padding:14px 16px;
-    border:1px solid rgba(255,255,255,.09); border-radius:12px;
-    background:rgba(24,24,24,.92); backdrop-filter:blur(8px);
-    box-shadow:inset 0 1px 0 0 rgba(255,255,255,.05);
+    position:sticky; bottom:0; margin-top:26px; padding:15px 18px;
+    border:1px solid var(--border); border-radius:var(--radius-lg);
+    background:oklch(0.215 0.006 70 / 88%); backdrop-filter:blur(12px) saturate(1.3);
+    box-shadow:var(--highlight);
   }
   .spacer { flex:1; }
-  #status { font-size:11.5px; color:var(--ok); min-height:16px; }
+  #status { font-size:11px; font-family:var(--mono); color:var(--ok); min-height:16px; }
   #status.err { color:var(--warn); }
-  .pill { display:inline-block; padding:2px 9px; border:1px solid rgba(255,255,255,.14); border-radius:999px; font-size:10.5px; color:var(--mut); }
-
-  /* entrances: distance covered fast, then settle */
-  @keyframes rise { from { opacity:0; transform:translateY(14px); filter:blur(4px); } to { opacity:1; transform:none; filter:none; } }
-  .rise { animation:rise .55s cubic-bezier(.16,1,.3,1) both; }
-  @media (prefers-reduced-motion:reduce) { .rise { animation:none; } }
-  button:active { transform:scale(.985); }
-  :focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
+  .pill { display:inline-block; font-family:var(--mono); font-size:10px; letter-spacing:.05em;
+          padding:4px 10px; border:1px solid var(--border); border-radius:999px; color:var(--mut); }
 </style>
-<body>
+<body class="doc">
 <main>
   <a class="back" href="/">← photoprep</a>
   <h1 class="rise">Settings</h1>
@@ -115,7 +114,7 @@
     </div>
   </section>
 
-  <section class="rise" style="animation-delay:.20s">
+  <section class="tight rise" style="animation-delay:.20s">
     <h2>Kit rules</h2>
     <p class="note">How the tool auto-picks a variant inside a kit.
       <b>By brightness</b> swaps light/dark marks against the background behind the mark.
@@ -123,7 +122,7 @@
     <div id="kits"></div>
   </section>
 
-  <section class="rise" style="animation-delay:.25s">
+  <section class="tight rise" style="animation-delay:.25s">
     <h2>Move your brand</h2>
     <p class="note">Export packs your marks and settings into one file — keep it as a backup, or import it
       on another machine to get set up in one step.</p>
@@ -230,7 +229,7 @@ function renderKits() {
     const inKit = CFG.watermarks.filter(w => w.group === k);
     const opts = sel => inKit.map(w => `<option value="${w.id}"${sel === w.id ? ' selected' : ''}>${w.label || w.id}</option>`).join('');
     const d = document.createElement('div');
-    d.style.cssText = 'border:1px solid rgba(255,255,255,.09);border-radius:9px;padding:11px 13px;margin-bottom:9px';
+    d.className = 'kit';
     d.innerHTML = `
       <b style="font-size:12px">${k}</b> <span class="note" style="margin:0">· ${inKit.length} mark(s)</span>
       <label>Pick a variant</label>

@@ -1,79 +1,208 @@
-/* Shared dark theme for the photoprep tools. Anything genuinely specific to one tool stays in that
-   tool's own <style> block; everything here was byte-identical between them before the extraction. */
+/* photoprep — one theme for every page.
+ *
+ * Direction: a darkroom instrument. Warm near-black neutrals, ONE accent (safelight amber) reserved
+ * for interactive state, mono microcopy, hairline borders, near-square corners.
+ *
+ * The constraint that drives all of it: this chrome surrounds PHOTOGRAPHS. A saturated accent or a
+ * textured field beside an image changes how you judge that image's colour and tone, so the accent
+ * never fills a large area near the canvas, and the stage stays chromatically silent. Signature
+ * flourishes (ambient glow, grain) are opted into by document pages only — never by the tools.
+ */
 :root {
-  /* Declares that this page already IS dark. Without it, Chrome's auto-dark-mode re-darkens the few
-     deliberately light surfaces we have (the light-mark preview, a white collage background), which
-     would misrepresent exactly the thing the user is trying to judge. */
+  /* Tells the browser this page is already dark, so auto-dark-mode can't re-darken the deliberately
+     light surfaces (a light-mark preview, a white collage background) that a person is judging. */
   color-scheme: dark;
 
-  --bg:#111; --panel:#1b1b1b; --fg:#eee; --mut:#9aa;
-  --acc:#4c9ffe; --snap:#ff4d6d; --ok:#39c46e; --warn:#e6a23c;
+  /* --- surfaces: dark UI elevates with LIGHTNESS, not shadow --- */
+  --bg:            oklch(0.17 0.006 70);
+  --surface:       oklch(0.215 0.006 70);
+  --surface-2:     oklch(0.25 0.006 70);
+  --sunken:        oklch(0.145 0.005 70);
+
+  /* --- ink --- */
+  --fg:            oklch(0.96 0.005 85);
+  --mut:           oklch(0.72 0.010 80);
+  /* 0.58 measured 4.10:1 on --surface — under the 4.5 minimum, and this carries every mono label
+     and hint, which are small text with no large-text exemption. */
+  --faint:         oklch(0.645 0.010 80);
+
+  /* --- lines: translucent white adapts to whatever sits behind it --- */
+  --border:        oklch(1 0 0 / 10%);
+  --border-strong: oklch(1 0 0 / 18%);
+  --highlight:     inset 0 1px 0 0 oklch(1 0 0 / 6%);
+
+  /* --- the one accent --- */
+  --accent:        oklch(0.80 0.142 72);
+  --accent-soft:   oklch(0.80 0.142 72 / 14%);
+  --accent-ink:    oklch(0.22 0.045 72);
+
+  /* --- semantic status: signal, not decoration; kept off the accent's hue --- */
+  --ok:            oklch(0.78 0.125 155);
+  --warn:          oklch(0.77 0.150 42);
+  --danger:        oklch(0.68 0.190 18);
+  /* on-canvas guides ride over photographs, so they stay high-contrast signals rather than brand */
+  --snap:          oklch(0.68 0.190 18);
+
+  --radius:        8px;
+  --radius-sm:     calc(var(--radius) - 4px);
+  --radius-lg:     calc(var(--radius) + 4px);
+  --radius-xl:     calc(var(--radius) + 8px);
+
+  --ease-out:      cubic-bezier(.16, 1, .3, 1);      /* arrivals: most of the distance at once, then settle */
+  --ease-io:       cubic-bezier(.4, 0, .2, 1);       /* state changes */
+
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+
+  /* legacy alias — the tools referenced this before the palette was tokenised */
+  --panel: var(--surface);
+  --acc: var(--accent);
 }
+
 * { box-sizing:border-box; }
 html, body { height:100%; }
 body {
-  margin:0; font:13px/1.4 -apple-system,system-ui,sans-serif; background:var(--bg); color:var(--fg);
-  display:grid; grid-template-columns:1fr 330px; overflow:hidden;
-}
-
-/* --- stage ------------------------------------------------------------------------------------ */
-/* min-height:0 on the grid/flex children is load-bearing: the default min-height:auto lets a track
-   grow to its content, which is what made the canvas open larger than the window. */
-#left { display:grid; grid-template-rows:1fr auto; min-width:0; min-height:0; }
-#stage { display:flex; align-items:center; justify-content:center; overflow:auto; padding:18px; min-height:0; min-width:0; }
-canvas#c {
-  background:#000; box-shadow:0 4px 30px rgba(0,0,0,.6); touch-action:none; cursor:grab;
-  max-width:100%; max-height:100%; object-fit:contain;
-}
-canvas#c.drag { cursor:grabbing; }
-
-/* --- filmstrip -------------------------------------------------------------------------------- */
-#strip { display:flex; gap:8px; padding:10px 12px; overflow-x:auto; border-top:1px solid #000; background:#161616; }
-.thumb { position:relative; flex:0 0 auto; border:2px solid #333; border-radius:6px; overflow:hidden; cursor:pointer; background:#000; }
-.thumb.on { border-color:var(--acc); }
-.thumb canvas { display:block; }
-.thumb .nm {
-  position:absolute; left:0; right:0; bottom:0; font-size:9px; background:rgba(0,0,0,.6); color:#ccc;
-  padding:1px 3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-}
-
-/* --- side panel ------------------------------------------------------------------------------- */
-#panel { background:var(--panel); border-left:1px solid #000; padding:14px 16px; overflow:auto; }
-h1 { font-size:13px; margin:0 0 2px; }
-.sub { color:var(--mut); font-size:11px; margin:0 0 12px; }
-fieldset { border:1px solid #333; border-radius:8px; margin:0 0 12px; padding:8px 12px 12px; }
-legend { color:var(--mut); font-size:10.5px; text-transform:uppercase; letter-spacing:.08em; padding:0 6px; }
-label { display:block; margin:8px 0 3px; color:var(--mut); font-size:11px; }
-input[type=range] { width:100%; }
-select, input[type=text], textarea {
-  width:100%; background:#0d0d0d; color:var(--fg); border:1px solid #333; border-radius:6px;
-  padding:6px 8px; font:inherit;
-}
-textarea { resize:vertical; }
-.row { display:flex; gap:8px; }
-.row > * { flex:1; }
-button { background:#252525; color:var(--fg); border:1px solid #3a3a3a; border-radius:6px; padding:8px 10px; cursor:pointer; font-size:12px; }
-button:hover { border-color:var(--acc); }
-button.primary { background:var(--acc); color:#001; border-color:var(--acc); font-weight:600; }
-.drop { border:1.5px dashed #3a3a3a; border-radius:8px; padding:10px; text-align:center; color:var(--mut); margin-bottom:8px; }
-.drop.hot { border-color:var(--acc); color:var(--fg); }
-.drop.set { border-style:solid; border-color:#2c5; color:#bda; }
-.hint { color:var(--mut); font-size:10.5px; margin-top:8px; }
-.seg { display:flex; gap:6px; }
-.seg button { flex:1; }
-.seg button.on { background:var(--acc); color:#001; border-color:var(--acc); }
-#expTag { font-size:10.5px; color:var(--ok); margin:6px 0 0; min-height:14px; }
-#dupWarn {
-  font-size:11px; color:var(--warn); background:#2a2113; border:1px solid #6b5216;
-  border-radius:6px; padding:8px; margin-bottom:10px; display:none;
+  margin:0; font:13px/1.45 -apple-system, system-ui, "Segoe UI", sans-serif;
+  background:var(--bg); color:var(--fg);
+  display:grid; grid-template-columns:1fr 340px; overflow:hidden;
+  -webkit-font-smoothing:antialiased;
 }
 
 /* An author `display` rule silently beats the browser's [hidden] { display:none }, so anything given
    a display value would keep showing while marked hidden. Make hidden actually mean hidden. */
 [hidden] { display:none !important; }
 
+/* --- stage ------------------------------------------------------------------------------------ */
+/* min-height:0 is load-bearing: the default min-height:auto lets a grid track grow to its content,
+   which is what made the canvas open larger than the window. */
+#left { display:grid; grid-template-rows:1fr auto; min-width:0; min-height:0; }
+#stage {
+  display:flex; align-items:center; justify-content:center; overflow:auto; padding:20px;
+  min-height:0; min-width:0; background:var(--sunken);
+}
+canvas#c {
+  background:#000; touch-action:none; cursor:grab; max-width:100%; max-height:100%; object-fit:contain;
+  border-radius:2px; box-shadow:0 0 0 1px oklch(1 0 0 / 8%);
+}
+canvas#c.drag { cursor:grabbing; }
+
+/* --- filmstrip -------------------------------------------------------------------------------- */
+#strip {
+  display:flex; gap:8px; padding:11px 13px; overflow-x:auto;
+  border-top:1px solid var(--border); background:var(--bg);
+  scrollbar-width:thin;
+}
+.thumb {
+  position:relative; flex:0 0 auto; border:1px solid var(--border); border-radius:var(--radius-sm);
+  overflow:hidden; cursor:pointer; background:#000;
+  transition:border-color .15s var(--ease-io), transform .15s var(--ease-io);
+}
+.thumb:hover { border-color:var(--border-strong); }
+.thumb.on { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); }
+.thumb canvas { display:block; }
+.thumb .nm {
+  position:absolute; left:0; right:0; bottom:0; font-size:9px; font-family:var(--mono);
+  background:oklch(0 0 0 / 62%); color:oklch(0.88 0 0); padding:2px 4px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+
+/* --- side panel ------------------------------------------------------------------------------- */
+#panel {
+  background:var(--surface); border-left:1px solid var(--border); padding:16px 17px; overflow:auto;
+  box-shadow:var(--highlight);
+}
+h1 { font-size:13px; margin:0 0 2px; letter-spacing:-.01em; }
+.sub { color:var(--mut); font-size:11px; margin:0 0 14px; }
+fieldset {
+  border:1px solid var(--border); border-radius:var(--radius); margin:0 0 12px; padding:10px 13px 13px;
+  background:oklch(1 0 0 / 1.5%); box-shadow:var(--highlight);
+}
+/* microcopy in mono, the way an instrument labels its controls */
+legend, label {
+  font-family:var(--mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.09em;
+  color:var(--faint);
+}
+legend { padding:0 6px; }
+label { display:block; margin:10px 0 4px; }
+/* Prose nested inside a label is still prose — without this it inherits the mono uppercase
+   treatment and a parenthetical aside turns into shouting. */
+label .hint, legend .hint {
+  font-family:-apple-system, system-ui, sans-serif; text-transform:none; letter-spacing:normal;
+  font-size:10.5px; color:var(--faint);
+}
+input[type=range] { width:100%; accent-color:var(--accent); }
+select, input[type=text], textarea {
+  width:100%; background:var(--sunken); color:var(--fg); border:1px solid var(--border);
+  border-radius:var(--radius-sm); padding:7px 9px; font:inherit;
+  transition:border-color .15s var(--ease-io);
+}
+select:hover, input[type=text]:hover, textarea:hover { border-color:var(--border-strong); }
+textarea { resize:vertical; }
+.row { display:flex; gap:8px; }
+.row > * { flex:1; }
+button {
+  background:var(--surface-2); color:var(--fg); border:1px solid var(--border);
+  border-radius:var(--radius-sm); padding:8px 11px; cursor:pointer; font-size:12px;
+  box-shadow:var(--highlight);
+  transition:border-color .15s var(--ease-io), background .15s var(--ease-io), transform .1s var(--ease-io);
+}
+button:hover { border-color:var(--border-strong); background:oklch(0.29 0.006 70); }
+button:active { transform:scale(.97); }
+button.primary {
+  background:var(--accent); color:var(--accent-ink); border-color:var(--accent); font-weight:650;
+}
+button.primary:hover { background:oklch(0.85 0.145 72); border-color:oklch(0.85 0.145 72); }
+.drop {
+  border:1px dashed var(--border-strong); border-radius:var(--radius); padding:11px; text-align:center;
+  color:var(--mut); margin-bottom:8px; font-size:11.5px;
+  transition:border-color .15s var(--ease-io), color .15s var(--ease-io), background .15s var(--ease-io);
+}
+.drop:hover { border-color:var(--accent); color:var(--fg); }
+.drop.hot { border-color:var(--accent); color:var(--fg); background:var(--accent-soft); }
+.drop.set { border-style:solid; border-color:oklch(0.62 0.10 155); color:oklch(0.82 0.07 155); }
+.hint { color:var(--faint); font-size:10.5px; margin-top:8px; line-height:1.6; }
+.seg { display:flex; gap:5px; }
+.seg button { flex:1; }
+.seg button.on { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); font-weight:600; }
+#expTag { font-size:10.5px; color:var(--ok); margin:7px 0 0; min-height:14px; font-family:var(--mono); }
+#dupWarn {
+  font-size:11px; color:var(--warn); background:oklch(0.77 0.15 42 / 10%);
+  border:1px solid oklch(0.77 0.15 42 / 32%); border-radius:var(--radius-sm);
+  padding:9px 10px; margin-bottom:10px; display:none; line-height:1.55;
+}
+
+/* Focus must survive: an outline removed without a replacement is an accessibility regression. */
+:focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-radius:2px; }
+
 /* --- review mode (opt-in: the server serves runtime.review, see shared/runtime.js) -------------- */
-/* Hidden by default so a person using the tool on their own never sees an approve/reject workflow
-   that only exists to report back to an assistant. */
+/* Hidden by default so a person using the tool alone never meets an approve/reject workflow that
+   exists only to report back to an assistant. */
 [data-review-only] { display:none; }
 body.review [data-review-only] { display:revert; }
+
+/* --- document pages (home, settings) opt in ---------------------------------------------------- */
+/* Reserved for pages with no photograph on them: a glow or a grain field beside an image would
+   change how that image reads. */
+body.doc {
+  display:block; overflow:auto; position:relative;
+  background:var(--bg);
+  /* grain, at a few percent — it takes the plastic flatness off a large dark field */
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.038'/%3E%3C/svg%3E");
+}
+body.doc::before {
+  content:''; position:fixed; left:50%; top:-260px; width:820px; height:460px;
+  transform:translateX(-50%); pointer-events:none; z-index:0;
+  background:radial-gradient(ellipse at center, oklch(0.80 0.142 72 / 9%) 0%, transparent 70%);
+}
+.doc main { position:relative; z-index:1; }
+
+/* entrances: covers most of the distance at once, then settles — blur is what separates it from a fade */
+@keyframes rise {
+  from { opacity:0; transform:translateY(14px); filter:blur(5px); }
+  to   { opacity:1; transform:none; filter:blur(0); }
+}
+.rise { animation:rise .6s var(--ease-out) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .rise { animation:none; opacity:1; }
+  * { transition-duration:.01ms !important; animation-duration:.01ms !important; }
+}

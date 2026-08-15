@@ -1,45 +1,75 @@
 <!doctype html>
 <meta charset="utf-8">
 <title>photoprep</title>
+<!-- This page is already dark by design. Dark Reader (and Chrome's auto-dark) would re-darken the
+     deliberately light surfaces the tools use to show a mark against a light photo. -->
+<meta name="darkreader-lock">
 <link rel="stylesheet" href="/shared/theme.css">
 <style>
-  /* The home screen is the one page that isn't a two-column tool, so it opts out of the app grid. */
-  body { display:block; overflow:auto; }
-  main { max-width:720px; margin:0 auto; padding:56px 24px; }
-  h1 { font-size:22px; letter-spacing:-.01em; margin:0 0 4px; }
-  .lede { color:var(--mut); margin:0 0 32px; font-size:13.5px; }
-  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px; }
+  main { max-width:940px; margin:0 auto; padding:96px 28px 80px; }
+
+  .eyebrow { font-family:var(--mono); font-size:10px; letter-spacing:.22em; text-transform:uppercase; color:var(--faint); margin:0 0 20px; }
+  h1 { font-size:clamp(40px, 7vw, 68px); line-height:.95; letter-spacing:-.035em; margin:0 0 18px; text-wrap:balance; font-weight:600; }
+  h1 em { font-style:normal; color:var(--accent); }
+  .lede { color:var(--mut); font-size:15.5px; line-height:1.65; max-width:46ch; margin:0 0 52px; text-wrap:pretty; }
+
+  /* Bento: the two tools carry the page, settings is a quieter wide cell beneath them. */
+  .cards { display:grid; grid-template-columns:repeat(2, 1fr); gap:14px; }
+  @media (max-width:680px) { .cards { grid-template-columns:1fr; } }
   a.card {
-    display:block; padding:20px; border:1px solid #333; border-radius:10px; background:var(--panel);
-    color:var(--fg); text-decoration:none; transition:border-color .12s, transform .12s;
+    position:relative; display:block; padding:22px 22px 24px; text-decoration:none; color:var(--fg);
+    border:1px solid var(--border); border-radius:var(--radius-lg); background:var(--surface);
+    box-shadow:var(--highlight); overflow:hidden;
+    transition:border-color .15s var(--ease-io), background .15s var(--ease-io), transform .15s var(--ease-io);
   }
-  a.card:hover { border-color:var(--acc); transform:translateY(-1px); }
-  a.card h2 { margin:0 0 6px; font-size:15px; }
-  a.card p { margin:0; color:var(--mut); font-size:12px; line-height:1.6; }
-  .glyph { font-size:20px; display:block; margin-bottom:10px; }
-  footer { margin-top:36px; color:var(--mut); font-size:11.5px; line-height:1.8; }
-  footer code { color:var(--acc); }
-  .badge { display:inline-block; padding:1px 7px; border:1px solid #3a3a3a; border-radius:999px; font-size:10.5px; color:var(--mut); }
+  a.card:hover { border-color:var(--border-strong); background:var(--surface-2); transform:translateY(-2px); }
+  a.card.wide { grid-column:1 / -1; }
+  a.card h2 { margin:0 0 7px; font-size:15px; letter-spacing:-.01em; }
+  a.card p { margin:0; color:var(--mut); font-size:12.5px; line-height:1.65; max-width:44ch; text-wrap:pretty; }
+  .glyph {
+    display:flex; align-items:center; justify-content:center; width:30px; height:30px; margin-bottom:15px;
+    border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--accent);
+    font-size:14px; background:var(--accent-soft);
+  }
+  .go { position:absolute; right:20px; top:22px; color:var(--faint); font-size:14px; transition:transform .15s var(--ease-io), color .15s var(--ease-io); }
+  a.card:hover .go { transform:translateX(3px); color:var(--accent); }
+
+  footer { margin-top:56px; padding-top:22px; border-top:1px solid var(--border); }
+  .badges { display:flex; gap:7px; flex-wrap:wrap; margin-bottom:14px; }
+  .badge {
+    font-family:var(--mono); font-size:10px; letter-spacing:.05em; padding:4px 10px;
+    border:1px solid var(--border); border-radius:999px; color:var(--mut);
+  }
+  .badge.live { color:var(--accent); border-color:oklch(0.80 0.142 72 / 34%); background:var(--accent-soft); }
+  footer p { color:var(--faint); font-size:11.5px; line-height:1.9; margin:0; }
+  footer code { font-family:var(--mono); color:var(--mut); font-size:11px; }
 </style>
-<body>
+<body class="doc">
 <main>
-  <h1>photoprep</h1>
-  <p class="lede">Get photos ready to post — frame them, mark them, done.</p>
+  <p class="eyebrow rise">Local · nothing uploaded</p>
+  <h1 class="rise" style="animation-delay:.04s">Get photos ready<br>to <em>post</em>.</h1>
+  <p class="lede rise" style="animation-delay:.09s">
+    Frame the awkward ones, mark them as yours, and get on with it. Runs on your machine —
+    your photos never leave it.
+  </p>
 
   <div class="cards">
-    <a class="card" href="/layout/">
+    <a class="card rise" style="animation-delay:.14s" href="/layout/">
+      <span class="go">→</span>
       <span class="glyph">⬍</span>
       <h2>Layout</h2>
       <p>Stack two landscapes into one portrait frame, or split a panorama into slices that scroll
-         like one wide shot. Exports clean and unmarked.</p>
+         like one wide shot.</p>
     </a>
-    <a class="card" href="/watermark/">
+    <a class="card rise" style="animation-delay:.19s" href="/watermark/">
+      <span class="go">→</span>
       <span class="glyph">◆</span>
       <h2>Watermark</h2>
-      <p>Add your mark to one photo or a whole batch. Nine-point placement, drag to position,
-         auto-picks the variant that stays legible.</p>
+      <p>Your mark on one photo or a whole batch. Drag to place it, and it picks the variant that
+         stays legible on each shot.</p>
     </a>
-    <a class="card" href="/settings/">
+    <a class="card wide rise" style="animation-delay:.24s" href="/settings/">
+      <span class="go">→</span>
       <span class="glyph">⚙</span>
       <h2>Settings</h2>
       <p>Add your own watermarks, group them into kits, set where marks land by default — and export
@@ -47,9 +77,11 @@
     </a>
   </div>
 
-  <footer>
-    <span class="badge" id="brandBadge">loading brand…</span>
-    <span class="badge" id="reviewBadge" hidden>review mode</span>
+  <footer class="rise" style="animation-delay:.3s">
+    <div class="badges">
+      <span class="badge" id="brandBadge">loading…</span>
+      <span class="badge live" id="reviewBadge" hidden>review mode</span>
+    </div>
     <p>Exports land in <code id="outPath">…</code> unless you choose a folder in the tool.<br>
        Bring your own watermarks with <code>--assets</code> and <code>--config</code>.</p>
   </footer>
