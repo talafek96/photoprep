@@ -75,9 +75,16 @@ Stage full-resolution sources in the `work/` folder of the user directory above;
 Better for a whole shoot — open the folder itself, so exports can land beside the originals:
 
 ```js
-await window.__openFolder('/path/to/shoot');   // loads every photo; dest becomes <shoot>/photoprep-watermarked
+await window.__openFolder('/path/to/shoot');   // loads every photo and turns beside-source on
+await window.__openFolder('/path/to/day-two'); // open as many folders as you like
 window.__setBesideName('marked-for-ig');       // override the subfolder name
+window.__setBeside(false);                     // …or send everything to the destination folder instead
 ```
+
+**Beside source** is a mode, not a one-off: with it on, each export is written into a subfolder next
+to *the photo it came from*, so a batch gathered from several folders doesn't collapse into one.
+Photos that were dropped rather than opened carry no path — a drop gives the page bytes and a name,
+never a location — so those fall back to the destination folder.
 
 The subfolder is named after the tool on purpose, so it can never collide with a `Watermarked`
 folder you keep your own exports in. It's one path segment — separators are stripped, so the name

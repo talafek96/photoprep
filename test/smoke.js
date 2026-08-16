@@ -85,7 +85,8 @@ const check = (name, cond, extra) => {
   const wmHtml = await fetch(base + '/watermark/').then(r => r.text());
   check('layout keeps its automation hooks', ['__loadPanels', '__loadImage', '__loadCandidates', '__setDest', '__setPreviewUser', '__result']
     .every(h => layoutHtml.includes(h)));
-  check('watermark keeps its automation hooks', ['__addImages', '__suggestFor', '__suggestAll', '__setDest', '__exportAll', '__applyConfig', '__addWatermark', '__result']
+  check('watermark keeps its automation hooks', ['__addImages', '__suggestFor', '__suggestAll', '__setDest', '__exportAll', '__applyConfig', '__addWatermark', '__result',
+                                                 '__openFolder', '__setBesideName', '__setBeside']
     .every(h => wmHtml.includes(h)));
   check('tools no longer carry duplicated helpers', !/function detect\(img\)/.test(layoutHtml + wmHtml));
 
@@ -197,6 +198,18 @@ const check = (name, cond, extra) => {
   const health2 = await fetch(rBase + '/health').then(r => r.json());
   check('/health reports the review flag', health2.review === true);
   rApp.server.close();
+
+  // --- WSL path translation: the folder dialog runs on the Windows side and answers in Windows terms ---
+  // Pure function, so it's checked on every platform rather than only where it matters.
+  const { wslToLinux } = require('../src/pickdir');
+  const wasDistro = process.env.WSL_DISTRO_NAME;
+  process.env.WSL_DISTRO_NAME = 'Ubuntu';
+  check('a drive path becomes a /mnt path', wslToLinux('C:\\Users\\t\\Pictures').path === '/mnt/c/Users/t/Pictures');
+  check('a bare drive root translates', wslToLinux('D:\\').path === '/mnt/d');
+  check('\\\\wsl.localhost lands back in the distro', wslToLinux('\\\\wsl.localhost\\Ubuntu\\home\\t\\shoot').path === '/home/t/shoot');
+  check('the older \\\\wsl$ form works too', wslToLinux('\\\\wsl$\\Ubuntu\\home\\t').path === '/home/t');
+  check('another distro is reported, not guessed at', wslToLinux('\\\\wsl.localhost\\Debian\\home\\t').other === 'Debian');
+  if (wasDistro == null) delete process.env.WSL_DISTRO_NAME; else process.env.WSL_DISTRO_NAME = wasDistro;
 
   fs.rmSync(HOME, { recursive: true, force: true });
   console.log(failures ? '\n' + failures + ' check(s) failed' : '\nall checks passed');

@@ -17,6 +17,7 @@
   #anchors button { padding:9px 0; font-size:14px; }
   #anchors button.on { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); }
   #sugTag { font-size:10.5px; color:var(--warn); margin:6px 0 0; min-height:14px; }
+  #besideSource.on { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); font-weight:600; }
 </style>
 <body>
 <div id="left">
@@ -32,8 +33,8 @@
   <fieldset><legend>Images</legend>
     <div class="drop" id="dropImgs">Drop / click — add images (multi-select ok)</div>
     <button id="openFolder" style="width:100%">📂 Open a folder of photos…</button>
-    <p class="hint" id="srcNote">Opening a folder also sets the destination beside it, in a subfolder —
-      dropped files can't do that, because a drop gives the page no path.</p>
+    <p class="hint" id="srcNote">Open folders — one or several — and each export can land beside the photo it
+      came from. Dropped files can't do that: a drop gives the page bytes and a name, never a path.</p>
     <div class="row"><button id="prev">‹ Prev</button><button id="next">Next ›</button></div>
     <label>Output name (this image)</label>
     <input type="text" id="outName" placeholder="filename (no extension)">
@@ -85,7 +86,7 @@
     <div class="row"><button id="pickDir" style="flex:0 0 auto">📁 Choose…</button>
       <input type="text" id="dest" placeholder="blank = photoprep's out folder" style="flex:1"></div>
     <div class="row" style="margin-top:6px">
-      <button id="besideSource" style="flex:0 0 auto" title="Save into a subfolder next to the photos you opened">↩ Beside source</button>
+      <button id="besideSource" style="flex:0 0 auto" title="Write each export into a subfolder next to the photo it came from. Photos that were dropped carry no path, so those fall back to the destination above.">↩ Beside source</button>
       <input type="text" id="besideName" value="photoprep-watermarked" title="Subfolder name — kept tool-specific so it can't collide with a folder you made yourself" style="flex:1"></div>
     <p class="hint" id="destNote">Click Choose… for a folder picker, or type a path (absolute, ~ ok). Picker overrides the text path.</p>
     <label>If a file already exists</label>
@@ -178,9 +179,9 @@ function trimAlpha(im){ const W=im.naturalWidth||im.width, H=im.naturalHeight||i
 wireDrop(document.getElementById('dropImgs'),(im,nm)=>addImage(nm.replace(/\.[^.]+$/,''),nm,im),true);
 
 // ---------- images / thumbnails ----------
-function addImage(id,name,img,suggest){ const wm=defWM(); if(CONFIG.watermarks&&CONFIG.watermarks[0]) wm.id=CONFIG.watermarks[0].id;
-  const it={id,name,img,wm,sug:null,dup:detectWatermark(img).likely,result:null,outName:(name||'img').replace(/\.[^.]+$/,''),approved:true,comment:''}; if(suggest){applySuggest(it,suggest); if(suggest.out)it.outName=suggest.out; if(suggest.comment)it.comment=suggest.comment;} it.sug=snap(it.wm);
-  IMGS.push(it); buildStrip(); if(cur<0){cur=0;selectImg(0);} else updateCounter(); }
+function addImage(id,name,img,suggest,srcDir){ const wm=defWM(); if(CONFIG.watermarks&&CONFIG.watermarks[0]) wm.id=CONFIG.watermarks[0].id;
+  const it={id,name,img,wm,sug:null,dup:detectWatermark(img).likely,result:null,outName:(name||'img').replace(/\.[^.]+$/,''),approved:true,comment:'',srcDir:srcDir||''}; if(suggest){applySuggest(it,suggest); if(suggest.out)it.outName=suggest.out; if(suggest.comment)it.comment=suggest.comment;} it.sug=snap(it.wm);
+  IMGS.push(it); buildStrip(); if(cur<0){cur=0;selectImg(0);} else updateCounter(); if(typeof refreshDestNote==='function')refreshDestNote(); }
 function buildStrip(){ const strip=document.getElementById('strip'); strip.innerHTML='';
   IMGS.forEach((it,i)=>{ const d=document.createElement('div'); d.className='thumb'+(i===cur?' on':''); d.onclick=()=>selectImg(i);
     const tc=document.createElement('canvas'); tc.width=64; tc.height=80; const g=tc.getContext('2d');
@@ -223,9 +224,12 @@ document.getElementById('comment').oninput=function(){ if(C())C().comment=this.v
 document.getElementById('outName').oninput=function(){ if(C())C().outName=this.value.trim(); updateOutPrev(); };
 function updateOutPrev(){ const it=C(); const ext=exportFmt==='png'?'png':'jpg'; const base=it?((it.outName||it.name.replace(/\.[^.]+$/,'')||'img').replace(/[^\w.\- ]+/g,'_')):''; document.getElementById('outPrev').textContent=base?('→ saves as  '+base+'.'+ext):''; }
 function updateRenameNote(){ document.getElementById('renameNote').innerHTML = PPSave.onExist==='overwrite' ? 'Overwrite: replaces any existing file with the same name in the folder.' : 'Auto-rename: if <code>name.jpg</code> exists in the folder, it saves <code>name_1.jpg</code>, then <code>name_2.jpg</code>, … — never overwrites.'; }
-PPSave.wireDestPicker({ inputId:'dest', btnId:'pickDir', noteId:'destNote',
-  idleNote:'Click Choose… for a folder picker, or type a path (absolute, ~ ok). Picker overrides the text path.',
-  onPicked:p=>toast('folder: '+p.replace(/^\[|\]$/g,'').split('/').pop()) });
+const DEST_IDLE='Click Choose… for a folder picker, or type a path (absolute, ~ ok). Picker overrides the text path.';
+PPSave.wireDestPicker({ inputId:'dest', btnId:'pickDir', noteId:'destNote', idleNote:DEST_IDLE,
+  // Choosing a folder by hand is a statement about where these exports go, so it ends beside-source mode.
+  onPicked:()=>setBeside(false) });
+// Only a real keystroke fires this — assigning .value from script does not — so typing a path also ends the mode.
+document.getElementById('dest').addEventListener('input',()=>{ if(BESIDE) setBeside(false); });
 rng('insX',v=>{ if(C()){C().wm.insX=+v;txt('insXV',v);C().wm.place='anchor';syncAnchor();draw();flagDelta();} });
 rng('insY',v=>{ if(C()){C().wm.insY=+v;txt('insYV',v);C().wm.place='anchor';syncAnchor();draw();flagDelta();} });
 rng('wmSz',v=>{ if(C()){C().wm.sizePct=+v;txt('wmSzV',v);draw();flagDelta();} });
@@ -275,13 +279,13 @@ async function exportAll(){ if(!IMGS.length)return; const ext=exportFmt==='png'?
     done++; document.getElementById('expTag').textContent='exporting '+done+'/'+approved.length+' …';
     const {W,H}=exportDims(it); off.width=W; off.height=H; render(off.getContext('2d'),W,H,it.wm,it.img,true);
     const bl=await PPSave.canvasBlob(off,exportFmt,exportQ); const base=(it.outName||it.name.replace(/\.[^.]+$/,'')||('img'+i)).replace(/[^\w.\- ]+/g,'_'); const fname=base+'.'+ext;
-    const w=await PPSave.writeOne(fname,bl);
+    const w=await PPSave.writeOne(fname,bl,besideDirFor(it));
     const saved=w.saved, finalName=w.out||fname, bytes=w.bytes!=null?w.bytes:bl.size, renamed=!!w.renamed;
     it.result=saved?{path:saved}:null;
     items.push(Object.assign({exported:!!saved,out:finalName,saved,bytes,renamed},common)); }
   buildStrip(); selectImg(cur);
   const exported=items.filter(x=>x.exported), rejected=items.filter(x=>!x.approved), withNotes=items.filter(x=>x.comment);
-  window.__result={ tool:'watermark', format:exportFmt, quality:exportQ, onExist:PPSave.onExist, dest:PPSave.destLabel(), count:items.length, exportedCount:exported.length, rejectedCount:rejected.length, items, ts:Date.now() };
+  window.__result={ tool:'watermark', format:exportFmt, quality:exportQ, onExist:PPSave.onExist, dest:BESIDE?('beside each source, in '+besideName()+'/ (fallback '+PPSave.destLabel()+')'):PPSave.destLabel(), beside:BESIDE?besideName():null, count:items.length, exportedCount:exported.length, rejectedCount:rejected.length, items, ts:Date.now() };
   PPSave.postFeedback('wm_'+window.__result.ts+'.json', window.__result);   // review mode only: a durable copy for the assistant
   const mb=exported.reduce((a,x)=>a+(x.bytes||0),0)/1048576, rn=exported.filter(x=>x.renamed).length;
   document.getElementById('expTag').textContent='✓ exported '+exported.length+'/'+items.length+' · '+exportFmt+' · '+mb.toFixed(1)+'MB'+(rejected.length?' · '+rejected.length+' rejected':'')+(withNotes.length?' · '+withNotes.length+' note(s)':''); toast('done'); }
@@ -300,7 +304,27 @@ function besideName() {
   const clean = raw.replace(/[\\/]+/g, '-').replace(/^\.+/, '').slice(0, 60);
   return clean || BESIDE_DEFAULT;
 }
-const applyBeside = () => { if (SOURCE_DIR) window.__setDest(SOURCE_DIR + '/' + besideName()); };
+// Beside-source is a *mode*, not a one-shot button: with it on, every photo that knows where it came
+// from is written next to itself, so a batch gathered from several folders doesn't collapse into one.
+let BESIDE = false;
+const besideDirFor = it => (BESIDE && it && it.srcDir) ? (it.srcDir + '/' + besideName()) : '';
+const withPath = () => IMGS.filter(it => it.srcDir).length;
+function setBeside(on) {
+  BESIDE = !!on;
+  document.getElementById('besideSource').classList.toggle('on', BESIDE);
+  refreshDestNote();
+}
+// The destination line says what will actually happen, right under the buttons that decide it —
+// the old feedback landed in the suggestion tag at the other end of the panel, next to unrelated text.
+function refreshDestNote() {
+  const note = document.getElementById('destNote'), dest = PPSave.destLabel();
+  if (!BESIDE) { note.textContent = PPSave.destDir ? ('Path: ' + PPSave.destDir) : (PPSave.dirHandle ? ('Folder: ' + dest) : DEST_IDLE); return; }
+  const n = withPath(), orphans = IMGS.length - n;
+  const where = n === 1 ? (besideDirFor(IMGS.find(it => it.srcDir))) : ('each photo’s own folder, in ' + besideName() + '/');
+  note.textContent = 'Beside source: ' + (IMGS.length ? n + ' photo(s) → ' + where : 'opened photos go to ' + besideName() + '/ next to themselves')
+    + (orphans ? ' · ' + orphans + ' dropped photo(s) have no path, so those go to ' + dest : '');
+}
+const applyBeside = () => { if (SOURCE_DIR) window.__setDest(SOURCE_DIR + '/' + besideName()); refreshDestNote(); };
 try {
   const saved = localStorage.getItem('photoprepBesideName');
   if (saved) document.getElementById('besideName').value = saved;
@@ -316,10 +340,11 @@ document.getElementById('openFolder').onclick = async () => {
     if (!list.files.length) { note.textContent = 'No photos in ' + pick.path; return; }
     SOURCE_DIR = list.dir;
     await window.__addImages(list.files.map(f => ({
-      id: f.name, name: f.name, url: '/file?path=' + encodeURIComponent(list.dir + '/' + f.name),
+      id: f.name, name: f.name, srcDir: list.dir,
+      url: '/file?path=' + encodeURIComponent(list.dir + '/' + f.name),
     })));
-    // Default the destination beside the sources, which is the usual intent when you open a folder.
-    applyBeside();
+    // Default to writing beside the sources, which is the usual intent when you open a folder.
+    setBeside(true); applyBeside();
     note.textContent = list.files.length + ' photo(s) from ' + list.dir;
     toast('opened ' + list.files.length + ' photo(s)');
   } catch (e) { note.textContent = 'Could not open that folder.'; }
@@ -331,9 +356,8 @@ document.getElementById('besideName').oninput = function () {
   applyBeside();
 };
 document.getElementById('besideSource').onclick = () => {
-  if (!SOURCE_DIR) { toast('open a folder first'); return; }
-  applyBeside();
-  toast('saving beside the source');
+  setBeside(!BESIDE);
+  if (BESIDE) applyBeside();     // single-folder case: show the concrete path in the box too
 };
 
 document.getElementById('saveDef').onclick=()=>{ const it=C(); if(!it){toast('load an image first');return;}
@@ -350,20 +374,24 @@ function applyConfig(cfg){ CONFIG={ basePath:cfg.basePath||'/assets/watermarks/'
   return Promise.all((cfg.watermarks||[]).map(w=>window.__addWatermark(w.id,CONFIG.basePath+w.file,w.label,w.group))).then(()=>{ window.__configLoaded=true; buildKits(); if(C()){ if(!C().wm.id&&CONFIG.watermarks[0])C().wm.id=CONFIG.watermarks[0].id; syncControls(C().wm); draw(); } }); }
 window.__applyConfig=applyConfig;
 window.__addWatermark=(id,url,label,group)=>new Promise(r=>urlToImg(url,im=>{marks[id]={img:trimAlpha(im),group:group||groupOf(id)};addOpt(id,label||id);r();}));
-window.__addImages=async list=>{ for(const o of list){ await new Promise(r=>urlToImg(o.url,im=>{addImage(o.id||o.name||('img'+IMGS.length),o.name||o.id||('img'+IMGS.length),im,o.suggest);r();})); } return 'ok'; };  // sequential = preserves input order
+window.__addImages=async list=>{ for(const o of list){ await new Promise(r=>urlToImg(o.url,im=>{addImage(o.id||o.name||('img'+IMGS.length),o.name||o.id||('img'+IMGS.length),im,o.suggest,o.srcDir);r();})); } return 'ok'; };  // sequential = preserves input order
 window.__suggestFor=(id,w)=>{ const it=IMGS.find(x=>x.id===id); if(!it)return'no'; applySuggest(it,w); it.sug=snap(it.wm); if(C()===it){syncControls(it.wm);draw();flagDelta();} return'ok'; };
 window.__suggestAll=w=>{ IMGS.forEach(it=>{ applySuggest(it,w); it.sug=snap(it.wm); }); if(C()){syncControls(C().wm);draw();flagDelta();} return'ok'; };
 window.__exportAll=()=>exportAll();
-window.__setDest=p=>{ const d=PPSave.setDest(p); document.getElementById('dest').value=d; document.getElementById('destNote').textContent=d?('Path: '+d):'Click Choose… for a folder picker, or type a path.'; return 'ok'; };
+window.__setDest=p=>{ const d=PPSave.setDest(p); document.getElementById('dest').value=d; refreshDestNote(); return 'ok'; };
+// Beside-source, for automation: on, every photo opened from a folder is written next to itself;
+// anything dropped (no path) falls back to the destination above.
+window.__setBeside=on=>{ setBeside(on); if(BESIDE)applyBeside(); return BESIDE; };
 // Batch/automation: point the tool at a folder and choose where its exports land, without the UI.
 window.__openFolder = async dir => {
   const list = await fetch('/list?dir=' + encodeURIComponent(dir)).then(r => r.json());
   if (!list.ok) return list;
   SOURCE_DIR = list.dir;
   await window.__addImages(list.files.map(f => ({
-    id: f.name, name: f.name, url: '/file?path=' + encodeURIComponent(list.dir + '/' + f.name),
+    id: f.name, name: f.name, srcDir: list.dir,
+    url: '/file?path=' + encodeURIComponent(list.dir + '/' + f.name),
   })));
-  applyBeside();
+  setBeside(true); applyBeside();
   document.getElementById('srcNote').textContent = list.files.length + ' photo(s) from ' + list.dir;
   return { ok: true, dir: list.dir, count: list.files.length, dest: document.getElementById('dest').value };
 };

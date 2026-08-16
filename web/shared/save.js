@@ -20,9 +20,12 @@ const PPSave = {
     return new Promise(res => canvas.toBlob(res, type, fmt === 'png' ? undefined : quality));
   },
 
-  saveBlob(name, blob) {
+  // `dir` overrides the destination for this one write — how "beside the source" puts each export
+  // next to the photo it came from, when a batch was gathered from more than one folder.
+  saveBlob(name, blob, dir) {
+    const to = dir || this.destDir;
     const u = '/save?name=' + encodeURIComponent(name)
-      + (this.destDir ? '&dir=' + encodeURIComponent(this.destDir) : '')
+      + (to ? '&dir=' + encodeURIComponent(to) : '')
       + '&onExist=' + this.onExist;
     return fetch(u, { method: 'POST', body: blob }).then(r => r.json()).catch(() => ({ ok: false }));
   },
@@ -48,7 +51,14 @@ const PPSave = {
   },
 
   // One export → {saved, out, renamed, bytes}; saved is null if the write failed.
-  async writeOne(fname, blob) {
+  async writeOne(fname, blob, dir) {
+    // A browser directory handle names one folder and can't reach outside it, so an explicit
+    // per-file destination has to go through the server.
+    if (dir) {
+      const r = await this.saveBlob(fname, blob, dir);
+      return r.ok ? { saved: r.path, out: r.name || fname, renamed: !!r.renamed, bytes: r.bytes }
+                  : { saved: null, error: r.error || 'write failed' };
+    }
     if (this.dirHandle) {
       try {
         const fn = await this.writeHandle(this.dirHandle, fname, blob, this.onExist);
@@ -92,6 +102,10 @@ const PPSave = {
     btn.onclick = async () => {
       btn.disabled = true;
       if (note) note.textContent = 'Waiting for the folder picker…';
+      // Why the native dialog can fail is worth saying out loud: on WSL it hands back a Windows path
+      // that may name no folder this side of the boundary, and a silent no-op there reads as a dead
+      // button rather than as something the person can act on.
+      let why = 'The folder picker did not return a path.';
       try {
         const typed = input ? input.value.trim() : '';
         const r = await fetch('/pickdir?start=' + encodeURIComponent(typed)).then(x => x.json());
@@ -104,10 +118,12 @@ const PPSave = {
           return;
         }
         if (r.canceled) { if (note) note.textContent = self.destDir ? ('Path: ' + self.destDir) : idle; return; }
-      } catch (e) { /* fall through to the browser picker */ }
+        if (r.error) why = r.error;
+      } catch (e) { why = 'Could not reach the folder picker — is photoprep still running?'; }
       finally { btn.disabled = false; }
 
-      if (!window.showDirectoryPicker) { if (note) note.textContent = 'No folder picker available — type a path.'; return; }
+      if (note) note.textContent = why;
+      if (!window.showDirectoryPicker) return;
       try {
         const opts = { mode: 'readwrite' };
         if (self.dirHandle) opts.startIn = self.dirHandle;
