@@ -72,9 +72,10 @@
     <div class="drop" id="dropBot">Drop / click — <b>BOTTOM</b></div>
     <button id="swap">⇅ Swap panels</button>
   </fieldset>
-  <fieldset id="srcSplit" style="display:none"><legend>Source (pano)</legend>
-    <div class="drop" id="dropPano">Drop / click — <b>WIDE photo</b></div>
-    <label>Slices <span id="nsV">2</span></label><input type="range" id="nslices" min="2" max="5" value="2">
+  <fieldset id="srcSplit" style="display:none"><legend>Source (pano / crop)</legend>
+    <div class="drop" id="dropPano">Drop / click — <b>photo</b></div>
+    <label>Slices <span id="nsV">2</span></label><input type="range" id="nslices" min="1" max="5" value="2">
+    <div class="hint" id="sliceHint"></div>
   </fieldset>
 
   <fieldset id="frameSet"><legend>Frame</legend>
@@ -141,7 +142,7 @@ let CANDS=[], curC=-1, seq=1;
 function mkP(){ return {img:null,scale:1,ox:.5,oy:.5,overlay:'thirds',orient:0}; }
 function newCand(name){ return {id:'c'+(seq++), name:name||('Layout '+(CANDS.length+1)), mode:'stack', P:[mkP(),mkP()], S:{img:null,scale:1,ox:.5,oy:.5,n:2,overlay:'thirds',orient:0}, ratio:0.8, gutter:0, bg:'#ffffff', approved:true, comment:'', result:null }; }
 // normal 3:2 → 2 slides; only a truly wide stitched pano gets more. Each slide is 4:5 (aspect 0.8).
-function suggestN(img){ const ar=img.width/img.height; return ar<2.2 ? 2 : clamp(Math.round(ar/0.8),3,5); }
+function suggestN(img){ const ar=img.width/img.height; if(ar<=1.05) return 1; return ar<2.2 ? 2 : clamp(Math.round(ar/0.8),3,5); }
 function CC(){ return CANDS[curC]; }
 function hasImgs(c){ return c.mode==='split' ? !!c.S.img : (!!c.P[0].img && !!c.P[1].img); }
 
@@ -240,7 +241,7 @@ function switchCand(i){ curC=i; const c=CC(); hoverIdx=-1;
   document.querySelectorAll('#mode button').forEach(b=>b.classList.toggle('on',b.dataset.m===c.mode)); showHideSrc(c.mode);
   document.querySelectorAll('#ratio button').forEach(b=>b.classList.toggle('on',b.dataset.r===String(c.ratio)));
   document.querySelectorAll('#bg button').forEach(b=>b.classList.toggle('on',b.dataset.c===c.bg));
-  document.getElementById('gutter').value=c.gutter; txt('gutV',c.gutter); document.getElementById('nslices').value=c.S.n; txt('nsV',c.S.n);
+  document.getElementById('gutter').value=c.gutter; txt('gutV',c.gutter); document.getElementById('nslices').value=c.S.n; txt('nsV',c.S.n); syncSliceHint();
   document.getElementById('outName').value=c.name;
   document.querySelectorAll('#approve button').forEach(b=>b.classList.toggle('on',b.dataset.a===(c.approved?'1':'0'))); document.getElementById('comment').value=c.comment||'';
   ['dropTop','dropBot','dropPano'].forEach(id=>document.getElementById(id).classList.remove('set'));
@@ -255,7 +256,9 @@ seg('fmt','f',v=>{ exportFmt=v; document.getElementById('qWrap').style.display=v
 seg('onExist','e',v=>{ PPSave.onExist=v; updateRenameNote(); });
 seg('approve','a',v=>{ if(CC()){ CC().approved=(v==='1'); buildStrip(); } });
 rng('gutter',v=>{ if(CC()){CC().gutter=+v; txt('gutV',v); draw();} });
-rng('nslices',v=>{ if(CC()){CC().S.n=+v; txt('nsV',v); layout(); updateOutPrev(); buildStrip();} });
+function syncSliceHint(){ const c=CC(), el=document.getElementById('sliceHint'); if(!el)return;
+  el.textContent = (c&&c.S.n===1) ? 'One slice = crop this photo to the frame ratio (no split).' : ''; }
+rng('nslices',v=>{ if(CC()){CC().S.n=+v; txt('nsV',v); syncSliceHint(); layout(); updateOutPrev(); buildStrip();} });
 rng('q',v=>{ exportQ=+v/100; txt('qV',v); });
 document.getElementById('outName').oninput=function(){ if(CC()){CC().name=this.value.trim()||'layout'; updateOutPrev(); updateCounter(); buildStrip();} };
 document.getElementById('comment').oninput=function(){ if(CC())CC().comment=this.value; };
@@ -265,7 +268,7 @@ document.getElementById('prev').onclick=()=>{ if(curC>0)switchCand(curC-1); };
 document.getElementById('next').onclick=()=>{ if(curC<CANDS.length-1)switchCand(curC+1); };
 const toast=makeToast('expTag');
 function updateOutPrev(){ const c=CC(); if(!c){document.getElementById('outPrev').textContent='';return;} const ext=exportFmt==='png'?'png':'jpg', base=(c.name||'layout').replace(/[^\w.\- ]+/g,'_');
-  document.getElementById('outPrev').textContent = c.mode==='split' ? ('→ '+base+'_1.'+ext+' … '+base+'_'+c.S.n+'.'+ext) : ('→ '+base+'.'+ext); }
+  document.getElementById('outPrev').textContent = (c.mode==='split'&&c.S.n>1) ? ('→ '+base+'_1.'+ext+' … '+base+'_'+c.S.n+'.'+ext) : ('→ '+base+'.'+ext); }
 function updateRenameNote(){ document.getElementById('renameNote').innerHTML = PPSave.onExist==='overwrite' ? 'Overwrite: replaces any existing file with the same name.' : 'Auto-rename: if <code>name.jpg</code> exists, saves <code>name_1.jpg</code>, … — never overwrites.'; }
 // overlay selects
 (function(){ function opts(sel){ OVERLAYS.forEach(([v,l])=>{ const o=document.createElement('option'); o.value=v;o.textContent=l; sel.appendChild(o); }); sel.value='thirds'; }
@@ -333,7 +336,7 @@ async function exportApproved(){ if(!CANDS.length)return; const ext=exportFmt===
     done++; document.getElementById('expTag').textContent='exporting '+done+'/'+doable.length+' …';
     const {W,H,tile}=exportDims(c); off.width=W; off.height=H; render(off.getContext('2d'),W,H,c,true); const base=(c.name||'layout').replace(/[^\w.\- ]+/g,'_'); const saved=[];
     if(c.mode==='split'){ const tc=document.createElement('canvas'); tc.width=tile; tc.height=H;
-      for(let k=0;k<c.S.n;k++){ const g=tc.getContext('2d'); g.clearRect(0,0,tile,H); g.drawImage(off,k*tile,0,tile,H,0,0,tile,H); const bl=await canvasBlob(tc); const r=await writeOne(base+'_'+(k+1)+'.'+ext,bl); if(r.saved)saved.push(r); } }
+      for(let k=0;k<c.S.n;k++){ const g=tc.getContext('2d'); g.clearRect(0,0,tile,H); g.drawImage(off,k*tile,0,tile,H,0,0,tile,H); const bl=await canvasBlob(tc); const nm=c.S.n>1?(base+'_'+(k+1)):base; const r=await writeOne(nm+'.'+ext,bl); if(r.saved)saved.push(r); } }
     else { const bl=await canvasBlob(off); const r=await writeOne(base+'.'+ext,bl); if(r.saved)saved.push(r); }
     c.result=saved.length?{paths:saved.map(s=>s.saved)}:null;
     items.push(Object.assign({exported:saved.length>0, saved:saved.map(s=>s.saved), out:saved.map(s=>s.out), bytes:saved.reduce((a,s)=>a+(s.bytes||0),0), dims:{W,H}},common)); }
