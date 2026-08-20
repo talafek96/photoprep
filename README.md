@@ -4,8 +4,9 @@ Get photos ready to post — frame them, mark them, done.
 
 Two small tools that run locally in your browser:
 
-- **Layout** — stack two landscape photos into one portrait frame, or split a panorama into slices
-  that scroll like one wide shot. Exports clean, at full resolution.
+- **Layout** — stack two landscape photos into one portrait frame, split a panorama into slices
+  that scroll like one wide shot, or just crop one photo to the frame ratio. Exports clean, at full
+  resolution.
 - **Watermark** — put your mark on one photo or a whole batch. Nine-point placement, drag to
   position, and it auto-picks the variant of your logo that stays legible on each photo.
 
@@ -60,6 +61,7 @@ browser to a person for the judgement calls:
 await window.__loadCandidates([
   { name: 'hero', mode: 'stack', panels: { 0: '/work/a.jpg', 1: '/work/b.jpg' } },
   { name: 'pano', mode: 'split', image: '/work/wide.jpg', n: 2 },
+  { name: 'crop', mode: 'split', image: '/work/tall.jpg', n: 1 },   // n:1 = crop to the frame ratio
 ]);
 window.__setDest('/absolute/output/dir');
 // watermark
