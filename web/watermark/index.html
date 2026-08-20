@@ -209,9 +209,14 @@ function buildKits(){ const box=document.getElementById('kits'); box.innerHTML='
   Object.keys(CONFIG.groups||{}).forEach(k=>{ const b=document.createElement('button'); b.dataset.k=k; b.textContent=cap(k); b.onclick=()=>selectKit(k); box.appendChild(b); });
   const none=document.createElement('button'); none.dataset.k='none'; none.textContent='None'; none.onclick=()=>selectKit('none'); box.appendChild(none);
   if(C()) highlightKit(); }
+// the mark a kit starts on: its light-bg default, else the first entry of its legibility order, else any mark in the kit
+function kitDefaultId(k){ const rule=CONFIG.groups[k]||{}; const has=id=>!!id&&(marks[id]||(CONFIG.watermarks||[]).some(w=>w.id===id));
+  if(has(rule.onLight))return rule.onLight;
+  if(rule.order&&rule.order.length){ const f=rule.order.find(has); if(f)return f; }
+  const w=(CONFIG.watermarks||[]).find(w=>w.group===k); return w?w.id:null; }
 function selectKit(k){ const it=C(); if(!it)return;
   if(k==='none'){ it.wm.on=false; }
-  else { it.wm.on=true; const rule=CONFIG.groups[k]||{}; let def=rule.onLight; if(!def||!marks[def]){ const w=(CONFIG.watermarks||[]).find(w=>w.group===k); def=w&&w.id; } if(def&&marks[def]) it.wm.id=def; }
+  else { it.wm.on=true; const def=kitDefaultId(k); if(def) it.wm.id=def; }
   document.getElementById('wmSel').value=it.wm.on?it.wm.id:''; highlightKit(); draw(); flagDelta(); }
 function highlightKit(){ const it=C(); const active=it?(it.wm.on?groupOf(it.wm.id):'none'):null; document.querySelectorAll('#kits button').forEach(b=>b.classList.toggle('on',b.dataset.k===active)); }
 
@@ -269,7 +274,14 @@ const toast=makeToast('sugTag');
 function snap(wm){ return {on:wm.on,id:wm.id,sizePct:wm.sizePct,op:+wm.op.toFixed(2),place:wm.place,anchor:wm.anchor,insX:wm.insX,insY:wm.insY,fx:+wm.fx.toFixed(3),fy:+wm.fy.toFixed(3)}; }
 function diff(it){ if(!it.sug)return[]; const a=it.sug,b=snap(it.wm),out=[]; ['on','id','sizePct','op','place','anchor','insX','insY','fx','fy'].forEach(k=>{ if(a[k]!==b[k]&&!(a.place==='anchor'&&(k==='fx'||k==='fy'))&&!(a.place==='free'&&(k==='anchor'||k==='insX'||k==='insY')))out.push(k); }); return out; }
 function flagDelta(){ const el=document.getElementById('sugTag'); const it=C(); if(!it||!it.sug){el.textContent='';return;} const d=diff(it); el.textContent=d.length?('changed: '+d.join(', ')):'✓ matches suggestion'; }
-function applySuggest(it,w){ const wm=it.wm; ['on','id','place','anchor','insX','insY','fx','fy','sizePct','op'].forEach(k=>{ if(w[k]!=null)wm[k]=w[k]; }); }
+function applySuggest(it,w){ const wm=it.wm;
+  // `group` picks the KIT (same semantics as clicking a kit button); explicit keys below still win,
+  // so {group:'torii'} sets the kit and {group:'torii',id:'japan-color'} pins the variant inside it.
+  if(w.group!=null){ const g=w.group;
+    if(g===false||g==='none'){ wm.on=false; }
+    else if(!CONFIG.groups||!CONFIG.groups[g]){ console.warn('[photoprep] unknown watermark kit '+JSON.stringify(g)+' — known kits: '+Object.keys(CONFIG.groups||{}).join(', ')); }
+    else { const def=kitDefaultId(g); if(def){ wm.on=true; wm.id=def; } else console.warn('[photoprep] kit '+g+' has no usable marks'); } }
+  ['on','id','place','anchor','insX','insY','fx','fy','sizePct','op'].forEach(k=>{ if(w[k]!=null)wm[k]=w[k]; }); }
 
 // ---------- export ----------
 async function exportAll(){ if(!IMGS.length)return; const ext=exportFmt==='png'?'png':'jpg', items=[]; const off=document.createElement('canvas'); let done=0;
@@ -376,7 +388,7 @@ window.__applyConfig=applyConfig;
 window.__addWatermark=(id,url,label,group)=>new Promise(r=>urlToImg(url,im=>{marks[id]={img:trimAlpha(im),group:group||groupOf(id)};addOpt(id,label||id);r();}));
 window.__addImages=async list=>{ for(const o of list){ await new Promise(r=>urlToImg(o.url,im=>{addImage(o.id||o.name||('img'+IMGS.length),o.name||o.id||('img'+IMGS.length),im,o.suggest,o.srcDir);r();})); } return 'ok'; };  // sequential = preserves input order
 window.__suggestFor=(id,w)=>{ const it=IMGS.find(x=>x.id===id); if(!it)return'no'; applySuggest(it,w); it.sug=snap(it.wm); if(C()===it){syncControls(it.wm);draw();flagDelta();} return'ok'; };
-window.__suggestAll=w=>{ IMGS.forEach(it=>{ applySuggest(it,w); it.sug=snap(it.wm); }); if(C()){syncControls(C().wm);draw();flagDelta();} return'ok'; };
+window.__suggestAll=w=>{ IMGS.forEach(it=>{ applySuggest(it,w); it.sug=snap(it.wm); }); if(C()){syncControls(C().wm);draw();flagDelta();} return IMGS.length; };
 window.__exportAll=()=>exportAll();
 window.__setDest=p=>{ const d=PPSave.setDest(p); document.getElementById('dest').value=d; refreshDestNote(); return 'ok'; };
 // Beside-source, for automation: on, every photo opened from a folder is written next to itself;
