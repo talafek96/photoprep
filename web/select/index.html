@@ -425,6 +425,12 @@ body.locked .locknote { display:flex; }
 #lhead .sp { flex:1; }
 #lhead b { color:var(--fg); font-weight:600; }
 #lzoom { color:var(--accent); font-variant-numeric:tabular-nums; }
+#inputTag {
+  font-family:var(--mono); font-size:9px; letter-spacing:.09em; text-transform:uppercase;
+  background:transparent; border:1px solid var(--border); color:var(--faint);
+  padding:3px 8px; border-radius:100px; box-shadow:none;
+}
+#inputTag:hover { border-color:var(--border-strong); color:var(--fg); }
 kbd {
   font-family:var(--mono); font-size:9px; background:var(--surface-2); color:var(--mut);
   border:1px solid var(--border); border-radius:3px; padding:1px 5px; margin-right:4px;
@@ -537,13 +543,15 @@ kbd {
     <span id="lwhy"></span>
     <span class="sp"></span>
     <span id="lzoom">fit</span>
+    <button id="inputTag" title="input device">trackpad</button>
     <span id="lpos"></span>
   </div>
   <div id="lstage"><img id="limg" alt=""></div>
   <div id="lfoot">
-    <span><kbd>pinch</kbd>zoom</span>
-    <span><kbd>2 fingers</kbd>pan</span>
+    <span><kbd id="wheelKey">2 fingers</kbd><span id="wheelHint">pan</span></span>
+    <span><kbd>ctrl+wheel</kbd>zoom</span>
     <span><kbd>drag</kbd>pan</span>
+    <span><kbd>dbl-click</kbd>fit / 100%</span>
     <span><kbd>0</kbd>fit</span>
     <span><kbd>1</kbd>100%</span>
     <span><kbd>←</kbd><kbd>→</kbd>frame</span>
@@ -818,6 +826,19 @@ const toast = makeToast('stMsg');
  * The reason this exists at all: judging a large set from small thumbnails is how good frames get
  * mis-ranked. Verdict keys stay live in here so a call made at 100% doesn't need a trip back. */
 let LZ = { scale:1, x:0, y:0, fit:1, natural:[0,0] };
+let INPUT = 'auto';          // 'auto' | 'mouse' | 'trackpad' — an explicit pin overrides the sniff
+let INPUT_GUESS = 'trackpad';
+
+function updateInputTag() {
+  const el = $('inputTag'); if (!el) return;
+  const dev = INPUT === 'auto' ? INPUT_GUESS : INPUT;
+  el.textContent = (INPUT === 'auto' ? '' : 'pinned ') + dev;
+  el.title = dev === 'mouse'
+    ? 'Wheel zooms, drag pans. Click to pin or re-detect.'
+    : 'Pinch zooms, two-finger scroll pans. Click to pin or re-detect.';
+  $('wheelHint').textContent = dev === 'mouse' ? 'zoom' : 'pan';
+  $('wheelKey').textContent = dev === 'mouse' ? 'wheel' : '2 fingers';
+}
 
 function openLoupe() { if (!C()) return; $('loupe').classList.add('on'); loadLoupe(); }
 function closeLoupe() { $('loupe').classList.remove('on'); $('sheet').focus(); }
@@ -866,21 +887,45 @@ function zoomAt(cx, cy, factor) {
 
 (function wireLoupe() {
   const st = $('lstage');
-  // Trackpad semantics, the way every native image viewer behaves:
-  //   pinch      -> zoom   (macOS/Windows synthesise a wheel event with ctrlKey set for pinch)
-  //   two-finger -> pan    (a plain wheel with deltaX/deltaY)
-  // Treating every wheel as zoom made two-finger scrolling zoom wildly, which is what it did before.
+  // A bare wheel means opposite things on the two devices, and the browser fires the SAME event for
+  // both, so it has to be inferred:
+  //   mouse    -> wheel = zoom, drag = pan          (a wheel is the natural zoom)
+  //   trackpad -> pinch = zoom, two-finger = pan    (a two-finger scroll must not zoom)
+  //   either   -> ctrl+wheel = zoom, drag = pan     (the universal desktop convention)
+  //
+  // The tells: a mouse wheel is coarse and quantised (deltaMode LINE/PAGE, or a large whole-number
+  // deltaY) and never reports deltaX. A trackpad sends small fractional deltas and drifts sideways.
+  // The guess LATCHES rather than being recomputed per event, so one ambiguous scroll can't flip the
+  // behaviour mid-gesture. It is a heuristic - some Windows precision touchpads report coarse deltas
+  // like a mouse - so the loupe footer shows what it decided and lets you pin it.
+  function sniff(e) {
+    if (INPUT !== 'auto') return INPUT;
+    if (e.deltaMode !== 0) { INPUT_GUESS = 'mouse'; }
+    else if (e.deltaX !== 0 || !Number.isInteger(e.deltaY)) { INPUT_GUESS = 'trackpad'; }
+    else if (Math.abs(e.deltaY) >= 50) { INPUT_GUESS = 'mouse'; }
+    updateInputTag();
+    return INPUT_GUESS;
+  }
+
   st.addEventListener('wheel', e => {
     e.preventDefault();
-    if (e.ctrlKey) {
-      // exp() keeps the zoom perceptually even regardless of how big a delta the device reports
-      zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.012));
+    const dev = sniff(e);
+    // exp() keeps the zoom perceptually even regardless of how big a delta the device reports
+    if (e.ctrlKey || dev === 'mouse') {
+      zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * (e.ctrlKey ? 0.012 : 0.003)));
     } else {
       LZ.x -= e.deltaX;
       LZ.y -= e.deltaY;
       applyLoupe();
     }
   }, { passive:false });
+
+  // double-click toggles fit <-> 100% at the cursor, as in every image viewer
+  st.addEventListener('dblclick', e => {
+    e.preventDefault();
+    if (Math.abs(LZ.scale - LZ.fit) < 0.001) zoomAt(e.clientX, e.clientY, 1 / LZ.scale);
+    else fitLoupe();
+  });
 
   let drag = null;
   st.addEventListener('pointerdown', e => {
@@ -979,6 +1024,12 @@ $('verdict').querySelectorAll('button').forEach(b => {
   b.onclick = () => { const it = C(); if (it) setVerdict(it, b.dataset.v); };
 });
 $('frameText').oninput = function () { const it = C(); if (it) it.text = this.value; render(); };
+$('inputTag').onclick = () => {
+  INPUT = INPUT === 'auto' ? 'mouse' : INPUT === 'mouse' ? 'trackpad' : 'auto';
+  updateInputTag();
+  toast(INPUT === 'auto' ? 'input: auto-detect' : 'input pinned to ' + INPUT);
+};
+updateInputTag();
 $('btnLoupe').onclick = openLoupe;
 $('btnCommit').onclick = commit;
 
