@@ -170,6 +170,20 @@ because "I suggest 2" and "you asked me for 2" are different statements.
 — "out of these six, no more than two" / "out of these three, exactly one". The chip shows `max 2`,
 `pick 1`, or `✓ 1` when met, and colours amber under / red over.
 
+**A group the assistant sends MUST be complete.** Every frame that belongs to the group's category
+has to be in it, and every candidate should belong to a group. A group presents itself as "here is the
+set, choose from it" — so a group holding only the two frames the assistant had already shortlisted is
+a lie about what the choice was. That defeats the whole point of the tool, which exists because
+pre-filtered proposals hide the frames worth arguing about.
+
+Group by something *complete and checkable*: a location, a subject, a time window. **Never group by
+"the ones I was deciding between"** — that shortlist is exactly what the person is meant to audit.
+Near-duplicate pairs belong in `alternates` on the pick instead, which is honest about being the
+assistant's own A/B.
+
+A cheap assertion before sending: every candidate has a `group`, and each group's size matches the
+number of candidates in that category.
+
 **A target is only ever a suggestion.** It never blocks the commit, never caps what can be selected,
 and being over it is not an error — the badge simply stops looking met. A hard cap that refuses to
 commit would be a dialog standing in front of a judgement call, and the judgement is the person's.
