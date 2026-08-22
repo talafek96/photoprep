@@ -61,6 +61,9 @@ body { grid-template-columns:1fr 366px; }
      the caption off every tile regardless of the content's real height. max-content makes rows
      size to their contents, which is what a contact sheet needs. */
   grid-auto-rows:max-content;
+  /* tiles keep their own height instead of stretching to the tallest in the row - without this a
+     landscape tile sitting beside a portrait one grows a slab of dead space under its caption */
+  align-items:start;
 }
 .tile {
   position:relative; border-radius:var(--radius); overflow:hidden; cursor:pointer;
@@ -70,37 +73,72 @@ body { grid-template-columns:1fr 366px; }
   --edge:var(--st-unt);
   transition:transform .15s var(--ease-io), border-color .15s var(--ease-io),
              box-shadow .25s var(--ease-io);
-  animation:rise .5s var(--ease-out) both;
+  animation:tileIn .55s var(--ease-out) both;
+}
+@keyframes tileIn {
+  from { opacity:0; transform:translateY(16px) scale(.97); filter:blur(6px); }
+  to   { opacity:1; transform:none;                        filter:blur(0); }
 }
 .tile:hover { transform:translateY(-2px); border-color:var(--border-strong); }
-.tile.cur { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent), var(--highlight); }
+.tile.cur { border-color:color-mix(in oklch, var(--edge) 60%, transparent); }
 
-/* --- border trail: a light running the focused tile's edge -------------------------------------
-   A ring-shaped mask (padding-box INTERSECT border-box leaves only the 1px border band) with a
-   blurred dot driven around it by offset-path. The `round` has to match the tile radius or the
-   light cuts the corners. This is the one signature flourish on the sheet - it marks where you are
-   without adding another colour, and it's the only thing on screen that moves continuously. */
+/* --- border trail: a light running the focused IMAGE's edge ------------------------------------
+   It rides the photo's boundary, not the card's outer border - that outer edge is the least visible
+   line on the tile, which is why the first version was easy to miss.
+
+   A conic gradient rotated by an @property angle (so it interpolates smoothly - a plain custom
+   property is a string and would step), masked to a thin band by compositing a content-box fill
+   against a border-box fill with `exclude`. The sweep carries the VERDICT colour with a near-white
+   core, so the moving light also tells you the state, and a drop-shadow in the same hue keeps it
+   legible over a bright sky or a blown-out sunset. */
+@property --ta { syntax:'<angle>'; inherits:false; initial-value:0deg; }
+
 .tile .trail {
-  position:absolute; inset:0; border-radius:inherit; pointer-events:none; opacity:0;
-  border:1.5px solid transparent;
-  -webkit-mask-image:linear-gradient(transparent,transparent), linear-gradient(#000,#000);
-          mask-image:linear-gradient(transparent,transparent), linear-gradient(#000,#000);
-  -webkit-mask-clip:padding-box, border-box;
-          mask-clip:padding-box, border-box;
-  -webkit-mask-composite:destination-in;
-          mask-composite:intersect;
-  transition:opacity .3s var(--ease-io);
+  position:absolute; left:0; right:0; top:0; height:var(--ph);
+  border-radius:var(--radius) var(--radius) 0 0;
+  pointer-events:none; opacity:0; padding:3px;
+  background:conic-gradient(from var(--ta),
+    transparent 0 48%,
+    color-mix(in oklch, var(--edge) 45%, transparent) 62%,
+    var(--edge) 78%,
+    oklch(0.99 0.02 95) 85%,
+    oklch(1 0 0) 88%,
+    oklch(0.99 0.02 95) 91%,
+    var(--edge) 95%,
+    transparent 99.5%);
+  -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+          mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;
+          mask-composite:exclude;
+  animation:sweep 2.6s linear infinite;
+  transition:opacity .35s var(--ease-io);
 }
 .tile.cur .trail { opacity:1; }
-.tile .trail::before, .tile .trail::after {
-  content:''; position:absolute; width:66px; aspect-ratio:1;
-  background:var(--accent); filter:blur(5px);
-  offset-path:rect(0 auto auto 0 round var(--radius));
-  animation:trail 3.4s linear infinite;
+@keyframes sweep { to { --ta:360deg; } }
+
+/* the glow is a separate layer so it can blur without softening the ring itself */
+.tile .trailGlow {
+  position:absolute; left:0; right:0; top:0; height:var(--ph);
+  border-radius:var(--radius) var(--radius) 0 0;
+  pointer-events:none; opacity:0; padding:4px;
+  background:conic-gradient(from var(--ta), transparent 0 58%, var(--edge) 85%, transparent 99%);
+  -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+          mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;
+          mask-composite:exclude;
+  filter:blur(10px); animation:sweep 2.6s linear infinite;
+  transition:opacity .35s var(--ease-io);
 }
-/* a second, dimmer light on the opposite side keeps the edge alive all the way round */
-.tile .trail::after { animation-delay:-1.7s; opacity:.5; width:44px; }
-@keyframes trail { from { offset-distance:0%; } to { offset-distance:100%; } }
+.tile.cur .trailGlow { opacity:1; }
+
+/* the focused card itself lifts and takes an ambient pool in its own verdict colour */
+.tile.cur {
+  transform:translateY(-3px);
+  box-shadow:0 0 0 1px color-mix(in oklch, var(--edge) 55%, transparent),
+             0 14px 34px -14px color-mix(in oklch, var(--edge) 60%, transparent),
+             var(--highlight);
+}
+.tile.cur:hover { transform:translateY(-4px); }
 
 /* the verdict landing: a single ring pulse in the new state's colour, then gone */
 @keyframes verdictPulse {
@@ -129,12 +167,26 @@ body { grid-template-columns:1fr 366px; }
    against a containing block the grid hasn't sized yet, so grid track sizing measures the image box
    as zero, sizes the row to ~114px, and silently clips the caption off every tile. A pixel height
    has no circular dependency. Tune via --ph. */
-.tile .ph { position:relative; display:block; width:100%; height:var(--ph); background:#000; }
+.tile .ph {
+  position:relative; display:block; width:100%; height:var(--ph); background:#000;
+  transition:height .3s var(--ease-out);
+}
 /* `contain`, never `cover`. This tool exists to judge photographs - cropping a landscape down to its
    sky to fill a 4:5 box defeats the entire purpose. Letterboxing is the correct trade. */
 .tile .ph img {
   position:absolute; inset:0; width:100%; height:100%; object-fit:contain; display:block;
+  transition:transform .45s var(--ease-out), opacity .2s var(--ease-io), filter .2s var(--ease-io);
 }
+.tile:hover .ph img { transform:scale(1.018); }
+/* a short scrim behind the top badges — they sit over photographs, and a white sky would swallow
+   the untouched badge entirely. Top 64px only, so it never touches the image's subject. */
+.tile .ph::before {
+  content:''; position:absolute; left:0; right:0; top:0; height:64px; pointer-events:none; z-index:1;
+  background:linear-gradient(oklch(0 0 0 / 26%), transparent 88%);
+  border-radius:var(--radius) var(--radius) 0 0;
+}
+.tile .vb, .tile .slot { z-index:2; }
+
 /* the ring sits ON the image edge, not over its middle */
 .tile .ph::after {
   content:''; position:absolute; inset:0; pointer-events:none;
@@ -148,12 +200,14 @@ body { grid-template-columns:1fr 366px; }
 
 /* verdict badge — glyph + word, never colour alone */
 .tile .vb {
-  position:absolute; top:7px; left:7px; display:inline-flex; align-items:center; gap:4px;
+  position:absolute; top:8px; left:8px; display:inline-flex; align-items:center; gap:4px;
   font-family:var(--mono); font-size:9px; letter-spacing:.1em; text-transform:uppercase;
-  padding:3px 7px 3px 5px; border-radius:100px; color:oklch(0.16 0 0);
-  background:var(--edge); box-shadow:0 1px 6px oklch(0 0 0 / 35%);
-  transition:background .25s var(--ease-io);
+  padding:3px 8px 3px 6px; border-radius:100px; color:oklch(0.16 0 0); font-weight:650;
+  background:var(--edge);
+  box-shadow:0 1px 3px oklch(0 0 0 / 45%), inset 0 1px 0 oklch(1 0 0 / 30%);
+  transition:background .25s var(--ease-io), box-shadow .25s var(--ease-io);
 }
+.tile.cur .vb { box-shadow:0 2px 10px oklch(0 0 0 / 55%), inset 0 1px 0 oklch(1 0 0 / 35%); }
 .tile[data-s=untouched] .vb { background:oklch(0 0 0 / 55%); color:var(--mut); backdrop-filter:blur(4px); }
 .tile .vb .g { font-size:10px; line-height:1; }
 
@@ -167,11 +221,16 @@ body { grid-template-columns:1fr 366px; }
 }
 .tile[data-s=selected] .slot { display:inline-flex; }
 
-.tile .foot { padding:6px 8px 7px; }
-.tile .nm {
-  font-family:var(--mono); font-size:9.5px; color:var(--mut);
-  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+.tile .foot {
+  padding:7px 9px 8px; border-top:1px solid oklch(1 0 0 / 6%);
+  background:linear-gradient(oklch(1 0 0 / 2.5%), transparent);
 }
+.tile .nm {
+  font-family:var(--mono); font-size:9.5px; color:var(--mut); letter-spacing:.02em;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  transition:color .15s var(--ease-io);
+}
+.tile:hover .nm, .tile.cur .nm { color:var(--fg); }
 /* the assistant's reason: ONE line, ellipsised, and only rendered when it earns its place */
 .tile .why {
   font-size:10.5px; color:var(--faint); margin-top:2px; line-height:1.35;
@@ -320,10 +379,11 @@ kbd {
 @media (prefers-reduced-motion: reduce) {
   .tile { animation:none; }
   #loupe { animation:none; }
-  /* a continuous indicator never stops on its own, so it matters more here than the one-shots */
-  .tile .trail::before, .tile .trail::after { animation:none; }
-  .tile.cur .trail { opacity:1; }
-  .tile.cur .trail::before { offset-distance:12%; }
+  /* a continuous indicator never stops on its own, so it matters more here than the one-shots.
+     The ring stays as a static state-coloured outline; only the sweep stops. */
+  .tile .trail, .tile .trailGlow { animation:none; }
+  .tile .trailGlow { opacity:0 !important; }
+  .tile.cur .trail { opacity:1; background:var(--edge); }
 }
 </style>
 
@@ -526,7 +586,7 @@ function render() {
     if (it.alternates && it.alternates.length) marks.push('<span class="mk">' + (it.altIdx + 1) + '/' + (it.alternates.length + 1) + '</span>');
     if (it.tags.length || it.text) marks.push('<span class="mk">💬</span>');
     d.innerHTML =
-      '<span class="trail"></span>' +
+      '<span class="trailGlow"></span><span class="trail"></span>' +
       '<span class="ph">' +
         '<img loading="lazy" src="' + it.url + '" alt="">' +
         '<span class="vb"><span class="g">' + meta.g + '</span>' + meta.t + '</span>' +
@@ -537,6 +597,16 @@ function render() {
         '<div class="nm">' + esc(it.name) + '</div>' +
         (it.why ? '<div class="why" title="' + esc(it.why) + '">' + esc(it.why) + '</div>' : '') +
       '</div>';
+    // Give each tile its own photo's shape (within limits) once the image reports its size.
+    // A uniform 4:5 box letterboxes every landscape into a strip between two black bars, which is
+    // the opposite of what a sheet for JUDGING photographs should do.
+    const im = d.querySelector('img');
+    const shape = () => {
+      if (!im.naturalWidth) return;
+      const w = d.clientWidth || 200;
+      d.style.setProperty('--ph', clamp(Math.round(w * im.naturalHeight / im.naturalWidth), 132, 300) + 'px');
+    };
+    if (im.complete) shape(); else im.onload = shape;
     d.onclick = () => { CUR = idx; render(); renderPanel(); };
     d.ondblclick = () => openLoupe();
     sheet.appendChild(d);
