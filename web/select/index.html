@@ -28,7 +28,9 @@ body { grid-template-columns:1fr 366px; }
   --ph:       236px;          /* tile image height; see .tile .ph */
 }
 
-#left { display:grid; grid-template-rows:auto 1fr auto; min-width:0; min-height:0; }
+/* four rows: bar, legend, sheet, status. The sheet is the only one that flexes - give the legend
+   the 1fr by accident and the sheet falls into an implicit auto row and overflows the viewport. */
+#left { display:grid; grid-template-rows:auto auto 1fr auto; min-width:0; min-height:0; }
 
 /* --- filter bar -------------------------------------------------------------------------------- */
 #bar {
@@ -61,6 +63,32 @@ body { grid-template-columns:1fr 366px; }
 .fbtn[data-f=rejected]  .dot { background:var(--st-rej); }
 .fbtn[data-f=untouched] .dot { background:var(--st-unt); }
 #bar .sp { flex:1 1 auto; min-width:8px; }
+
+/* --- legend: the badges are meaningless until someone says what they mean ----------------------- */
+#legend {
+  border-bottom:1px solid var(--border); background:var(--surface);
+  padding:14px 16px; max-height:44vh; overflow:auto; box-shadow:var(--highlight);
+  animation:rise .35s var(--ease-out) both;
+}
+#legend .lg { max-width:760px; }
+#legend h3 {
+  font-family:var(--mono); font-size:9.5px; letter-spacing:.11em; text-transform:uppercase;
+  color:var(--faint); margin:0 0 7px; font-weight:600;
+}
+#legend h3 + p { margin-top:0; }
+#legend h3:not(:first-child) { margin-top:15px; }
+#legend p { margin:0 0 6px; font-size:11.5px; color:var(--mut); line-height:1.6; }
+#legend b {
+  display:inline-block; font-family:var(--mono); font-size:9px; letter-spacing:.08em;
+  text-transform:uppercase; padding:2px 7px; border-radius:100px; margin-right:7px;
+  color:oklch(0.16 0 0); font-weight:650; min-width:74px; text-align:center;
+}
+#legend b[data-s=selected]  { background:var(--st-sel); }
+#legend b[data-s=maybe]     { background:var(--st-may); }
+#legend b[data-s=rejected]  { background:var(--st-rej); }
+#legend b[data-s=untouched] { background:var(--st-unt); }
+#legend b.pl { background:oklch(1 0 0 / 10%); color:var(--fg); min-width:auto; }
+#legend em { color:var(--fg); font-style:normal; font-weight:600; }
 
 /* --- the sheet --------------------------------------------------------------------------------- */
 #sheet {
@@ -436,6 +464,22 @@ kbd {
 
 <div id="left">
   <div id="bar" role="toolbar" aria-label="Filter by verdict"></div>
+  <div id="legend" hidden>
+    <div class="lg">
+      <h3>The four states</h3>
+      <p><b data-s="selected">✓ Keep</b> in the post. <b>#3</b> in the corner is its slide position.</p>
+      <p><b data-s="maybe">? Maybe</b> unresolved - it comes back to me as a <em>question</em>, not a decision. Tag something negative on a frame I picked and it lands here automatically.</p>
+      <p><b data-s="rejected">✕ Cut</b> I cut it. The line under the name is my reason.</p>
+      <p><b data-s="untouched">○ Not picked</b> I neither picked nor cut it - the rest of the shoot, yours to pull from.</p>
+      <h3>Corner marks</h3>
+      <p><b class="pl">#2</b> the slide's position in the finished post.</p>
+      <p><b class="pl">⇄ 1 of 3</b> other frames from the same moment. <kbd>[</kbd> <kbd>]</kbd> swaps one in - and tells me you preferred it.</p>
+      <p><b class="pl">🔒 set by you</b> you set that verdict by hand, so tags no longer move it. <kbd>U</kbd> hands it back.</p>
+      <p><b class="pl">💬</b> you left a tag or a note on it.</p>
+      <h3>Keys</h3>
+      <p><kbd>P</kbd> keep <kbd>M</kbd> maybe <kbd>X</kbd> cut <kbd>U</kbd> clear <kbd>Space</kbd> loupe <kbd>←</kbd><kbd>→</kbd> move <kbd>F</kbd> filter <kbd>⏎</kbd> commit</p>
+    </div>
+  </div>
   <div id="sheet" tabindex="0" aria-label="Contact sheet"></div>
   <div id="status">
     <span><b id="stSel">0</b> selected</span>
@@ -507,7 +551,8 @@ kbd {
   </div>
   <div id="lstage"><img id="limg" alt=""></div>
   <div id="lfoot">
-    <span><kbd>scroll</kbd>zoom</span>
+    <span><kbd>pinch</kbd>zoom</span>
+    <span><kbd>2 fingers</kbd>pan</span>
     <span><kbd>drag</kbd>pan</span>
     <span><kbd>0</kbd>fit</span>
     <span><kbd>1</kbd>100%</span>
@@ -531,11 +576,21 @@ kbd {
  * rather than a verdict, and why the confidence machine locks on manual input.
  */
 
+// Plain-language explanation of each state, shown on hover and in the legend.
+const VERDICT_HELP = {
+  selected:  'In the post. The number is its slide position.',
+  maybe:     'Unresolved - comes back to me as a question, not a decision.',
+  rejected:  'Cut. The line underneath is my reason.',
+  untouched: 'I neither picked nor cut this - the rest of the shoot, yours to pull from.',
+};
+
 const ST = {
   selected:  { g:'✓', t:'Keep',  w:'selected'  },
   maybe:     { g:'?', t:'Maybe', w:'maybe'     },
   rejected:  { g:'✕', t:'Cut',   w:'cut'       },
-  untouched: { g:'○', t:'—',     w:'untouched' },
+  // "—" was meaningless on a tile. This state is "I neither picked it nor cut it" - the rest of
+  // the shoot, sitting there for you to pull from.
+  untouched: { g:'○', t:'Not picked', w:'untouched' },
 };
 
 // The default chip palette. An assistant overrides it per frame via `chips`, which is the point:
@@ -629,15 +684,16 @@ function render() {
     d.style.animationDelay = Math.min(n * 0.012, 0.3) + 's';
     const meta = ST[it.state];
     const marks = [];
-    if (it.locked) marks.push('<span class="mk lock" title="you set this by hand">🔒</span>');
-    if (it.alternates && it.alternates.length) marks.push('<span class="mk">' + (it.altIdx + 1) + '/' + (it.alternates.length + 1) + '</span>');
-    if (it.tags.length || it.text) marks.push('<span class="mk">💬</span>');
+    if (it.locked) marks.push('<span class="mk lock" title="You set this verdict by hand, so tags no longer move it. Press U to hand it back.">🔒 set by you</span>');
+    if (it.alternates && it.alternates.length) marks.push('<span class="mk" title="' + (it.alternates.length) + ' other frame(s) from this same moment. Press [ or ] to swap one in.">⇄ ' + (it.altIdx + 1) + ' of ' + (it.alternates.length + 1) + '</span>');
+    if (it.tags.length || it.text) marks.push('<span class="mk" title="You left feedback on this frame">💬</span>');
     d.innerHTML =
       '<span class="trailGlow"></span><span class="trail"></span>' +
       '<span class="ph">' +
         '<img loading="lazy" src="' + it.url + '" alt="">' +
-        '<span class="vb"><span class="g">' + meta.g + '</span>' + meta.t + '</span>' +
-        '<span class="slot">' + slotOf(it) + '</span>' +
+        '<span class="vb" title="' + VERDICT_HELP[it.state] + '">' +
+          '<span class="g">' + meta.g + '</span>' + meta.t + '</span>' +
+        '<span class="slot" title="Slide ' + slotOf(it) + ' in the post">#' + slotOf(it) + '</span>' +
       '</span>' +
       '<div class="foot" style="position:relative">' +
         (marks.length ? '<div class="marks">' + marks.join('') + '</div>' : '') +
@@ -680,13 +736,17 @@ function renderBar() {
     ['rejected','Cut',true], ['untouched','Untouched',true],
     ['commented','Commented',false], ['alternates','Has alts',false],
   ];
+  const openLg = !$('legend').hidden;
   $('bar').innerHTML = defs.map(([f,label,dot]) =>
     '<button class="fbtn' + (FILTER === f ? ' on' : '') + '" data-f="' + f + '">' +
       (dot ? '<span class="dot"></span>' : '') + label + ' <span class="n">' + c[f] + '</span>' +
-    '</button>').join('') + '<span class="sp"></span>';
-  $('bar').querySelectorAll('.fbtn').forEach(b => {
+    '</button>').join('')
+    + '<span class="sp"></span>'
+    + '<button class="fbtn' + (openLg ? ' on' : '') + '" id="lgBtn">' + (openLg ? '✕ close' : '? what do these mean') + '</button>';
+  $('bar').querySelectorAll('.fbtn[data-f]').forEach(b => {
     b.onclick = () => { FILTER = b.dataset.f; render(); };
   });
+  $('lgBtn').onclick = () => { $('legend').hidden = !$('legend').hidden; renderBar(); };
 }
 
 function renderStatus() {
@@ -819,9 +879,20 @@ function zoomAt(cx, cy, factor) {
 
 (function wireLoupe() {
   const st = $('lstage');
+  // Trackpad semantics, the way every native image viewer behaves:
+  //   pinch      -> zoom   (macOS/Windows synthesise a wheel event with ctrlKey set for pinch)
+  //   two-finger -> pan    (a plain wheel with deltaX/deltaY)
+  // Treating every wheel as zoom made two-finger scrolling zoom wildly, which is what it did before.
   st.addEventListener('wheel', e => {
     e.preventDefault();
-    zoomAt(e.clientX, e.clientY, e.deltaY < 0 ? 1.14 : 1 / 1.14);
+    if (e.ctrlKey) {
+      // exp() keeps the zoom perceptually even regardless of how big a delta the device reports
+      zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.012));
+    } else {
+      LZ.x -= e.deltaX;
+      LZ.y -= e.deltaY;
+      applyLoupe();
+    }
   }, { passive:false });
 
   let drag = null;
@@ -838,6 +909,15 @@ function zoomAt(cx, cy, factor) {
   const end = () => { drag = null; st.classList.remove('drag'); };
   st.addEventListener('pointerup', end);
   st.addEventListener('pointercancel', end);
+  // Safari emits gesturestart/change instead of ctrl+wheel
+  let gScale = 1;
+  st.addEventListener('gesturestart', e => { e.preventDefault(); gScale = e.scale; }, { passive:false });
+  st.addEventListener('gesturechange', e => {
+    e.preventDefault();
+    zoomAt(e.clientX, e.clientY, e.scale / gScale);
+    gScale = e.scale;
+  }, { passive:false });
+
   addEventListener('resize', () => { if ($('loupe').classList.contains('on')) fitLoupe(); });
 })();
 
