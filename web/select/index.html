@@ -574,6 +574,10 @@ kbd {
       <p><kbd>⌘</kbd>-click (or <kbd>Ctrl</kbd>-click) adds a frame to a selection, <kbd>⇧</kbd>-click takes a range, <kbd>⌘A</kbd> / <kbd>Ctrl A</kbd> takes everything on screen, <kbd>esc</kbd> clears. With frames selected, the bar at the bottom groups them and can set a target - <em>up to 2</em> or <em>exactly 1</em> - which I read as "out of these, pick that many". It works both ways: I can suggest a group and a count, and you can make your own and tell me a count. <em>Nothing is ever enforced</em> - a target only shows where you are, and you can commit over, under or ignoring it entirely.</p>
       <p>Verdict keys apply to the whole selection when there is one, so ⇧-click a run of near-duplicates and press <kbd>X</kbd> once.</p>
 
+      <h3>Group targets</h3>
+      <p><b class="pl">≤5</b> is <em>my</em> suggestion — how many I proposed from that group. <b class="pl">you ≤1</b>, outlined in amber, is a target <em>you</em> set, which I read as an instruction rather than a guess. <b class="pl">✓≤1</b> means the count currently matches.</p>
+      <p>Either way it is <em>only</em> a suggestion: nothing is capped, going over is not an error, and you can commit any number you like.</p>
+
       <h3>Scores</h3>
       <p>A score is <em>relative to its group</em>, never absolute — a 7 at Kasaneiwa and a 7 at Angel Road are not the same claim. Focus a frame and press a digit (<kbd>0</kbd> is ten, <kbd>`</kbd> clears); the panel shows where it now ranks among the scored frames of that group, and the tile shows <b class="pl">8 #1</b>. Sorting by <em>Score in group</em> keeps groups together and ranks inside each. So the useful move is: filter to a group, score its frames against each other, and tell me to take the top few.</p>
 
@@ -996,8 +1000,10 @@ function renderGroups() {
     // says so, and says who it came from: mine is a suggestion, yours is what you asked me for.
     let cap = '';
     if (g.target != null) {
+      // Authorship was carried only by a dashed border, which says nothing on its own. The word is
+      // the signal; the border just reinforces it.
       const num = (g.mode === 'exactly' ? '=' : '≤') + g.target;
-      const txt = g.chosen === g.target ? '✓' + num : num;
+      const txt = (g.chosen === g.target ? '✓' : '') + (g.by === 'you' ? 'you ' : '') + num;
       const who = g.by === 'you' ? 'You asked for ' : 'I suggest ';
       const tip = who + (g.mode === 'exactly' ? 'exactly ' : 'up to ') + g.target +
                   ' from these ' + g.total + '. Only a suggestion - pick as many as you like.';
