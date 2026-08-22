@@ -346,6 +346,8 @@ body { grid-template-columns:1fr 366px; }
   background:oklch(0 0 0 / 62%); backdrop-filter:blur(4px); color:var(--fg);
 }
 .mk.lock { color:var(--accent); }
+.mk.added { color:var(--st-sel); }
+#sheet.hot { outline:2px dashed var(--accent); outline-offset:-8px; }
 .mk.sc { color:var(--accent); font-variant-numeric:tabular-nums; font-weight:650; }
 .mk.sc i { font-style:normal; opacity:.6; margin-left:3px; font-weight:400; }
 .mk.sc.top { background:var(--accent); color:var(--accent-ink); }
@@ -573,6 +575,10 @@ kbd {
       <h3>Groups</h3>
       <p><kbd>⌘</kbd>-click (or <kbd>Ctrl</kbd>-click) adds a frame to a selection, <kbd>⇧</kbd>-click takes a range, <kbd>⌘A</kbd> / <kbd>Ctrl A</kbd> takes everything on screen, <kbd>esc</kbd> clears. With frames selected, the bar at the bottom groups them and can set a target - <em>up to 2</em> or <em>exactly 1</em> - which I read as "out of these, pick that many". It works both ways: I can suggest a group and a count, and you can make your own and tell me a count. <em>Nothing is ever enforced</em> - a target only shows where you are, and you can commit over, under or ignoring it entirely.</p>
       <p>Verdict keys apply to the whole selection when there is one, so ⇧-click a run of near-duplicates and press <kbd>X</kbd> once.</p>
+
+      <h3>Adding your own photos</h3>
+      <p>What I show you is a proposal, not the whole world. <b class="pl">+ add photos</b> opens a folder and puts everything in it on the sheet as <b data-s="untouched">○ Not picked</b>, in its own group — so you can bring in a reference frame, a shot from another day, anything I never saw. You can also drag files straight onto the sheet.</p>
+      <p>Added frames are marked <b class="pl">+ yours</b>. A dragged-in file carries <em>no file path</em>, so I can look at it but cannot use it downstream — those are marked <b class="pl">+ yours ⚠</b>. Use <b class="pl">+ add photos</b> for anything you actually want in the post.</p>
 
       <h3>Group targets</h3>
       <p><b class="pl">≤5</b> is <em>my</em> suggestion — how many I proposed from that group. <b class="pl">you ≤1</b>, outlined in amber, is a target <em>you</em> set, which I read as an instruction rather than a guess. <b class="pl">✓≤1</b> means the count currently matches.</p>
@@ -843,6 +849,19 @@ function render() {
   // Ctrl-click is a secondary click on macOS, so without this the context menu opens on top of the
   // multi-selection it just made. Ctrl is the Windows modifier and has to work on both.
   sheet.oncontextmenu = e => { if (e.ctrlKey) e.preventDefault(); };
+  sheet.ondragover = e => { e.preventDefault(); sheet.classList.add('hot'); };
+  sheet.ondragleave = () => sheet.classList.remove('hot');
+  sheet.ondrop = e => {
+    e.preventDefault(); sheet.classList.remove('hot');
+    const files = [...(e.dataTransfer.files || [])].filter(f => /^image\//.test(f.type));
+    if (!files.length) return;
+    // A dropped file carries no path, so the assistant cannot resolve it later. Useful for looking
+    // at, flagged so nobody is surprised when it can't be used downstream.
+    const n = addCandidates(files.map(f => ({
+      id: 'drop:' + f.name + ':' + f.size, name: f.name, url: URL.createObjectURL(f), date: f.lastModified || 0,
+    })), 'added-dropped', 'Dropped in');
+    toast(n + ' added — dropped files have no path, so use “+ add photos” if I need to work with them');
+  };
   const list = vis();
   sheet.innerHTML = '';
   list.forEach((it, n) => {
@@ -855,6 +874,9 @@ function render() {
     d.style.animationDelay = Math.min(n * 0.012, 0.3) + 's';
     const meta = ST[it.state];
     const marks = [];
+    if (it.addedByYou) marks.push('<span class="mk added" title="' +
+      (it.pathless ? 'You dropped this in. It has no file path, so I cannot use it downstream - re-add it with “+ add photos” if you want it in the post.'
+                   : 'You added this - it was not in what I showed you.') + '">+ yours' + (it.pathless ? ' ⚠' : '') + '</span>');
     if (it.locked) marks.push('<span class="mk lock" title="You set this verdict by hand, so tags no longer move it. Press U to hand it back.">🔒 set by you</span>');
     if (it.alternates && it.alternates.length) marks.push('<span class="mk" title="' + (it.alternates.length) + ' other frame(s) from this same moment. Press [ or ] to swap one in.">⇄ ' + (it.altIdx + 1) + ' of ' + (it.alternates.length + 1) + '</span>');
     if (it.tags.length || it.text) marks.push('<span class="mk" title="You left feedback on this frame">💬</span>');
@@ -978,12 +1000,14 @@ function renderBar() {
     + '<select id="sortSel">'
     + Object.keys(SORTS).map(k => '<option value="' + k + '"' + (SORT === k ? ' selected' : '') + '>' + SORTS[k].label + '</option>').join('')
     + '</select></span>'
+    + '<button class="fbtn" id="addBtn" title="Bring in photos I never showed you">+ add photos</button>'
     + '<button class="fbtn' + (openLg ? ' on' : '') + '" id="lgBtn">' + (openLg ? '✕ close' : '? what do these mean') + '</button>';
   $('bar').querySelectorAll('.fbtn[data-f]').forEach(b => {
     b.onclick = () => { FILTER = b.dataset.f; render(); };
   });
   $('lgBtn').onclick = () => { $('legend').hidden = !$('legend').hidden; renderBar(); };
   $('sortSel').onchange = function () { SORT = this.value; render(); };
+  $('addBtn').onclick = addFromFolder;
   renderGroups();
 }
 
@@ -1041,6 +1065,48 @@ function rankIn(it, g) {
 }
 
 const gLabel = g => g ? ((GROUPS[g] && GROUPS[g].label) || g) : 'no group';
+
+// Nothing about a proposal should be a closed set. The assistant chose what to show; the person may
+// know about a frame it never saw - a reference shot to stack against a recreation, something from
+// another shoot entirely - and has to be able to put it on the sheet.
+function addCandidates(specs, groupKey, groupLabel) {
+  if (!specs.length) return 0;
+  if (groupKey && !GROUPS[groupKey]) GROUPS[groupKey] = { label:groupLabel || groupKey, by:'you' };
+  let added = 0;
+  specs.forEach(sp => {
+    if (IMGS.some(i => i.id === sp.id)) return;               // already on the sheet
+    IMGS.push({
+      id: sp.id, name: sp.name, url: sp.url,
+      original: { url:sp.url, name:sp.name }, alternates: [], altIdx: 0,
+      proposed: 'untouched', state: 'untouched', why: '', cls: '', chipDefs: null,
+      tags: [], text: '', locked: false,
+      scores: {}, groups: groupKey ? [groupKey] : [], _sg: null,
+      date: sp.date || 0, _i: IMGS.length,
+      addedByYou: true, path: sp.path || null, pathless: !sp.path,
+    });
+    added++;
+  });
+  render(); renderPanel();
+  return added;
+}
+
+// The native folder dialog, because it yields a real absolute path - the only form the assistant can
+// actually act on later. A dropped file gives the page no path at all (see below).
+async function addFromFolder() {
+  const pick = await fetch('/pickdir?start=' + encodeURIComponent('~/Pictures')).then(r => r.json()).catch(() => null);
+  if (!pick || !pick.ok) { if (pick && pick.error) toast(pick.error); return; }
+  const dir = pick.path;
+  const j = await fetch('/list?dir=' + encodeURIComponent(dir)).then(r => r.json()).catch(() => null);
+  if (!j || !j.ok || !j.files.length) { toast('no photos in that folder'); return; }
+  const key = 'added-' + dir.split('/').filter(Boolean).pop().toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  const n = addCandidates(j.files.map(f => ({
+    id: dir + '/' + f.name, name: f.name, path: dir + '/' + f.name,
+    url: '/file?path=' + encodeURIComponent(dir + '/' + f.name), date: f.mtime || 0,
+  })), key, dir.split('/').filter(Boolean).pop());
+  FILTER = 'group:' + key;
+  render();
+  toast('added ' + n + ' from ' + dir.split('/').filter(Boolean).pop());
+}
 
 const selected = () => IMGS.filter(i => MULTI.has(i.id));
 
@@ -1521,6 +1587,12 @@ function buildResult() {
     setPrompt: SET_PROMPT,
     proposed, final,
     diff: { added, removed, demoted, promoted, swapped },
+    // Frames the person put on the sheet themselves. Path included where there is one, because
+    // that is what makes them usable downstream.
+    added: IMGS.filter(i => i.addedByYou).map(i => ({
+      id:i.id, name:i.name, path:i.path || null, pathless:!!i.pathless,
+      state:i.state, groups:i.groups.slice(),
+    })),
     setComment: $('setComment').value.trim(),
     // Rankings ride WITH their group - that is the only form in which a score is actionable
     // ("of these eight, he ranked these three top") rather than a floating number.

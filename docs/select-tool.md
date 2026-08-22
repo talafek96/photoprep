@@ -214,6 +214,21 @@ Scores ride in the report **inside their group** — `groups[].ranked` is the or
 group — which is the only actionable form. A bare cross-group list of numbers is not comparable, so
 `window.__scores()` returns them keyed by group too.
 
+## The pool is not closed
+
+What the assistant loads is a *proposal*, and a proposal must never be the boundary of what can be
+chosen. The person may know about a frame it never saw — a reference shot to stack against a
+recreation, something from a different day, a photo from another shoot entirely.
+
+**`+ add photos`** opens a native folder dialog, lists it, and puts every image on the sheet as
+**Not picked** in its own group. Added frames are marked `+ yours`, and the report carries them in an
+`added[]` array with their absolute paths, which is what makes them usable downstream.
+
+Files can also be **dragged straight onto the sheet**, but a dropped file gives the page no path — the
+browser withholds it — so those are flagged `+ yours ⚠` and the report records `pathless: true`. They
+are fine to look at and compare against; they cannot be built into a post. The toast says so at the
+moment of dropping rather than letting it fail later.
+
 ## Multi-selection
 
 ⌘-click gathers frames, ⇧-click takes a range **across what is currently visible** (so a range
