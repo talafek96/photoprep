@@ -75,7 +75,7 @@ const check = (name, cond, extra) => {
   check('the persisted config reloads with the new default', persisted.defaults.sizePct === 33);
 
   // --- the tools and their shared modules are actually reachable ---
-  for (const p of ['/layout/', '/watermark/', '/shared/theme.css', '/shared/util.js',
+  for (const p of ['/select/', '/layout/', '/watermark/', '/shared/theme.css', '/shared/util.js',
                    '/shared/detect.js', '/shared/save.js', '/shared/runtime.js']) {
     const r = await fetch(base + p);
     check('serves ' + p, r.status === 200, r.status);

@@ -40,3 +40,28 @@ git push origin :refs/tags/untagged-<hash>                                      
 Toggling `draft` back to `false` re-fires `release.published`, so the release workflow runs again on
 the right tag. Editing the body of an already-published release is safe — the tag exists by then,
 and `tag_name` is no longer intent.
+
+## Auto grid rows stretch when the grid has a definite height
+
+**A grid whose height comes from its parent will size `auto` rows by dividing that height, not by
+their content — silently clipping every item.**
+
+```css
+/* Wrong — every row came out ~114px and cut the captions off */
+#sheet { display:grid; grid-template-columns:repeat(auto-fill,minmax(184px,1fr)); align-content:start; }
+
+/* Right */
+#sheet { display:grid; grid-template-columns:repeat(auto-fill,minmax(184px,1fr));
+         grid-auto-rows:max-content; }
+```
+
+The sheet sits in a `grid-template-rows:auto 1fr auto` parent, so it has a *definite* height. Rows
+then get stretched to fill it. `align-content:start` does not prevent this — it positions the row
+box, it does not change how the tracks were sized — so the computed `grid-template-rows` reads back
+as a suspiciously fractional `114.039px` while `scrollHeight` reports the true 281px.
+
+The trap is that the obvious fixes make it look like an aspect-ratio problem and send you in
+circles. Neither `aspect-ratio:4/5` nor `padding-top:125%` on the child works, because both resolve
+against a containing block the grid has not sized yet, so track sizing measures the box as zero.
+Swapping one for the other changes nothing. `grid-auto-rows:max-content` is the actual fix; a fixed
+pixel height on the image box is worth having anyway, so mixed orientations give uniform rows.

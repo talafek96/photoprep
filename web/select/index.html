@@ -1,0 +1,810 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>photoprep — Select</title>
+<link rel="stylesheet" href="/shared/theme.css">
+<style>
+/* Select is a contact sheet, not a single-canvas tool, so it opts out of the shared two-pane shell.
+   The governing constraint from theme.css still holds and matters more here than anywhere else:
+   this chrome surrounds PHOTOGRAPHS, and a hundred of them at once. State colour therefore lives in
+   EDGES and BADGES only — never a fill or a tint over the image — so no tile ever changes how the
+   photo inside it reads. */
+body { grid-template-columns:1fr 366px; }
+
+/* --- state palette: the four verdicts ---------------------------------------------------------
+   Green/orange/red/grey, borrowed from the semantic tokens rather than invented, so they stay off
+   the amber accent's hue and can't be mistaken for interactive state. Colour NEVER carries the
+   state alone — every tile also shows a distinct glyph and a word. */
+:root {
+  --st-sel:   var(--ok);
+  --st-may:   var(--warn);
+  --st-rej:   var(--danger);
+  --st-unt:   oklch(0.62 0.008 80);
+  --ph:       236px;          /* tile image height; see .tile .ph */
+}
+
+#left { display:grid; grid-template-rows:auto 1fr auto; min-width:0; min-height:0; }
+
+/* --- filter bar -------------------------------------------------------------------------------- */
+#bar {
+  display:flex; align-items:center; gap:6px; padding:9px 13px; background:var(--bg);
+  border-bottom:1px solid var(--border); overflow-x:auto; scrollbar-width:none;
+}
+#bar::-webkit-scrollbar { display:none; }
+.fbtn {
+  flex:0 0 auto; display:inline-flex; align-items:center; gap:6px;
+  font-family:var(--mono); font-size:9.5px; letter-spacing:.09em; text-transform:uppercase;
+  background:transparent; border:1px solid var(--border); color:var(--mut);
+  padding:5px 9px; border-radius:100px; box-shadow:none;
+}
+.fbtn:hover { border-color:var(--border-strong); background:oklch(1 0 0 / 3%); }
+.fbtn.on { border-color:var(--accent); color:var(--accent); background:var(--accent-soft); }
+.fbtn .n { font-variant-numeric:tabular-nums; opacity:.75; }
+.fbtn .dot { width:6px; height:6px; border-radius:100px; background:currentColor; }
+.fbtn[data-f=selected]  .dot { background:var(--st-sel); }
+.fbtn[data-f=maybe]     .dot { background:var(--st-may); }
+.fbtn[data-f=rejected]  .dot { background:var(--st-rej); }
+.fbtn[data-f=untouched] .dot { background:var(--st-unt); }
+#bar .sp { flex:1 1 auto; min-width:8px; }
+
+/* --- the sheet --------------------------------------------------------------------------------- */
+#sheet {
+  overflow:auto; padding:14px; background:var(--sunken); min-height:0; align-content:start;
+  display:grid; grid-template-columns:repeat(auto-fill, minmax(184px, 1fr)); gap:13px;
+  /* Load-bearing. The sheet gets a DEFINITE height from #left's 1fr row, and auto rows in a
+     definite-height grid get stretched to divide it - which sized every row to ~114px and clipped
+     the caption off every tile regardless of the content's real height. max-content makes rows
+     size to their contents, which is what a contact sheet needs. */
+  grid-auto-rows:max-content;
+}
+.tile {
+  position:relative; border-radius:var(--radius); overflow:hidden; cursor:pointer;
+  background:var(--surface); border:1px solid var(--border); box-shadow:var(--highlight);
+  /* the state edge — 3px inset ring in the verdict colour, so it reads at a glance across a full
+     sheet without laying any colour over the photograph itself */
+  --edge:var(--st-unt);
+  transition:transform .15s var(--ease-io), border-color .15s var(--ease-io),
+             box-shadow .25s var(--ease-io);
+  animation:rise .5s var(--ease-out) both;
+}
+.tile:hover { transform:translateY(-2px); border-color:var(--border-strong); }
+.tile.cur { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent), var(--highlight); }
+.tile[data-s=selected]  { --edge:var(--st-sel); }
+.tile[data-s=maybe]     { --edge:var(--st-may); }
+.tile[data-s=rejected]  { --edge:var(--st-rej); }
+.tile[data-s=untouched] { --edge:var(--st-unt); }
+
+/* A FIXED height, deliberately - not `aspect-ratio`, not percentage padding. Both of those resolve
+   against a containing block the grid hasn't sized yet, so grid track sizing measures the image box
+   as zero, sizes the row to ~114px, and silently clips the caption off every tile. A pixel height
+   has no circular dependency. Tune via --ph. */
+.tile .ph { position:relative; display:block; width:100%; height:var(--ph); background:#000; }
+/* `contain`, never `cover`. This tool exists to judge photographs - cropping a landscape down to its
+   sky to fill a 4:5 box defeats the entire purpose. Letterboxing is the correct trade. */
+.tile .ph img {
+  position:absolute; inset:0; width:100%; height:100%; object-fit:contain; display:block;
+}
+/* the ring sits ON the image edge, not over its middle */
+.tile .ph::after {
+  content:''; position:absolute; inset:0; pointer-events:none;
+  box-shadow:inset 0 0 0 3px var(--edge);
+  transition:box-shadow .25s var(--ease-io);
+}
+/* a cut frame is dimmed, not hidden — auditing the rejects has to be as cheap as reviewing the
+   picks, or the sheet is worthless and the person re-culls by hand */
+.tile[data-s=rejected] .ph img { opacity:.42; filter:saturate(.5); transition:opacity .2s var(--ease-io), filter .2s var(--ease-io); }
+.tile[data-s=rejected]:hover .ph img { opacity:.85; filter:saturate(.9); }
+
+/* verdict badge — glyph + word, never colour alone */
+.tile .vb {
+  position:absolute; top:7px; left:7px; display:inline-flex; align-items:center; gap:4px;
+  font-family:var(--mono); font-size:9px; letter-spacing:.1em; text-transform:uppercase;
+  padding:3px 7px 3px 5px; border-radius:100px; color:oklch(0.16 0 0);
+  background:var(--edge); box-shadow:0 1px 6px oklch(0 0 0 / 35%);
+  transition:background .25s var(--ease-io);
+}
+.tile[data-s=untouched] .vb { background:oklch(0 0 0 / 55%); color:var(--mut); backdrop-filter:blur(4px); }
+.tile .vb .g { font-size:10px; line-height:1; }
+
+/* slot number, only once it's in the post */
+.tile .slot {
+  position:absolute; top:7px; right:7px; min-width:19px; height:19px; padding:0 5px;
+  display:none; align-items:center; justify-content:center;
+  font-family:var(--mono); font-size:10px; font-variant-numeric:tabular-nums;
+  background:oklch(0 0 0 / 62%); backdrop-filter:blur(4px); color:var(--fg);
+  border-radius:100px;
+}
+.tile[data-s=selected] .slot { display:inline-flex; }
+
+.tile .foot { padding:6px 8px 7px; }
+.tile .nm {
+  font-family:var(--mono); font-size:9.5px; color:var(--mut);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+/* the assistant's reason: ONE line, ellipsised, and only rendered when it earns its place */
+.tile .why {
+  font-size:10.5px; color:var(--faint); margin-top:2px; line-height:1.35;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.tile .marks {
+  position:absolute; bottom:calc(100% + 0px); right:7px; display:flex; gap:4px;
+  transform:translateY(-7px);
+}
+.mk {
+  font-family:var(--mono); font-size:9px; padding:2px 6px; border-radius:100px;
+  background:oklch(0 0 0 / 62%); backdrop-filter:blur(4px); color:var(--fg);
+}
+.mk.lock { color:var(--accent); }
+
+/* --- status line ------------------------------------------------------------------------------- */
+#status {
+  display:flex; align-items:center; gap:14px; padding:8px 13px;
+  border-top:1px solid var(--border); background:var(--bg);
+  font-family:var(--mono); font-size:9.5px; letter-spacing:.09em; text-transform:uppercase;
+  color:var(--faint);
+}
+#status b { color:var(--fg); font-weight:600; font-variant-numeric:tabular-nums; }
+#status .sp { flex:1; }
+
+/* --- panel ------------------------------------------------------------------------------------- */
+#panel { display:flex; flex-direction:column; gap:0; padding:0; overflow:hidden; }
+#panel .scroll { overflow:auto; padding:15px 16px 4px; flex:1; min-height:0; }
+#panel .foot { padding:11px 16px 14px; border-top:1px solid var(--border); background:var(--bg); }
+
+.seg4 { display:grid; grid-template-columns:repeat(4,1fr); gap:5px; }
+.seg4 button {
+  font-family:var(--mono); font-size:9px; letter-spacing:.06em; text-transform:uppercase;
+  padding:8px 2px; display:flex; flex-direction:column; align-items:center; gap:3px;
+}
+.seg4 button .g { font-size:12px; line-height:1; }
+.seg4 button[data-v=selected].on  { background:var(--st-sel); border-color:var(--st-sel); color:oklch(0.16 0 0); font-weight:650; }
+.seg4 button[data-v=maybe].on     { background:var(--st-may); border-color:var(--st-may); color:oklch(0.16 0 0); font-weight:650; }
+.seg4 button[data-v=rejected].on  { background:var(--st-rej); border-color:var(--st-rej); color:oklch(0.16 0 0); font-weight:650; }
+.seg4 button[data-v=untouched].on { background:var(--surface-2); border-color:var(--border-strong); color:var(--fg); font-weight:650; }
+
+/* chips: the assistant proposes, the person confirms or overrides */
+.chips { display:flex; flex-wrap:wrap; gap:5px; margin-top:2px; }
+.chip {
+  font-size:11px; padding:4px 9px; border-radius:100px; cursor:pointer;
+  border:1px solid var(--border); background:transparent; color:var(--mut); box-shadow:none;
+  transition:all .15s var(--ease-io);
+}
+.chip:hover { border-color:var(--border-strong); color:var(--fg); }
+.chip.on { background:var(--accent-soft); border-color:var(--accent); color:var(--accent); font-weight:600; }
+.chip.neg.on { background:oklch(0.68 0.19 18 / 15%); border-color:var(--st-rej); color:var(--st-rej); }
+.chip.pos.on { background:oklch(0.78 0.125 155 / 15%); border-color:var(--st-sel); color:var(--st-sel); }
+
+.locknote {
+  display:none; align-items:center; gap:6px; margin-top:9px; font-size:10.5px; color:var(--accent);
+  background:var(--accent-soft); border:1px solid oklch(0.80 0.142 72 / 30%);
+  border-radius:var(--radius-sm); padding:6px 8px; line-height:1.45;
+}
+body.locked .locknote { display:flex; }
+
+/* alternates */
+#alts { display:flex; gap:6px; overflow-x:auto; padding-bottom:2px; }
+#alts .alt {
+  flex:0 0 auto; width:62px; border-radius:var(--radius-sm); overflow:hidden; cursor:pointer;
+  border:1px solid var(--border); background:#000; position:relative;
+  transition:border-color .15s var(--ease-io), transform .15s var(--ease-io);
+}
+#alts .alt:hover { border-color:var(--border-strong); transform:translateY(-2px); }
+#alts .alt.on { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); }
+#alts .alt img { width:100%; aspect-ratio:1; object-fit:cover; display:block; }
+#alts .alt .t {
+  position:absolute; bottom:0; left:0; right:0; font-family:var(--mono); font-size:8px;
+  background:oklch(0 0 0 / 66%); color:var(--fg); text-align:center; padding:1px 0;
+}
+
+.empty { color:var(--faint); font-size:11.5px; line-height:1.6; }
+
+/* --- loupe ------------------------------------------------------------------------------------- */
+#loupe {
+  position:fixed; inset:0; z-index:50; background:oklch(0.11 0.004 70 / 96%);
+  display:none; grid-template-rows:auto 1fr auto; backdrop-filter:blur(8px);
+  animation:lfade .22s var(--ease-out) both;
+}
+#loupe.on { display:grid; }
+@keyframes lfade { from { opacity:0 } to { opacity:1 } }
+#lstage { overflow:hidden; display:grid; place-items:center; min-height:0; cursor:grab; position:relative; }
+#lstage.drag { cursor:grabbing; }
+#lstage img {
+  max-width:none; transform-origin:0 0; will-change:transform;
+  box-shadow:0 24px 80px oklch(0 0 0 / 55%);
+}
+#lhead, #lfoot {
+  display:flex; align-items:center; gap:12px; padding:11px 16px;
+  font-family:var(--mono); font-size:9.5px; letter-spacing:.09em; text-transform:uppercase;
+  color:var(--faint);
+}
+#lhead { border-bottom:1px solid var(--border); }
+#lfoot { border-top:1px solid var(--border); justify-content:center; gap:18px; }
+#lhead .sp { flex:1; }
+#lhead b { color:var(--fg); font-weight:600; }
+#lzoom { color:var(--accent); font-variant-numeric:tabular-nums; }
+kbd {
+  font-family:var(--mono); font-size:9px; background:var(--surface-2); color:var(--mut);
+  border:1px solid var(--border); border-radius:3px; padding:1px 5px; margin-right:4px;
+}
+#lfoot span { display:inline-flex; align-items:center; }
+
+/* the loupe carries the verdict too, so a decision made at 100% doesn't need a trip back */
+#lhead .vb {
+  display:inline-flex; align-items:center; gap:5px; padding:3px 9px 3px 6px; border-radius:100px;
+  color:oklch(0.16 0 0); font-size:9px;
+}
+#lhead .vb[data-s=selected]  { background:var(--st-sel); }
+#lhead .vb[data-s=maybe]     { background:var(--st-may); }
+#lhead .vb[data-s=rejected]  { background:var(--st-rej); }
+#lhead .vb[data-s=untouched] { background:oklch(1 0 0 / 12%); color:var(--mut); }
+
+@media (prefers-reduced-motion: reduce) {
+  .tile { animation:none; }
+  #loupe { animation:none; }
+}
+</style>
+
+<div id="left">
+  <div id="bar" role="toolbar" aria-label="Filter by verdict"></div>
+  <div id="sheet" tabindex="0" aria-label="Contact sheet"></div>
+  <div id="status">
+    <span><b id="stSel">0</b> selected</span>
+    <span><b id="stMay">0</b> maybe</span>
+    <span><b id="stRej">0</b> cut</span>
+    <span><b id="stUnt">0</b> untouched</span>
+    <span class="sp"></span>
+    <span id="stMsg"></span>
+  </div>
+</div>
+
+<div id="panel">
+  <div class="scroll">
+    <a class="backlink" href="/">← photoprep</a>
+    <h1>Select</h1>
+    <p class="sub" id="setPrompt">Nothing loaded.</p>
+
+    <fieldset>
+      <legend>The set</legend>
+      <label for="setComment">Comment on the whole set <span class="hint">(not any one frame)</span></label>
+      <textarea id="setComment" rows="3" placeholder="e.g. too food-heavy — and stop preferring the wide over the vertical"></textarea>
+    </fieldset>
+
+    <fieldset id="fsFrame">
+      <legend id="frameLeg">No frame</legend>
+      <div id="frameBody" class="empty">Click a frame in the sheet, or press <kbd>→</kbd> to start.</div>
+
+      <div id="frameCtl" hidden>
+        <label>Verdict</label>
+        <div class="seg4" id="verdict">
+          <button data-v="selected"><span class="g">✓</span>Keep</button>
+          <button data-v="maybe"><span class="g">?</span>Maybe</button>
+          <button data-v="rejected"><span class="g">✕</span>Cut</button>
+          <button data-v="untouched"><span class="g">○</span>Clear</button>
+        </div>
+        <div class="locknote"><span>🔒</span><span>You set this one by hand, so tags no longer move it. Press <kbd>U</kbd> then re-tag to hand it back.</span></div>
+
+        <label>Tags <span class="hint">(a negative tag on a frame I picked drops it to Maybe)</span></label>
+        <div class="chips" id="chips"></div>
+
+        <label for="frameText">Note on this frame</label>
+        <textarea id="frameText" rows="2" placeholder="one line is plenty"></textarea>
+
+        <div id="altWrap" hidden>
+          <label>Alternates <span class="hint">(the ones I didn't pick — <kbd>[</kbd><kbd>]</kbd>)</span></label>
+          <div id="alts"></div>
+        </div>
+      </div>
+    </fieldset>
+  </div>
+
+  <div class="foot">
+    <div class="row">
+      <button id="btnLoupe">⛶ Loupe</button>
+      <button id="btnCommit" class="primary">Commit ⏎</button>
+    </div>
+    <p class="hint" id="commitHint">Maybe frames come back to me as questions, not decisions.</p>
+  </div>
+</div>
+
+<div id="loupe" aria-modal="true" role="dialog">
+  <div id="lhead">
+    <span class="vb" id="lvb" data-s="untouched"><span class="g">○</span><span id="lvbT">—</span></span>
+    <b id="lname">—</b>
+    <span id="lwhy"></span>
+    <span class="sp"></span>
+    <span id="lzoom">fit</span>
+    <span id="lpos"></span>
+  </div>
+  <div id="lstage"><img id="limg" alt=""></div>
+  <div id="lfoot">
+    <span><kbd>scroll</kbd>zoom</span>
+    <span><kbd>drag</kbd>pan</span>
+    <span><kbd>0</kbd>fit</span>
+    <span><kbd>1</kbd>100%</span>
+    <span><kbd>←</kbd><kbd>→</kbd>frame</span>
+    <span><kbd>P</kbd><kbd>M</kbd><kbd>X</kbd>verdict</span>
+    <span><kbd>esc</kbd>back</span>
+  </div>
+</div>
+
+<script src="/shared/runtime.js"></script>
+<script src="/shared/util.js"></script>
+<script>
+'use strict';
+/* Select — the review sheet.
+ *
+ * The model: every candidate carries the assistant's PROPOSAL (what it did) and the person's
+ * FINAL state (what they decided). Keeping both is the whole point — the diff between them is the
+ * feedback, so an override never has to be explained twice.
+ *
+ * See docs/select-tool.md for the design rationale behind the four states, why Maybe is a message
+ * rather than a verdict, and why the confidence machine locks on manual input.
+ */
+
+const ST = {
+  selected:  { g:'✓', t:'Keep',  w:'selected'  },
+  maybe:     { g:'?', t:'Maybe', w:'maybe'     },
+  rejected:  { g:'✕', t:'Cut',   w:'cut'       },
+  untouched: { g:'○', t:'—',     w:'untouched' },
+};
+
+// The default chip palette. An assistant overrides it per frame via `chips`, which is the point:
+// a critique the person only has to CLICK beats one they have to compose.
+const DEFAULT_CHIPS = [
+  { id:'near-dup',       t:'near-duplicate',   sign:-1 },
+  { id:'weak',           t:'weak frame',       sign:-1 },
+  { id:'off-theme',      t:'off-theme',        sign:-1 },
+  { id:'too-many',       t:'too many like this', sign:-1 },
+  { id:'not-cover',      t:'not cover material', sign:-1 },
+  { id:'you-missed-it',  t:'you missed this',  sign:+1 },
+  { id:'love-it',        t:'love this one',    sign:+1 },
+];
+
+let IMGS = [];        // candidates
+let CUR = -1;         // focused index
+let FILTER = 'all';
+let SET_PROMPT = '';
+
+const $  = id => document.getElementById(id);
+const vis = () => IMGS.filter(passes);
+const C = () => IMGS[CUR] || null;
+
+function passes(it) {
+  switch (FILTER) {
+    case 'all':        return true;
+    case 'selected':   return it.state === 'selected';
+    case 'maybe':      return it.state === 'maybe';
+    case 'rejected':   return it.state === 'rejected';
+    case 'untouched':  return it.state === 'untouched';
+    case 'commented':  return !!(it.text || it.tags.length);
+    case 'alternates': return !!(it.alternates && it.alternates.length);
+  }
+  return true;
+}
+
+/* --- the confidence machine -------------------------------------------------------------------
+ * A negative signal on a frame the ASSISTANT picked drops it to Maybe; clearing the last negative
+ * signal restores it. A positive signal on a frame the assistant CUT promotes it to Maybe the same
+ * way. Any manual verdict click locks the frame out of this for good — after that the person owns
+ * it, and tagging never moves it again. */
+function negCount(it) { return it.tags.filter(id => chipSign(it, id) < 0).length; }
+function posCount(it) { return it.tags.filter(id => chipSign(it, id) > 0).length; }
+
+function chipSign(it, id) {
+  const pool = it.chipDefs || DEFAULT_CHIPS;
+  const c = pool.find(c => c.id === id);
+  return c ? (c.sign || 0) : 0;
+}
+
+function reconcile(it) {
+  if (it.locked) return;                       // the person owns this frame now
+  if (it.proposed === 'selected') {
+    it.state = negCount(it) > 0 ? 'maybe' : 'selected';
+  } else if (it.proposed === 'rejected') {
+    it.state = posCount(it) > 0 ? 'maybe' : 'rejected';
+  } else {
+    // untouched by the assistant: a positive signal is the only thing that can move it
+    it.state = posCount(it) > 0 ? 'maybe' : 'untouched';
+  }
+}
+
+function setVerdict(it, v) {
+  it.state = v;
+  it.locked = true;                            // manual input ends the automation, permanently
+  render(); renderPanel();
+}
+
+/* --- render ------------------------------------------------------------------------------------ */
+function slotOf(it) {
+  const sel = IMGS.filter(x => x.state === 'selected');
+  const i = sel.indexOf(it);
+  return i < 0 ? '' : String(i + 1);
+}
+
+function render() {
+  const sheet = $('sheet');
+  const list = vis();
+  sheet.innerHTML = '';
+  list.forEach((it, n) => {
+    const idx = IMGS.indexOf(it);
+    const d = document.createElement('div');
+    d.className = 'tile' + (idx === CUR ? ' cur' : '');
+    d.dataset.s = it.state;
+    d.style.animationDelay = Math.min(n * 0.012, 0.3) + 's';
+    const meta = ST[it.state];
+    const marks = [];
+    if (it.locked) marks.push('<span class="mk lock" title="you set this by hand">🔒</span>');
+    if (it.alternates && it.alternates.length) marks.push('<span class="mk">' + (it.altIdx + 1) + '/' + (it.alternates.length + 1) + '</span>');
+    if (it.tags.length || it.text) marks.push('<span class="mk">💬</span>');
+    d.innerHTML =
+      '<span class="ph">' +
+        '<img loading="lazy" src="' + it.url + '" alt="">' +
+        '<span class="vb"><span class="g">' + meta.g + '</span>' + meta.t + '</span>' +
+        '<span class="slot">' + slotOf(it) + '</span>' +
+      '</span>' +
+      '<div class="foot" style="position:relative">' +
+        (marks.length ? '<div class="marks">' + marks.join('') + '</div>' : '') +
+        '<div class="nm">' + esc(it.name) + '</div>' +
+        (it.why ? '<div class="why" title="' + esc(it.why) + '">' + esc(it.why) + '</div>' : '') +
+      '</div>';
+    d.onclick = () => { CUR = idx; render(); renderPanel(); };
+    d.ondblclick = () => openLoupe();
+    sheet.appendChild(d);
+  });
+  if (!list.length) sheet.innerHTML = '<p class="empty" style="grid-column:1/-1">Nothing matches this filter.</p>';
+  renderBar();
+  renderStatus();
+}
+
+function counts() {
+  const c = { all:IMGS.length, selected:0, maybe:0, rejected:0, untouched:0, commented:0, alternates:0 };
+  IMGS.forEach(it => {
+    c[it.state]++;
+    if (it.text || it.tags.length) c.commented++;
+    if (it.alternates && it.alternates.length) c.alternates++;
+  });
+  return c;
+}
+
+function renderBar() {
+  const c = counts();
+  const defs = [
+    ['all','All',false], ['selected','Keep',true], ['maybe','Maybe',true],
+    ['rejected','Cut',true], ['untouched','Untouched',true],
+    ['commented','Commented',false], ['alternates','Has alts',false],
+  ];
+  $('bar').innerHTML = defs.map(([f,label,dot]) =>
+    '<button class="fbtn' + (FILTER === f ? ' on' : '') + '" data-f="' + f + '">' +
+      (dot ? '<span class="dot"></span>' : '') + label + ' <span class="n">' + c[f] + '</span>' +
+    '</button>').join('') + '<span class="sp"></span>';
+  $('bar').querySelectorAll('.fbtn').forEach(b => {
+    b.onclick = () => { FILTER = b.dataset.f; render(); };
+  });
+}
+
+function renderStatus() {
+  const c = counts();
+  $('stSel').textContent = c.selected;
+  $('stMay').textContent = c.maybe;
+  $('stRej').textContent = c.rejected;
+  $('stUnt').textContent = c.untouched;
+  $('commitHint').textContent = c.maybe
+    ? c.maybe + ' maybe' + (c.maybe > 1 ? 's' : '') + ' come back to me as questions, not decisions.'
+    : 'Maybe frames come back to me as questions, not decisions.';
+}
+
+function renderPanel() {
+  const it = C();
+  document.body.classList.toggle('locked', !!(it && it.locked));
+  if (!it) {
+    $('frameLeg').textContent = 'No frame';
+    $('frameBody').hidden = false;
+    $('frameCtl').hidden = true;
+    return;
+  }
+  $('frameLeg').textContent = it.name;
+  $('frameBody').hidden = true;
+  $('frameCtl').hidden = false;
+
+  $('verdict').querySelectorAll('button').forEach(b =>
+    b.classList.toggle('on', b.dataset.v === it.state));
+
+  const pool = it.chipDefs || DEFAULT_CHIPS;
+  $('chips').innerHTML = pool.map(c =>
+    '<button class="chip ' + (c.sign < 0 ? 'neg' : c.sign > 0 ? 'pos' : '') +
+    (it.tags.includes(c.id) ? ' on' : '') + '" data-c="' + c.id + '">' + esc(c.t) + '</button>').join('');
+  $('chips').querySelectorAll('.chip').forEach(b => {
+    b.onclick = () => {
+      const id = b.dataset.c;
+      const i = it.tags.indexOf(id);
+      if (i < 0) it.tags.push(id); else it.tags.splice(i, 1);
+      reconcile(it);
+      render(); renderPanel();
+    };
+  });
+
+  $('frameText').value = it.text || '';
+
+  const has = it.alternates && it.alternates.length;
+  $('altWrap').hidden = !has;
+  if (has) {
+    const all = [it.original].concat(it.alternates);
+    $('alts').innerHTML = all.map((a, i) =>
+      '<div class="alt' + (i === it.altIdx ? ' on' : '') + '" data-i="' + i + '">' +
+        '<img loading="lazy" src="' + a.url + '" alt="">' +
+        '<div class="t">' + (i === 0 ? 'mine' : String(i)) + '</div>' +
+      '</div>').join('');
+    $('alts').querySelectorAll('.alt').forEach(el => {
+      el.onclick = () => swapTo(it, +el.dataset.i);
+    });
+  }
+}
+
+function swapTo(it, i) {
+  const all = [it.original].concat(it.alternates);
+  if (!all[i]) return;
+  it.altIdx = i;
+  it.url = all[i].url;
+  it.name = all[i].name;
+  render(); renderPanel();
+  if ($('loupe').classList.contains('on')) loadLoupe();
+  toast(i === 0 ? 'back to my pick' : 'swapped — recorded as a preference');
+}
+
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c =>
+  ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+
+const toast = makeToast('stMsg');
+
+/* --- loupe: fullscreen, zoom, pan --------------------------------------------------------------
+ * The reason this exists at all: judging a large set from small thumbnails is how good frames get
+ * mis-ranked. Verdict keys stay live in here so a call made at 100% doesn't need a trip back. */
+let LZ = { scale:1, x:0, y:0, fit:1, natural:[0,0] };
+
+function openLoupe() { if (!C()) return; $('loupe').classList.add('on'); loadLoupe(); }
+function closeLoupe() { $('loupe').classList.remove('on'); $('sheet').focus(); }
+
+function loadLoupe() {
+  const it = C(); if (!it) return;
+  const img = $('limg');
+  img.onload = () => { LZ.natural = [img.naturalWidth, img.naturalHeight]; fitLoupe(); };
+  img.src = it.url;
+  $('lname').textContent = it.name;
+  $('lwhy').textContent = it.why || '';
+  const meta = ST[it.state];
+  $('lvb').dataset.s = it.state;
+  $('lvb').querySelector('.g').textContent = meta.g;
+  $('lvbT').textContent = meta.t;
+  const list = vis();
+  $('lpos').textContent = (list.indexOf(it) + 1) + ' / ' + list.length;
+}
+
+function fitLoupe() {
+  const st = $('lstage'), [w,h] = LZ.natural;
+  if (!w) return;
+  const s = Math.min(st.clientWidth / w, st.clientHeight / h) * 0.94;
+  LZ.fit = s; LZ.scale = s;
+  LZ.x = (st.clientWidth - w * s) / 2;
+  LZ.y = (st.clientHeight - h * s) / 2;
+  applyLoupe();
+}
+
+function applyLoupe() {
+  $('limg').style.transform = 'translate(' + LZ.x + 'px,' + LZ.y + 'px) scale(' + LZ.scale + ')';
+  const pct = Math.round(LZ.scale * 100);
+  $('lzoom').textContent = Math.abs(LZ.scale - LZ.fit) < 0.001 ? 'fit' : pct + '%';
+}
+
+function zoomAt(cx, cy, factor) {
+  const st = $('lstage').getBoundingClientRect();
+  const px = cx - st.left, py = cy - st.top;
+  const ns = clamp(LZ.scale * factor, LZ.fit * 0.5, 12);
+  // keep the point under the cursor fixed
+  LZ.x = px - (px - LZ.x) * (ns / LZ.scale);
+  LZ.y = py - (py - LZ.y) * (ns / LZ.scale);
+  LZ.scale = ns;
+  applyLoupe();
+}
+
+(function wireLoupe() {
+  const st = $('lstage');
+  st.addEventListener('wheel', e => {
+    e.preventDefault();
+    zoomAt(e.clientX, e.clientY, e.deltaY < 0 ? 1.14 : 1 / 1.14);
+  }, { passive:false });
+
+  let drag = null;
+  st.addEventListener('pointerdown', e => {
+    drag = { x:e.clientX, y:e.clientY, ox:LZ.x, oy:LZ.y };
+    st.setPointerCapture(e.pointerId); st.classList.add('drag');
+  });
+  st.addEventListener('pointermove', e => {
+    if (!drag) return;
+    LZ.x = drag.ox + (e.clientX - drag.x);
+    LZ.y = drag.oy + (e.clientY - drag.y);
+    applyLoupe();
+  });
+  const end = () => { drag = null; st.classList.remove('drag'); };
+  st.addEventListener('pointerup', end);
+  st.addEventListener('pointercancel', end);
+  addEventListener('resize', () => { if ($('loupe').classList.contains('on')) fitLoupe(); });
+})();
+
+/* --- navigation + keys -------------------------------------------------------------------------- */
+function move(dir) {
+  const list = vis(); if (!list.length) return;
+  const cur = C();
+  let i = list.indexOf(cur);
+  i = i < 0 ? 0 : clamp(i + dir, 0, list.length - 1);
+  CUR = IMGS.indexOf(list[i]);
+  render(); renderPanel();
+  if ($('loupe').classList.contains('on')) loadLoupe();
+  else {
+    const el = $('sheet').children[i];
+    if (el && el.scrollIntoView) el.scrollIntoView({ block:'nearest', behavior:'smooth' });
+  }
+  // Photo Mechanic's speed is preloading, not clever UI — keep the neighbours warm.
+  [list[i+1], list[i-1]].forEach(n => { if (n) { const p = new Image(); p.src = n.url; } });
+}
+
+addEventListener('keydown', e => {
+  const tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'textarea' || tag === 'input') {
+    if (e.key === 'Escape') e.target.blur();
+    return;
+  }
+  const it = C();
+  const k = e.key.toLowerCase();
+  const open = $('loupe').classList.contains('on');
+
+  if (e.key === 'Escape' && open) { closeLoupe(); return; }
+  if (e.key === 'ArrowRight') { e.preventDefault(); move(1); return; }
+  if (e.key === 'ArrowLeft')  { e.preventDefault(); move(-1); return; }
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commit(); return; }
+  if (e.key === ' ') { e.preventDefault(); open ? closeLoupe() : openLoupe(); return; }
+
+  if (open) {
+    if (k === '0') { fitLoupe(); return; }
+    if (k === '1') {
+      const st = $('lstage');
+      zoomAt(st.getBoundingClientRect().left + st.clientWidth / 2,
+             st.getBoundingClientRect().top + st.clientHeight / 2, 1 / LZ.scale);
+      return;
+    }
+  }
+
+  if (!it) return;
+  if (k === 'p') { setVerdict(it, 'selected');  toast('keep'); }
+  else if (k === 'm') { setVerdict(it, 'maybe'); toast('maybe — I\'ll reconsider it'); }
+  else if (k === 'x') { setVerdict(it, 'rejected'); toast('cut'); }
+  else if (k === 'u') { it.locked = false; reconcile(it); render(); renderPanel(); toast('back under my proposal'); }
+  else if (k === 'c') { e.preventDefault(); $('frameText').focus(); }
+  else if (k === 'f') {
+    const order = ['all','selected','maybe','rejected','untouched'];
+    FILTER = order[(order.indexOf(FILTER) + 1) % order.length];
+    render();
+  }
+  else if (e.key === '[' || e.key === ']') {
+    if (!it.alternates || !it.alternates.length) return;
+    const n = it.alternates.length + 1;
+    swapTo(it, (it.altIdx + (e.key === ']' ? 1 : n - 1)) % n);
+  }
+  if (open && 'pmxu'.includes(k)) loadLoupe();
+});
+
+$('verdict').querySelectorAll('button').forEach(b => {
+  b.onclick = () => { const it = C(); if (it) setVerdict(it, b.dataset.v); };
+});
+$('frameText').oninput = function () { const it = C(); if (it) it.text = this.value; render(); };
+$('btnLoupe').onclick = openLoupe;
+$('btnCommit').onclick = commit;
+
+/* --- the report -------------------------------------------------------------------------------
+ * The diff IS the product. An override is feedback; it should never need explaining in prose too. */
+function buildResult() {
+  const group = k => IMGS.filter(i => i[k[0]] === k[1]).map(i => i.id);
+  const proposed = {
+    selected:  IMGS.filter(i => i.proposed === 'selected').map(i => i.id),
+    rejected:  IMGS.filter(i => i.proposed === 'rejected').map(i => i.id),
+    untouched: IMGS.filter(i => i.proposed === 'untouched').map(i => i.id),
+  };
+  const final = {
+    selected:  group(['state','selected']),
+    maybe:     group(['state','maybe']),
+    rejected:  group(['state','rejected']),
+    untouched: group(['state','untouched']),
+  };
+  const added = final.selected.filter(id => !proposed.selected.includes(id));
+  const removed = proposed.selected.filter(id =>
+    !final.selected.includes(id) && !final.maybe.includes(id));
+  const demoted = IMGS.filter(i => i.proposed === 'selected' && i.state === 'maybe')
+    .map(i => ({ id:i.id, to:'maybe', locked:i.locked,
+                 cause: i.tags.length ? 'tag:' + i.tags.join(',') : (i.text ? 'note' : 'manual') }));
+  const promoted = IMGS.filter(i => i.proposed !== 'selected' && i.state === 'maybe')
+    .map(i => ({ id:i.id, from:i.proposed, to:'maybe',
+                 cause: i.tags.length ? 'tag:' + i.tags.join(',') : (i.text ? 'note' : 'manual') }));
+  const swapped = IMGS.filter(i => i.altIdx > 0)
+    .map(i => ({ id:i.id, chosen:i.name, proposed:i.original.name }));
+
+  const frames = {};
+  IMGS.forEach(i => {
+    if (i.tags.length || i.text || i.locked) {
+      frames[i.id] = { tags:i.tags.slice(), text:i.text || '', locked:!!i.locked, state:i.state };
+    }
+  });
+
+  return {
+    tool: 'select',
+    setPrompt: SET_PROMPT,
+    proposed, final,
+    diff: { added, removed, demoted, promoted, swapped },
+    setComment: $('setComment').value.trim(),
+    frames,
+  };
+}
+
+function commit() {
+  const r = buildResult();
+  window.__result = r;
+  const n = r.final.selected.length, m = r.final.maybe.length;
+  toast('committed — ' + n + ' in' + (m ? ', ' + m + ' to reconsider' : ''));
+  if (window.__runtime && window.__runtime.review) {
+    fetch('/feedback?name=select_' + Date.now() + '.json',
+      { method:'POST', body:JSON.stringify(r, null, 2) }).catch(() => {});
+  }
+}
+
+/* --- automation surface ------------------------------------------------------------------------ */
+window.__loadSelection = function (spec) {
+  const cands = (spec && spec.candidates) || [];
+  SET_PROMPT = (spec && spec.setPrompt) || '';
+  $('setPrompt').textContent = SET_PROMPT || (cands.length + ' candidates.');
+  IMGS = cands.map((c, i) => {
+    const proposed = c.verdict === 'selected' || c.verdict === 'rejected' ? c.verdict : 'untouched';
+    const it = {
+      id: c.id || ('c' + i),
+      name: c.name || c.id || ('image ' + (i + 1)),
+      url: c.url,
+      original: { url:c.url, name:c.name || c.id || ('image ' + (i + 1)) },
+      alternates: Array.isArray(c.alternates) ? c.alternates : [],
+      altIdx: 0,
+      proposed,
+      state: proposed,
+      // a one-line reason, hard-capped — anything longer doesn't get read
+      why: c.why ? String(c.why).slice(0, 60) : '',
+      cls: c.class || '',
+      chipDefs: Array.isArray(c.chips) && c.chips.length
+        ? c.chips.map((t, n) => typeof t === 'string'
+            ? { id:'x' + n + '-' + t.replace(/\W+/g,'-').slice(0,20), t, sign:-1 }
+            : { id:t.id || ('x' + n), t:t.t || t.id, sign:t.sign == null ? -1 : t.sign })
+        : null,
+      tags: [], text: '', locked: false,
+    };
+    // an assistant-supplied class shows as a pre-lit chip only if it's in the frame's own palette
+    return it;
+  });
+  CUR = IMGS.length ? 0 : -1;
+  render(); renderPanel();
+  return IMGS.length;
+};
+
+// convenience for a quick manual run
+window.__loadFolder = function (dir) {
+  return fetch('/list?dir=' + encodeURIComponent(dir))
+    .then(r => r.json())
+    .then(j => window.__loadSelection({
+      candidates: (j.files || []).map(f => ({
+        id: f.name, name: f.name,
+        url: '/file?path=' + encodeURIComponent(dir + '/' + f.name),
+      })),
+      setPrompt: dir,
+    }));
+};
+
+window.__setFilter = f => { FILTER = f; render(); };
+window.__result = null;
+
+if (window.__runtime) window.__runtime.ready.then(() => { window.__ready = true; });
+else window.__ready = true;
+
+render(); renderPanel();
+</script>

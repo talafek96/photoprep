@@ -2,8 +2,11 @@
 
 Get photos ready to post — frame them, mark them, done.
 
-Two small tools that run locally in your browser:
+Three small tools that run locally in your browser:
 
+- **Select** — decide which frames make the cut. Shows what was left out and why, not just what was
+  kept, so nothing good disappears quietly. Mark the ones you're unsure about, tag what's wrong,
+  and swap in the frame that wasn't picked.
 - **Layout** — stack two landscape photos into one portrait frame, split a panorama into slices
   that scroll like one wide shot, or just crop one photo to the frame ratio. Exports clean, at full
   resolution.

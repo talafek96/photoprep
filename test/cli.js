@@ -49,7 +49,7 @@ child.stdout.on('data', async d => {
     check('review is off unless --review is passed', health.review === false);
     check('user directory is created under PHOTOPREP_HOME', health.outDir.startsWith(HOME), health.outDir);
 
-    for (const p of ['/', '/layout/', '/watermark/', '/settings/']) {
+    for (const p of ['/', '/select/', '/layout/', '/watermark/', '/settings/']) {
       const r = await fetch(base + p);
       check('CLI serves ' + p, r.status === 200, r.status);
     }
