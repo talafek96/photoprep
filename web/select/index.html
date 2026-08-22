@@ -846,7 +846,7 @@ function closeLoupe() { $('loupe').classList.remove('on'); $('sheet').focus(); }
 function loadLoupe() {
   const it = C(); if (!it) return;
   const img = $('limg');
-  img.onload = () => { LZ.natural = [img.naturalWidth, img.naturalHeight]; fitLoupe(); };
+  img.onload = () => { LZ.natural = [img.naturalWidth, img.naturalHeight]; fitLoupe(false); };
   img.src = it.url;
   $('lname').textContent = it.name;
   $('lwhy').textContent = it.why || '';
@@ -858,23 +858,30 @@ function loadLoupe() {
   $('lpos').textContent = (list.indexOf(it) + 1) + ' / ' + list.length;
 }
 
-function fitLoupe() {
+function fitLoupe(animate) {
   const st = $('lstage'), [w,h] = LZ.natural;
   if (!w) return;
   const s = Math.min(st.clientWidth / w, st.clientHeight / h) * 0.94;
   LZ.fit = s; LZ.scale = s;
   LZ.x = (st.clientWidth - w * s) / 2;
   LZ.y = (st.clientHeight - h * s) / 2;
-  applyLoupe();
+  applyLoupe(animate);
 }
 
-function applyLoupe() {
-  $('limg').style.transform = 'translate(' + LZ.x + 'px,' + LZ.y + 'px) scale(' + LZ.scale + ')';
+// `animate` is for DISCRETE jumps only - double-click, the 0 and 1 keys. Continuous input (wheel,
+// pinch, drag) must stay instant: a transition chasing a live gesture always lags behind the finger,
+// which reads as broken rather than smooth. Any such event also clears the transition, so a jump
+// still in flight is cancelled the moment you take over.
+function applyLoupe(animate) {
+  const img = $('limg');
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  img.style.transition = (animate && !reduce) ? 'transform .42s cubic-bezier(.16,1,.3,1)' : 'none';
+  img.style.transform = 'translate(' + LZ.x + 'px,' + LZ.y + 'px) scale(' + LZ.scale + ')';
   const pct = Math.round(LZ.scale * 100);
   $('lzoom').textContent = Math.abs(LZ.scale - LZ.fit) < 0.001 ? 'fit' : pct + '%';
 }
 
-function zoomAt(cx, cy, factor) {
+function zoomAt(cx, cy, factor, animate) {
   const st = $('lstage').getBoundingClientRect();
   const px = cx - st.left, py = cy - st.top;
   const ns = clamp(LZ.scale * factor, LZ.fit * 0.5, 12);
@@ -882,7 +889,7 @@ function zoomAt(cx, cy, factor) {
   LZ.x = px - (px - LZ.x) * (ns / LZ.scale);
   LZ.y = py - (py - LZ.y) * (ns / LZ.scale);
   LZ.scale = ns;
-  applyLoupe();
+  applyLoupe(animate);
 }
 
 (function wireLoupe() {
@@ -923,8 +930,8 @@ function zoomAt(cx, cy, factor) {
   // double-click toggles fit <-> 100% at the cursor, as in every image viewer
   st.addEventListener('dblclick', e => {
     e.preventDefault();
-    if (Math.abs(LZ.scale - LZ.fit) < 0.001) zoomAt(e.clientX, e.clientY, 1 / LZ.scale);
-    else fitLoupe();
+    if (Math.abs(LZ.scale - LZ.fit) < 0.001) zoomAt(e.clientX, e.clientY, 1 / LZ.scale, true);
+    else fitLoupe(true);
   });
 
   let drag = null;
@@ -950,7 +957,7 @@ function zoomAt(cx, cy, factor) {
     gScale = e.scale;
   }, { passive:false });
 
-  addEventListener('resize', () => { if ($('loupe').classList.contains('on')) fitLoupe(); });
+  addEventListener('resize', () => { if ($('loupe').classList.contains('on')) fitLoupe(false); });
 })();
 
 /* --- navigation + keys -------------------------------------------------------------------------- */
@@ -987,11 +994,11 @@ addEventListener('keydown', e => {
   if (e.key === ' ') { e.preventDefault(); open ? closeLoupe() : openLoupe(); return; }
 
   if (open) {
-    if (k === '0') { fitLoupe(); return; }
+    if (k === '0') { fitLoupe(true); return; }
     if (k === '1') {
       const st = $('lstage');
       zoomAt(st.getBoundingClientRect().left + st.clientWidth / 2,
-             st.getBoundingClientRect().top + st.clientHeight / 2, 1 / LZ.scale);
+             st.getBoundingClientRect().top + st.clientHeight / 2, 1 / LZ.scale, true);
       return;
     }
   }
