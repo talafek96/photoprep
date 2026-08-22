@@ -567,7 +567,7 @@ kbd {
       <p><b class="pl">🔒 set by you</b> you set that verdict by hand, so tags no longer move it. <kbd>U</kbd> hands it back.</p>
       <p><b class="pl">💬</b> you left a tag or a note on it - both now show on the tile itself, under my reason. The <b class="pl">Has notes</b> filter collects them.</p>
       <h3>Groups</h3>
-      <p><kbd>⌘</kbd>-click adds a frame to a selection, <kbd>⇧</kbd>-click takes a range, <kbd>⌘A</kbd> takes everything on screen, <kbd>esc</kbd> clears. With frames selected, the bar at the bottom groups them and can set a target - <em>up to 2</em> or <em>exactly 1</em> - which I read as "out of these, pick that many". It works both ways: I can suggest a group and a count, and you can make your own and tell me a count. <em>Nothing is ever enforced</em> - a target only shows where you are, and you can commit over, under or ignoring it entirely.</p>
+      <p><kbd>⌘</kbd>-click (or <kbd>Ctrl</kbd>-click) adds a frame to a selection, <kbd>⇧</kbd>-click takes a range, <kbd>⌘A</kbd> / <kbd>Ctrl A</kbd> takes everything on screen, <kbd>esc</kbd> clears. With frames selected, the bar at the bottom groups them and can set a target - <em>up to 2</em> or <em>exactly 1</em> - which I read as "out of these, pick that many". It works both ways: I can suggest a group and a count, and you can make your own and tell me a count. <em>Nothing is ever enforced</em> - a target only shows where you are, and you can commit over, under or ignoring it entirely.</p>
       <p>Verdict keys apply to the whole selection when there is one, so ⇧-click a run of near-duplicates and press <kbd>X</kbd> once.</p>
 
       <h3>Keys</h3>
@@ -811,6 +811,9 @@ function setVerdict(it, v) {
 /* --- render ------------------------------------------------------------------------------------ */
 function render() {
   const sheet = $('sheet');
+  // Ctrl-click is a secondary click on macOS, so without this the context menu opens on top of the
+  // multi-selection it just made. Ctrl is the Windows modifier and has to work on both.
+  sheet.oncontextmenu = e => { if (e.ctrlKey) e.preventDefault(); };
   const list = vis();
   sheet.innerHTML = '';
   list.forEach((it, n) => {
