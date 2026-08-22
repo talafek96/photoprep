@@ -563,14 +563,13 @@ kbd {
   </div>
   <div id="lstage"><img id="limg" alt=""></div>
   <div id="lfoot">
-    <span><kbd id="wheelKey">2 fingers</kbd><span id="wheelHint">pan</span></span>
-    <span><kbd>ctrl+wheel</kbd>zoom</span>
     <span><kbd>drag</kbd>pan</span>
+    <span><kbd>pinch</kbd>zoom</span>
     <span><kbd>dbl-click</kbd>fit / 100%</span>
-    <span><kbd>0</kbd>fit</span>
-    <span><kbd>1</kbd>100%</span>
     <span><kbd>←</kbd><kbd>→</kbd>frame</span>
-    <span><kbd>P</kbd><kbd>M</kbd><kbd>X</kbd>verdict</span>
+    <span><kbd>P</kbd>keep</span>
+    <span><kbd>M</kbd>maybe</span>
+    <span><kbd>X</kbd>cut</span>
     <span><kbd>esc</kbd>back</span>
   </div>
 </div>
@@ -867,11 +866,11 @@ function updateInputTag() {
   const el = $('inputTag'); if (!el) return;
   const dev = INPUT === 'auto' ? INPUT_GUESS : INPUT;
   el.textContent = (INPUT === 'auto' ? '' : 'pinned ') + dev;
+  // The footer stays device-neutral - naming the reader's trackpad at them is noise. What their
+  // wheel does lives on this one pill, which is also the override.
   el.title = dev === 'mouse'
-    ? 'Wheel zooms, drag pans. Click to pin or re-detect.'
-    : 'Pinch zooms, two-finger scroll pans. Click to pin or re-detect.';
-  $('wheelHint').textContent = dev === 'mouse' ? 'zoom' : 'pan';
-  $('wheelKey').textContent = dev === 'mouse' ? 'wheel' : '2 fingers';
+    ? 'Detected a mouse: the wheel zooms. Click to pin or re-detect.'
+    : 'Detected a trackpad: pinch zooms, two-finger scroll pans. Click to pin or re-detect.';
 }
 
 function openLoupe() { if (!C()) return; $('loupe').classList.add('on'); loadLoupe(); }
