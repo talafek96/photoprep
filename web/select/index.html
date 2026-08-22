@@ -578,7 +578,7 @@ kbd {
 
       <h3>Adding your own photos</h3>
       <p>What I show you is a proposal, not the whole world. <b class="pl">+ add photos</b> opens a folder and puts everything in it on the sheet as <b data-s="untouched">○ Not picked</b>, in its own group — so you can bring in a reference frame, a shot from another day, anything I never saw. You can also drag files straight onto the sheet.</p>
-      <p>Added frames are marked <b class="pl">+ yours</b>. A dragged-in file carries <em>no file path</em>, so I can look at it but cannot use it downstream — those are marked <b class="pl">+ yours ⚠</b>. Use <b class="pl">+ add photos</b> for anything you actually want in the post.</p>
+      <p>Added frames are marked <b class="pl">+ yours</b>. A dragged-in file has no path of its own, so it is <em>written to disk</em> as it lands — after that it is as real as anything from the shoot folder and I can build with it. A file already on the sheet is recognised and not duplicated.</p>
 
       <h3>Group targets</h3>
       <p><b class="pl">≤5</b> is <em>my</em> suggestion — how many I proposed from that group. <b class="pl">you ≤1</b>, outlined in amber, is a target <em>you</em> set, which I read as an instruction rather than a guess. <b class="pl">✓≤1</b> means the count currently matches.</p>
@@ -753,6 +753,7 @@ let FILTER = 'all';
 let SORT = 'given';   // see SORTS
 let SET_PROMPT = '';
 let GROUPS = {};      // name -> { target, mode:'upto'|'exactly', label }
+let DROP_DIR = '';    // where dropped files are written; blank = photoprep's out folder
 let MULTI = new Set();// ids in the current multi-selection
 let ANCHOR = -1;      // for shift-click ranges
 
@@ -851,16 +852,10 @@ function render() {
   sheet.oncontextmenu = e => { if (e.ctrlKey) e.preventDefault(); };
   sheet.ondragover = e => { e.preventDefault(); sheet.classList.add('hot'); };
   sheet.ondragleave = () => sheet.classList.remove('hot');
-  sheet.ondrop = e => {
+  sheet.ondrop = async e => {
     e.preventDefault(); sheet.classList.remove('hot');
     const files = [...(e.dataTransfer.files || [])].filter(f => /^image\//.test(f.type));
-    if (!files.length) return;
-    // A dropped file carries no path, so the assistant cannot resolve it later. Useful for looking
-    // at, flagged so nobody is surprised when it can't be used downstream.
-    const n = addCandidates(files.map(f => ({
-      id: 'drop:' + f.name + ':' + f.size, name: f.name, url: URL.createObjectURL(f), date: f.lastModified || 0,
-    })), 'added-dropped', 'Dropped in');
-    toast(n + ' added — dropped files have no path, so use “+ add photos” if I need to work with them');
+    if (files.length) await dropIn(files);
   };
   const list = vis();
   sheet.innerHTML = '';
@@ -1081,13 +1076,46 @@ function addCandidates(specs, groupKey, groupLabel) {
       proposed: 'untouched', state: 'untouched', why: '', cls: '', chipDefs: null,
       tags: [], text: '', locked: false,
       scores: {}, groups: groupKey ? [groupKey] : [], _sg: null,
-      date: sp.date || 0, _i: IMGS.length,
+      date: sp.date || 0, _i: IMGS.length, bytes: sp.bytes || 0,
       addedByYou: true, path: sp.path || null, pathless: !sp.path,
     });
     added++;
   });
   render(); renderPanel();
   return added;
+}
+
+// A dropped file gives the page bytes and a name but never a path, so it cannot be referenced later.
+// Writing it to disk is what fixes that: the server hands back the absolute path it wrote to, and
+// from then on the frame is as real as anything from the shoot folder.
+//
+// A file already sitting in a folder the sheet knows about is NOT re-saved - matching on name and
+// byte length is enough to spot it, and duplicating a photo the person already has would be rude.
+async function dropIn(files) {
+  const dir = DROP_DIR;
+  let saved = 0, reused = 0, failed = 0;
+  for (const f of files) {
+    const already = IMGS.find(i => i.path && i.name === f.name && i.bytes === f.size);
+    if (already) {
+      reused++;
+      continue;
+    }
+    const r = await fetch('/save?name=' + encodeURIComponent(f.name) +
+                          (dir ? '&dir=' + encodeURIComponent(dir) : '') + '&onExist=rename',
+                          { method:'POST', body:f }).then(x => x.json()).catch(() => ({ ok:false }));
+    if (!r.ok) { failed++; continue; }
+    const folder = r.path.slice(0, r.path.lastIndexOf('/'));
+    await fetch('/list?dir=' + encodeURIComponent(folder));    // make it readable by /file
+    addCandidates([{
+      id: r.path, name: r.name, path: r.path, bytes: f.size,
+      url: '/file?path=' + encodeURIComponent(r.path), date: f.lastModified || 0,
+    }], 'added-dropped', 'Dropped in');
+    saved++;
+  }
+  if (saved) FILTER = 'group:added-dropped';
+  render();
+  toast([saved && ('saved ' + saved + ' to disk'), reused && (reused + ' already here'),
+         failed && (failed + ' failed')].filter(Boolean).join(', '));
 }
 
 // The native folder dialog, because it yields a real absolute path - the only form the assistant can
@@ -1100,7 +1128,7 @@ async function addFromFolder() {
   if (!j || !j.ok || !j.files.length) { toast('no photos in that folder'); return; }
   const key = 'added-' + dir.split('/').filter(Boolean).pop().toLowerCase().replace(/[^a-z0-9]+/g, '-');
   const n = addCandidates(j.files.map(f => ({
-    id: dir + '/' + f.name, name: f.name, path: dir + '/' + f.name,
+    id: dir + '/' + f.name, name: f.name, path: dir + '/' + f.name, bytes: f.size || 0,
     url: '/file?path=' + encodeURIComponent(dir + '/' + f.name), date: f.mtime || 0,
   })), key, dir.split('/').filter(Boolean).pop());
   FILTER = 'group:' + key;
@@ -1627,6 +1655,7 @@ window.__loadSelection = function (spec) {
   const cands = (spec && spec.candidates) || [];
   SET_PROMPT = (spec && spec.setPrompt) || '';
   GROUPS = (spec && spec.groups) || {};
+  DROP_DIR = (spec && spec.dropDir) || '';
   if (spec && spec.sort && SORTS[spec.sort]) SORT = spec.sort;
   $('setPrompt').textContent = SET_PROMPT || (cands.length + ' candidates.');
   IMGS = cands.map((c, i) => {

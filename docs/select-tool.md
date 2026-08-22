@@ -224,10 +224,15 @@ recreation, something from a different day, a photo from another shoot entirely.
 **Not picked** in its own group. Added frames are marked `+ yours`, and the report carries them in an
 `added[]` array with their absolute paths, which is what makes them usable downstream.
 
-Files can also be **dragged straight onto the sheet**, but a dropped file gives the page no path — the
-browser withholds it — so those are flagged `+ yours ⚠` and the report records `pathless: true`. They
-are fine to look at and compare against; they cannot be built into a post. The toast says so at the
-moment of dropping rather than letting it fail later.
+Files can also be **dragged straight onto the sheet**. A dropped file gives the page bytes and a name
+but never a path, so it is **written to disk as it lands** — the server returns the absolute path it
+wrote to, and from that moment the frame is as real as anything from the shoot folder. Without this a
+dropped photo could be looked at and never used, which is a trap rather than a feature.
+
+The destination is `dropDir` from the caller (the shoot folder, normally), falling back to photoprep's
+own out folder. A file that is **already on the sheet with a path** is recognised by name and byte
+length and reused rather than written again — duplicating a photo the person already has would be
+rude, and it is the common case when someone drags the same reference in twice.
 
 ## Multi-selection
 
