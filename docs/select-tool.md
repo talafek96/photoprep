@@ -160,16 +160,20 @@ The sheet's order is a lens, not data. Six of them:
 
 Two ways to say "these belong together, now choose between them".
 
-**A group** is a named cluster the caller sends per candidate (`group: 'kasaneiwa-sunset'`), usually a
-set of near-duplicates or one location. Groups appear as chips above the sheet showing `chosen/total`,
-and clicking one filters to it.
+**A group** is a named cluster. It can come from either side: the assistant sends one per candidate
+(`group: 'kasaneiwa-sunset'`), or the person makes their own — ⌘-click to gather frames, ⇧-click for a
+range, ⌘A for everything on screen, then name it in the selection bar. Groups appear as chips above the
+sheet showing `chosen/total`, and clicking one filters to it. The chip records **who** set the target,
+because "I suggest 2" and "you asked me for 2" are different statements.
 
 **A target** turns that into a question: `{ target: 2, mode: 'upto' }` or `{ target: 1, mode: 'exactly' }`
 — "out of these six, no more than two" / "out of these three, exactly one". The chip shows `max 2`,
 `pick 1`, or `✓ 1` when met, and colours amber under / red over.
 
-**Targets never block the export.** They report where you are. A hard cap that refuses to commit is a
-dialog standing in front of a judgement call, and the judgement is the person's.
+**A target is only ever a suggestion.** It never blocks the commit, never caps what can be selected,
+and being over it is not an error — the badge simply stops looking met. A hard cap that refuses to
+commit would be a dialog standing in front of a judgement call, and the judgement is the person's.
+Only a *met* target earns a positive mark; over and under both read as neutral information.
 
 **A score** is 1–10 per frame — a slider in the panel, or just press a digit (`0` is ten, `` ` ``
 clears). It is deliberately *not* a global star rating: the evidence against those (scale-region bias,
@@ -179,6 +183,19 @@ real answer — and combined with a target it lets the person hand the choice ba
 keep the top two*.
 
 Scores ride in the report per frame, and `window.__scores()` reads them out.
+
+## Multi-selection
+
+⌘-click gathers frames, ⇧-click takes a range **across what is currently visible** (so a range
+respects the active sort and filter), ⌘A takes everything on screen, `esc` clears. ⌘-clicking after a
+plain click folds in the frame already focused, as Finder and Lightroom do.
+
+With a selection live, a bar appears offering: group them (with an optional target), keep / maybe /
+cut them all, score them all, ungroup. The verdict **keys** apply to the selection too, so ⇧-clicking
+a run of near-duplicates and pressing `X` once cuts the run.
+
+The selection mark is the **accent** colour, never a verdict colour — "I have these highlighted" must
+not read as "these are keeps".
 
 ## Alternates in place
 

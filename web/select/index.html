@@ -30,7 +30,7 @@ body { grid-template-columns:1fr 366px; }
 
 /* four rows: bar, legend, sheet, status. The sheet is the only one that flexes - give the legend
    the 1fr by accident and the sheet falls into an implicit auto row and overflows the viewport. */
-#left { display:grid; grid-template-rows:auto auto auto 1fr auto; min-width:0; min-height:0; }
+#left { display:grid; grid-template-rows:auto auto auto 1fr auto auto; min-width:0; min-height:0; }
 
 /* --- filter bar -------------------------------------------------------------------------------- */
 #bar {
@@ -94,9 +94,10 @@ body { grid-template-columns:1fr 366px; }
   font-variant-numeric:tabular-nums; padding:1px 6px; border-radius:100px;
   background:oklch(1 0 0 / 8%); color:var(--mut);
 }
-/* over/under a target is advice, never a block - it says where you are and stays out of the way */
-.gt.over  { background:color-mix(in oklch, var(--st-rej) 22%, transparent); color:var(--st-rej); }
-.gt.under { background:color-mix(in oklch, var(--st-may) 22%, transparent); color:var(--st-may); }
+/* A target is advice. Being over it is not an error, so it does not get the danger colour - it just
+   stops looking "met". Only a met target earns a positive mark. */
+.gt.over, .gt.under { background:oklch(1 0 0 / 8%); color:var(--mut); }
+.gt.by-you { border:1px dashed color-mix(in oklch, var(--accent) 50%, transparent); }
 .gt.met   { background:color-mix(in oklch, var(--st-sel) 20%, transparent); color:var(--st-sel); }
 
 /* --- legend: the badges are meaningless until someone says what they mean ----------------------- */
@@ -347,6 +348,35 @@ body { grid-template-columns:1fr 366px; }
 .mk.lock { color:var(--accent); }
 .mk.sc { color:var(--accent); font-variant-numeric:tabular-nums; font-weight:650; }
 
+/* --- multi-selection bar ------------------------------------------------------------------------ */
+#multibar {
+  display:flex; align-items:center; gap:10px; padding:9px 14px; flex-wrap:wrap;
+  border-top:1px solid var(--accent); background:color-mix(in oklch, var(--surface) 88%, var(--accent));
+  box-shadow:var(--highlight); animation:rise .3s var(--ease-out) both; position:relative; z-index:11;
+}
+#multibar .mlead {
+  font-family:var(--mono); font-size:9.5px; letter-spacing:.09em; text-transform:uppercase;
+  color:var(--mut);
+}
+#multibar .mlead b { color:var(--accent); font-size:12px; font-variant-numeric:tabular-nums; }
+#multibar .mgrp, #multibar .mact { display:flex; align-items:center; gap:6px; }
+#multibar .sp { flex:1; }
+#multibar input[type=text] { width:140px; }
+#multibar input[type=number] { width:58px; }
+#multibar select { width:auto; }
+#multibar button { padding:6px 10px; font-size:11.5px; }
+#multibar input, #multibar select { padding:5px 8px; font-size:11.5px; }
+
+/* the multi-selection mark — deliberately the ACCENT, not a verdict colour, so "I have these
+   highlighted" never gets read as "these are keeps" */
+.tile.multi { border-color:var(--accent); }
+.tile.multi .ph { outline:2px solid var(--accent); outline-offset:-2px; }
+.mcheck {
+  position:absolute; top:8px; right:8px; z-index:5; width:20px; height:20px; border-radius:100px;
+  display:grid; place-items:center; font-size:11px; font-weight:700;
+  background:var(--accent); color:var(--accent-ink); box-shadow:0 1px 5px oklch(0 0 0 / 45%);
+}
+
 /* --- status line ------------------------------------------------------------------------------- */
 #status {
   display:flex; align-items:center; gap:14px; padding:9px 14px;
@@ -536,6 +566,10 @@ kbd {
       <p><b class="pl">⇄ 1 of 3</b> other frames from the same moment. <kbd>[</kbd> <kbd>]</kbd> swaps one in - and tells me you preferred it.</p>
       <p><b class="pl">🔒 set by you</b> you set that verdict by hand, so tags no longer move it. <kbd>U</kbd> hands it back.</p>
       <p><b class="pl">💬</b> you left a tag or a note on it - both now show on the tile itself, under my reason. The <b class="pl">Has notes</b> filter collects them.</p>
+      <h3>Groups</h3>
+      <p><kbd>⌘</kbd>-click adds a frame to a selection, <kbd>⇧</kbd>-click takes a range, <kbd>⌘A</kbd> takes everything on screen, <kbd>esc</kbd> clears. With frames selected, the bar at the bottom groups them and can set a target - <em>up to 2</em> or <em>exactly 1</em> - which I read as "out of these, pick that many". It works both ways: I can suggest a group and a count, and you can make your own and tell me a count. <em>Nothing is ever enforced</em> - a target only shows where you are, and you can commit over, under or ignoring it entirely.</p>
+      <p>Verdict keys apply to the whole selection when there is one, so ⇧-click a run of near-duplicates and press <kbd>X</kbd> once.</p>
+
       <h3>Keys</h3>
       <p>The flag keys follow Lightroom: <kbd>P</kbd> pick / keep · <kbd>X</kbd> reject / cut · <kbd>U</kbd> unpick · plus <kbd>M</kbd> for maybe, which Lightroom has no equivalent of.</p>
       <p><kbd>Space</kbd> loupe · <kbd>Z</kbd> zoom fit ↔ 100% · <kbd>←</kbd><kbd>→</kbd> move · <kbd>F</kbd> filter · <kbd>⏎</kbd> commit</p>
@@ -543,6 +577,24 @@ kbd {
     </div>
   </div>
   <div id="sheet" tabindex="0" aria-label="Contact sheet"></div>
+  <div id="multibar" hidden>
+    <span class="mlead"><b id="mcount">0</b> selected</span>
+    <span class="mgrp">
+      <input type="text" id="mgroupName" placeholder="group name" spellcheck="false">
+      <select id="mMode" title="Only a suggestion - nothing is enforced"><option value="upto">up to</option><option value="exactly">exactly</option></select>
+      <input type="number" id="mTarget" min="0" max="20" placeholder="any" title="How many to pick from this group. A suggestion only - never enforced.">
+      <button id="mGroup" class="primary">Group these</button>
+      <button id="mUngroup" hidden>Ungroup</button>
+    </span>
+    <span class="sp"></span>
+    <span class="mact">
+      <button id="mKeep">✓ Keep all</button>
+      <button id="mMaybe">? Maybe all</button>
+      <button id="mCut">✕ Cut all</button>
+      <button id="mScore">Score all…</button>
+      <button id="mClear">Clear</button>
+    </span>
+  </div>
   <div id="status">
     <span><b id="stSel">0</b> selected</span>
     <span><b id="stMay">0</b> maybe</span>
@@ -682,6 +734,8 @@ let FILTER = 'all';
 let SORT = 'given';   // see SORTS
 let SET_PROMPT = '';
 let GROUPS = {};      // name -> { target, mode:'upto'|'exactly', label }
+let MULTI = new Set();// ids in the current multi-selection
+let ANCHOR = -1;      // for shift-click ranges
 
 // Verdict order for sorting: the things wanting attention first.
 const V_RANK = { maybe:0, selected:1, untouched:2, rejected:3 };
@@ -762,7 +816,8 @@ function render() {
   list.forEach((it, n) => {
     const idx = IMGS.indexOf(it);
     const d = document.createElement('div');
-    d.className = 'tile' + (idx === CUR ? ' cur' : '') + (it._flash ? ' flash' : '');
+    d.className = 'tile' + (idx === CUR ? ' cur' : '') + (it._flash ? ' flash' : '')
+                + (MULTI.has(it.id) ? ' multi' : '');
     if (it._flash) { it._flash = false; }
     d.dataset.s = it.state;
     d.style.animationDelay = Math.min(n * 0.012, 0.3) + 's';
@@ -774,6 +829,7 @@ function render() {
     if (it.score) marks.push('<span class="mk sc" title="Your score, out of 10">' + it.score + '</span>');
     d.innerHTML =
       '<span class="trailGlow"></span><span class="trail"></span>' +
+      (MULTI.has(it.id) ? '<span class="mcheck">✓</span>' : '') +
       '<span class="ph">' +
         '<img loading="lazy" src="' + it.url + '" alt="">' +
         '<span class="vb" title="' + VERDICT_HELP[it.state] + '">' +
@@ -795,13 +851,36 @@ function render() {
       d.style.setProperty('--ph', clamp(Math.round(w * im.naturalHeight / im.naturalWidth), 132, 300) + 'px');
     };
     if (im.complete) shape(); else im.onload = shape;
-    d.onclick = () => { CUR = idx; render(); renderPanel(); };
+    d.onclick = ev => {
+      const list = vis();
+      if (ev.shiftKey && ANCHOR >= 0) {
+        // range across what is CURRENTLY VISIBLE, so a range respects the active sort and filter
+        const a = list.findIndex(x => x === IMGS[ANCHOR]);
+        const b = list.indexOf(it);
+        if (a >= 0 && b >= 0) {
+          const [lo, hi] = a < b ? [a, b] : [b, a];
+          for (let k = lo; k <= hi; k++) MULTI.add(list[k].id);
+        }
+        if (IMGS[ANCHOR]) MULTI.add(IMGS[ANCHOR].id);
+      } else if (ev.metaKey || ev.ctrlKey) {
+        // seed with the frame already focused, so ⌘-clicking a second one gives you two, not one
+        if (!MULTI.size && IMGS[CUR]) MULTI.add(IMGS[CUR].id);
+        MULTI.has(it.id) ? MULTI.delete(it.id) : MULTI.add(it.id);
+        ANCHOR = idx;
+      } else {
+        MULTI.clear();
+        ANCHOR = idx;
+      }
+      CUR = idx;
+      render(); renderPanel();
+    };
     d.ondblclick = () => openLoupe();
     sheet.appendChild(d);
   });
   if (!list.length) sheet.innerHTML = '<p class="empty" style="grid-column:1/-1">Nothing matches this filter.</p>';
   renderBar();
   renderStatus();
+  renderMulti();
 }
 
 // "out of these N, pick 3" — a target the assistant sets per group, or you set here. The tool never
@@ -818,7 +897,8 @@ function groupState(name) {
     else if (chosen < target) status = (g.mode === 'exactly') ? 'under' : 'ok';
     else status = 'met';
   }
-  return { name, label:g.label || name, target, mode:g.mode || 'upto', total:inGroup.length, chosen, status };
+  return { name, label:g.label || name, target, mode:g.mode || 'upto', by:g.by || 'me',
+           total:inGroup.length, chosen, status };
 }
 
 function activeGroups() { return Object.keys(GROUPS).filter(n => IMGS.some(i => i.group === n)); }
@@ -870,12 +950,16 @@ function renderGroups() {
     const g = groupState(n);
     // the chosen count already sits in .gn, so the target badge states only the RULE - printing the
     // count twice is what made this read as "2/22 / 1"
+    // A target is ALWAYS advisory - it is never enforced and never blocks the commit. The wording
+    // says so, and says who it came from: mine is a suggestion, yours is what you asked me for.
     let cap = '';
     if (g.target != null) {
-      const txt = g.mode === 'exactly'
-        ? (g.chosen === g.target ? '✓ ' + g.target : 'pick ' + g.target)
-        : 'max ' + g.target;
-      cap = '<span class="gt ' + g.status + '">' + txt + '</span>';
+      const num = (g.mode === 'exactly' ? '=' : '≤') + g.target;
+      const txt = g.chosen === g.target ? '✓' + num : num;
+      const who = g.by === 'you' ? 'You asked for ' : 'I suggest ';
+      const tip = who + (g.mode === 'exactly' ? 'exactly ' : 'up to ') + g.target +
+                  ' from these ' + g.total + '. Only a suggestion - pick as many as you like.';
+      cap = '<span class="gt ' + g.status + ' by-' + g.by + '" title="' + esc(tip) + '">' + txt + '</span>';
     }
     return '<button class="grp' + (FILTER === 'group:' + n ? ' on' : '') + '" data-g="' + n + '">' +
       '<span class="gl">' + esc(g.label) + '</span>' +
@@ -884,6 +968,43 @@ function renderGroups() {
   box.querySelectorAll('.grp').forEach(b => {
     b.onclick = () => { const k = 'group:' + b.dataset.g; FILTER = (FILTER === k) ? 'all' : k; render(); };
   });
+}
+
+const selected = () => IMGS.filter(i => MULTI.has(i.id));
+
+function renderMulti() {
+  const bar = $('multibar'); if (!bar) return;
+  const n = MULTI.size;
+  bar.hidden = !n;
+  if (!n) return;
+  const mine = selected();
+  const groups = [...new Set(mine.map(i => i.group).filter(Boolean))];
+  const shared = groups.length === 1 && mine.every(i => i.group === groups[0]) ? groups[0] : '';
+  $('mcount').textContent = n;
+  $('mgroupName').value = shared || $('mgroupName').value;
+  $('mUngroup').hidden = !shared;
+}
+
+function applyToSelection(fn) {
+  selected().forEach(fn);
+  render(); renderPanel();
+}
+
+function makeGroup() {
+  const mine = selected();
+  if (!mine.length) return;
+  let name = ($('mgroupName').value || '').trim();
+  if (!name) {                                  // auto-name rather than nag for one
+    let n = 1; while (GROUPS['group-' + n]) n++;
+    name = 'group-' + n;
+    $('mgroupName').value = name;
+  }
+  const key = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'group';
+  const target = $('mTarget').value === '' ? null : Math.max(0, +$('mTarget').value);
+  GROUPS[key] = { label:name, target, mode:$('mMode').value, by:'you' };
+  mine.forEach(i => { i.group = key; });
+  toast(mine.length + ' frames → ' + name + (target != null ? ' (' + $('mMode').value + ' ' + target + ')' : ''));
+  render(); renderPanel();
 }
 
 function renderStatus() {
@@ -1152,6 +1273,13 @@ addEventListener('keydown', e => {
   const open = $('loupe').classList.contains('on');
 
   if (e.key === 'Escape' && open) { closeLoupe(); return; }
+  if (e.key === 'Escape' && MULTI.size) { MULTI.clear(); render(); return; }
+  if ((e.metaKey || e.ctrlKey) && k === 'a') {
+    e.preventDefault();
+    vis().forEach(x => MULTI.add(x.id));       // everything the current filter+sort shows
+    render();
+    return;
+  }
   if (e.key === 'ArrowRight') { e.preventDefault(); move(1); return; }
   if (e.key === 'ArrowLeft')  { e.preventDefault(); move(-1); return; }
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commit(); return; }
@@ -1177,6 +1305,7 @@ addEventListener('keydown', e => {
   if ('pmx'.includes(k)) {
     const want = k === 'p' ? 'selected' : k === 'm' ? 'maybe' : 'rejected';
     const toggling = it.state === want;
+    if (MULTI.size) { applyToSelection(i => setVerdict(i, want)); toast(MULTI.size + ' → ' + want); return; }
     setVerdict(it, want);
     toast(toggling ? 'back to not picked'
         : want === 'maybe' ? 'maybe — I\'ll reconsider it'
@@ -1224,6 +1353,19 @@ function setScore(it, n) {
   $('scoreRange').value = it.score;
   render();
 }
+$('mGroup').onclick = makeGroup;
+$('mUngroup').onclick = () => { applyToSelection(i => { i.group = null; }); toast('ungrouped'); };
+$('mKeep').onclick  = () => { applyToSelection(i => setVerdict(i, 'selected')); };
+$('mMaybe').onclick = () => { applyToSelection(i => setVerdict(i, 'maybe')); };
+$('mCut').onclick   = () => { applyToSelection(i => setVerdict(i, 'rejected')); };
+$('mScore').onclick = () => {
+  const v = prompt('Score all ' + MULTI.size + ' selected frames 1-10 (blank clears):', '');
+  if (v === null) return;
+  const n = v === '' ? 0 : clamp(parseInt(v, 10) || 0, 0, 10);
+  applyToSelection(i => { i.score = n; });
+};
+$('mClear').onclick = () => { MULTI.clear(); render(); };
+
 $('inputTag').onclick = () => {
   INPUT = INPUT === 'auto' ? 'mouse' : INPUT === 'mouse' ? 'trackpad' : 'auto';
   updateInputTag();
