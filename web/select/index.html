@@ -30,7 +30,7 @@ body { grid-template-columns:1fr 366px; }
 
 /* four rows: bar, legend, sheet, status. The sheet is the only one that flexes - give the legend
    the 1fr by accident and the sheet falls into an implicit auto row and overflows the viewport. */
-#left { display:grid; grid-template-rows:auto auto 1fr auto; min-width:0; min-height:0; }
+#left { display:grid; grid-template-rows:auto auto auto 1fr auto; min-width:0; min-height:0; }
 
 /* --- filter bar -------------------------------------------------------------------------------- */
 #bar {
@@ -63,6 +63,41 @@ body { grid-template-columns:1fr 366px; }
 .fbtn[data-f=rejected]  .dot { background:var(--st-rej); }
 .fbtn[data-f=untouched] .dot { background:var(--st-unt); }
 #bar .sp { flex:1 1 auto; min-width:8px; }
+
+/* --- sort + groups ------------------------------------------------------------------------------ */
+.sortWrap { display:inline-flex; align-items:center; gap:6px; flex:0 0 auto; }
+.sortWrap label { margin:0; }
+#sortSel {
+  width:auto; padding:4px 7px; font-family:var(--mono); font-size:9.5px; text-transform:uppercase;
+  letter-spacing:.07em; border-radius:100px; background:var(--sunken);
+}
+#groups {
+  display:flex; gap:6px; padding:8px 14px; overflow-x:auto; scrollbar-width:none;
+  border-bottom:1px solid var(--border); background:var(--bg);
+}
+#groups::-webkit-scrollbar { display:none; }
+.grp {
+  flex:0 0 auto; display:inline-flex; align-items:center; gap:7px;
+  font-family:var(--mono); font-size:9.5px; letter-spacing:.07em; text-transform:uppercase;
+  background:transparent; border:1px solid var(--border); color:var(--mut);
+  padding:5px 10px; border-radius:100px; box-shadow:none;
+  transition:border-color .18s var(--ease-io), color .18s var(--ease-io), transform .18s var(--ease-out);
+}
+.grp:hover { border-color:var(--border-strong); color:var(--fg); transform:translateY(-1px); }
+.grp.on { border-color:var(--accent); color:var(--accent); background:var(--accent-soft); }
+.grp .gl { color:inherit; }
+.grp .gn {
+  color:var(--faint); font-variant-numeric:tabular-nums;
+  padding-left:7px; border-left:1px solid var(--border);
+}
+.gt {
+  font-variant-numeric:tabular-nums; padding:1px 6px; border-radius:100px;
+  background:oklch(1 0 0 / 8%); color:var(--mut);
+}
+/* over/under a target is advice, never a block - it says where you are and stays out of the way */
+.gt.over  { background:color-mix(in oklch, var(--st-rej) 22%, transparent); color:var(--st-rej); }
+.gt.under { background:color-mix(in oklch, var(--st-may) 22%, transparent); color:var(--st-may); }
+.gt.met   { background:color-mix(in oklch, var(--st-sel) 20%, transparent); color:var(--st-sel); }
 
 /* --- legend: the badges are meaningless until someone says what they mean ----------------------- */
 #legend {
@@ -310,6 +345,7 @@ body { grid-template-columns:1fr 366px; }
   background:oklch(0 0 0 / 62%); backdrop-filter:blur(4px); color:var(--fg);
 }
 .mk.lock { color:var(--accent); }
+.mk.sc { color:var(--accent); font-variant-numeric:tabular-nums; font-weight:650; }
 
 /* --- status line ------------------------------------------------------------------------------- */
 #status {
@@ -392,6 +428,13 @@ body { grid-template-columns:1fr 366px; }
 body.locked .locknote { display:flex; }
 
 /* alternates */
+.scoreRow { display:flex; align-items:center; gap:10px; }
+.scoreRow input { flex:1; }
+#scoreVal {
+  font-family:var(--mono); font-size:13px; font-variant-numeric:tabular-nums; color:var(--accent);
+  min-width:26px; text-align:right;
+}
+
 #alts { display:flex; gap:6px; overflow-x:auto; padding-bottom:2px; }
 #alts .alt {
   flex:0 0 auto; width:62px; border-radius:var(--radius-sm); overflow:hidden; cursor:pointer;
@@ -481,6 +524,7 @@ kbd {
 
 <div id="left">
   <div id="bar" role="toolbar" aria-label="Filter by verdict"></div>
+  <div id="groups" hidden></div>
   <div id="legend" hidden>
     <div class="lg">
       <h3>The four states</h3>
@@ -537,6 +581,12 @@ kbd {
 
         <label>Tags <span class="hint">(a negative tag on a frame I picked drops it to Maybe)</span></label>
         <div class="chips" id="chips"></div>
+
+        <label for="scoreRange">Score <span class="hint">(1-10, or press a digit — 0 is ten, <kbd>`</kbd> clears)</span></label>
+        <div class="scoreRow">
+          <input type="range" id="scoreRange" min="0" max="10" step="1" value="0">
+          <b id="scoreVal">–</b>
+        </div>
 
         <label for="frameText">Note on this frame</label>
         <textarea id="frameText" rows="2" placeholder="one line is plenty"></textarea>
@@ -629,10 +679,24 @@ const DEFAULT_CHIPS = [
 let IMGS = [];        // candidates
 let CUR = -1;         // focused index
 let FILTER = 'all';
+let SORT = 'given';   // see SORTS
 let SET_PROMPT = '';
+let GROUPS = {};      // name -> { target, mode:'upto'|'exactly', label }
+
+// Verdict order for sorting: the things wanting attention first.
+const V_RANK = { maybe:0, selected:1, untouched:2, rejected:3 };
+
+const SORTS = {
+  given:   { label:'My order',   fn:(a,b) => a._i - b._i },
+  name:    { label:'Name',       fn:(a,b) => a.name.localeCompare(b.name, undefined, { numeric:true }) },
+  date:    { label:'Date',       fn:(a,b) => (a.date || 0) - (b.date || 0) },
+  verdict: { label:'State',      fn:(a,b) => (V_RANK[a.state] - V_RANK[b.state]) || (a._i - b._i) },
+  score:   { label:'Your score', fn:(a,b) => (b.score || 0) - (a.score || 0) || (a._i - b._i) },
+  group:   { label:'Group',      fn:(a,b) => String(a.group||'~').localeCompare(String(b.group||'~')) || (a._i - b._i) },
+};
 
 const $  = id => document.getElementById(id);
-const vis = () => IMGS.filter(passes);
+const vis = () => IMGS.filter(passes).sort(SORTS[SORT] ? SORTS[SORT].fn : SORTS.given.fn);
 const C = () => IMGS[CUR] || null;
 
 function passes(it) {
@@ -645,6 +709,7 @@ function passes(it) {
     case 'commented':  return !!(it.text || it.tags.length);
     case 'alternates': return !!(it.alternates && it.alternates.length);
   }
+  if (FILTER.startsWith('group:')) return it.group === FILTER.slice(6);
   return true;
 }
 
@@ -706,6 +771,7 @@ function render() {
     if (it.locked) marks.push('<span class="mk lock" title="You set this verdict by hand, so tags no longer move it. Press U to hand it back.">🔒 set by you</span>');
     if (it.alternates && it.alternates.length) marks.push('<span class="mk" title="' + (it.alternates.length) + ' other frame(s) from this same moment. Press [ or ] to swap one in.">⇄ ' + (it.altIdx + 1) + ' of ' + (it.alternates.length + 1) + '</span>');
     if (it.tags.length || it.text) marks.push('<span class="mk" title="You left feedback on this frame">💬</span>');
+    if (it.score) marks.push('<span class="mk sc" title="Your score, out of 10">' + it.score + '</span>');
     d.innerHTML =
       '<span class="trailGlow"></span><span class="trail"></span>' +
       '<span class="ph">' +
@@ -738,6 +804,25 @@ function render() {
   renderStatus();
 }
 
+// "out of these N, pick 3" — a target the assistant sets per group, or you set here. The tool never
+// enforces it; it just says where you are, because a hard cap that blocks the export is a dialog in
+// the way of a judgement call.
+function groupState(name) {
+  const g = GROUPS[name] || {};
+  const inGroup = IMGS.filter(i => i.group === name);
+  const chosen = inGroup.filter(i => i.state === 'selected').length;
+  const target = g.target;
+  let status = 'ok';
+  if (target != null) {
+    if (chosen > target) status = 'over';
+    else if (chosen < target) status = (g.mode === 'exactly') ? 'under' : 'ok';
+    else status = 'met';
+  }
+  return { name, label:g.label || name, target, mode:g.mode || 'upto', total:inGroup.length, chosen, status };
+}
+
+function activeGroups() { return Object.keys(GROUPS).filter(n => IMGS.some(i => i.group === n)); }
+
 function counts() {
   const c = { all:IMGS.length, selected:0, maybe:0, rejected:0, untouched:0, commented:0, alternates:0 };
   IMGS.forEach(it => {
@@ -763,11 +848,42 @@ function renderBar() {
       (dot ? '<span class="dot"></span>' : '') + label + ' <span class="n">' + c[f] + '</span>' +
     '</button>').join('')
     + '<span class="sp"></span>'
+    + '<span class="sortWrap"><label for="sortSel">sort</label>'
+    + '<select id="sortSel">'
+    + Object.keys(SORTS).map(k => '<option value="' + k + '"' + (SORT === k ? ' selected' : '') + '>' + SORTS[k].label + '</option>').join('')
+    + '</select></span>'
     + '<button class="fbtn' + (openLg ? ' on' : '') + '" id="lgBtn">' + (openLg ? '✕ close' : '? what do these mean') + '</button>';
   $('bar').querySelectorAll('.fbtn[data-f]').forEach(b => {
     b.onclick = () => { FILTER = b.dataset.f; render(); };
   });
   $('lgBtn').onclick = () => { $('legend').hidden = !$('legend').hidden; renderBar(); };
+  $('sortSel').onchange = function () { SORT = this.value; render(); };
+  renderGroups();
+}
+
+function renderGroups() {
+  const box = $('groups'); if (!box) return;
+  const names = activeGroups();
+  box.hidden = !names.length;
+  if (!names.length) return;
+  box.innerHTML = names.map(n => {
+    const g = groupState(n);
+    // the chosen count already sits in .gn, so the target badge states only the RULE - printing the
+    // count twice is what made this read as "2/22 / 1"
+    let cap = '';
+    if (g.target != null) {
+      const txt = g.mode === 'exactly'
+        ? (g.chosen === g.target ? '✓ ' + g.target : 'pick ' + g.target)
+        : 'max ' + g.target;
+      cap = '<span class="gt ' + g.status + '">' + txt + '</span>';
+    }
+    return '<button class="grp' + (FILTER === 'group:' + n ? ' on' : '') + '" data-g="' + n + '">' +
+      '<span class="gl">' + esc(g.label) + '</span>' +
+      '<span class="gn">' + g.chosen + '/' + g.total + '</span>' + cap + '</button>';
+  }).join('');
+  box.querySelectorAll('.grp').forEach(b => {
+    b.onclick = () => { const k = 'group:' + b.dataset.g; FILTER = (FILTER === k) ? 'all' : k; render(); };
+  });
 }
 
 function renderStatus() {
@@ -816,6 +932,8 @@ function renderPanel() {
   });
 
   $('frameText').value = it.text || '';
+  $('scoreRange').value = it.score || 0;
+  $('scoreVal').textContent = it.score ? it.score : '–';
 
   const has = it.alternates && it.alternates.length;
   $('altWrap').hidden = !has;
@@ -1070,6 +1188,13 @@ addEventListener('keydown', e => {
   else if (k === 'u') { setVerdict(it, 'untouched'); toast('unpicked'); }
   else if (k === 'r') { it.locked = false; reconcile(it); render(); renderPanel(); toast('reverted to my proposal'); }
   else if (k === 'c') { e.preventDefault(); $('frameText').focus(); }
+  // digits score the focused frame; 0 is ten, backtick clears. Not bound inside the loupe, where
+  // 0 and 1 are the zoom presets.
+  else if (!open && /^[0-9`]$/.test(e.key)) {
+    e.preventDefault();
+    setScore(it, e.key === '`' ? 0 : e.key === '0' ? 10 : +e.key);
+    toast(it.score ? 'scored ' + it.score : 'score cleared');
+  }
   else if (k === 'f') {
     const order = ['all','selected','maybe','rejected','untouched'];
     FILTER = order[(order.indexOf(FILTER) + 1) % order.length];
@@ -1087,6 +1212,18 @@ $('verdict').querySelectorAll('button').forEach(b => {
   b.onclick = () => { const it = C(); if (it) setVerdict(it, b.dataset.v); };
 });
 $('frameText').oninput = function () { const it = C(); if (it) it.text = this.value; render(); };
+$('scoreRange').oninput = function () { setScore(C(), +this.value); };
+
+// A score is a RELATIVE judgement inside a small group, which is why it is worth having even though
+// global star ratings are not: "these five are from the same moment, rank them" is a question with
+// a real answer, where "how good is this photo out of five" drifts between sessions.
+function setScore(it, n) {
+  if (!it) return;
+  it.score = n > 0 ? n : 0;
+  $('scoreVal').textContent = it.score ? it.score : '–';
+  $('scoreRange').value = it.score;
+  render();
+}
 $('inputTag').onclick = () => {
   INPUT = INPUT === 'auto' ? 'mouse' : INPUT === 'mouse' ? 'trackpad' : 'auto';
   updateInputTag();
@@ -1125,8 +1262,9 @@ function buildResult() {
 
   const frames = {};
   IMGS.forEach(i => {
-    if (i.tags.length || i.text || i.locked) {
-      frames[i.id] = { tags:i.tags.slice(), text:i.text || '', locked:!!i.locked, state:i.state };
+    if (i.tags.length || i.text || i.locked || i.score) {
+      frames[i.id] = { tags:i.tags.slice(), text:i.text || '', locked:!!i.locked,
+                       state:i.state, score:i.score || undefined, group:i.group || undefined };
     }
   });
 
@@ -1136,6 +1274,8 @@ function buildResult() {
     proposed, final,
     diff: { added, removed, demoted, promoted, swapped },
     setComment: $('setComment').value.trim(),
+    groups: activeGroups().map(groupState),
+    sort: SORT,
     frames,
   };
 }
@@ -1158,6 +1298,8 @@ function commit() {
 window.__loadSelection = function (spec) {
   const cands = (spec && spec.candidates) || [];
   SET_PROMPT = (spec && spec.setPrompt) || '';
+  GROUPS = (spec && spec.groups) || {};
+  if (spec && spec.sort && SORTS[spec.sort]) SORT = spec.sort;
   $('setPrompt').textContent = SET_PROMPT || (cands.length + ' candidates.');
   IMGS = cands.map((c, i) => {
     const proposed = c.verdict === 'selected' || c.verdict === 'rejected' ? c.verdict : 'untouched';
@@ -1179,6 +1321,10 @@ window.__loadSelection = function (spec) {
             : { id:t.id || ('x' + n), t:t.t || t.id, sign:t.sign == null ? -1 : t.sign })
         : null,
       tags: [], text: '', locked: false,
+      score: Number.isFinite(c.score) ? c.score : 0,
+      group: c.group || null,
+      date: c.date ? (typeof c.date === 'number' ? c.date : Date.parse(c.date) || 0) : 0,
+      _i: i,
     };
     // an assistant-supplied class shows as a pre-lit chip only if it's in the frame's own palette
     return it;
@@ -1202,6 +1348,13 @@ window.__loadFolder = function (dir) {
 };
 
 window.__setFilter = f => { FILTER = f; render(); };
+window.__setSort = k => { if (SORTS[k]) { SORT = k; render(); } };
+// "out of these, pick 3" — group targets can be set after load too
+window.__setGroupTarget = (name, target, mode) => {
+  GROUPS[name] = Object.assign({}, GROUPS[name], { target, mode: mode || 'upto' });
+  render(); return groupState(name);
+};
+window.__scores = () => IMGS.filter(i => i.score).map(i => ({ id:i.id, name:i.name, score:i.score, group:i.group }));
 window.__result = null;
 
 if (window.__runtime) window.__runtime.ready.then(() => { window.__ready = true; });

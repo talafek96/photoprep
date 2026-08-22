@@ -204,7 +204,12 @@ function createServer(opts = {}) {
         const files = fs.readdirSync(dir)
           .filter(f => /\.(jpe?g|png|webp|avif)$/i.test(f) && !f.startsWith('.'))
           .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
-          .map(f => ({ name: f, size: fs.statSync(path.join(dir, f)).size }));
+          .map(f => {
+            const st = fs.statSync(path.join(dir, f));
+            // mtime lets a page sort by date without parsing EXIF. It is the file's date, not
+            // necessarily the capture date - a caller that needs the real one passes it in.
+            return { name: f, size: st.size, mtime: st.mtimeMs };
+          });
         openedDirs.add(dir);      // only folders the user explicitly opened become readable
         return json(res, { ok: true, dir, files });
       } catch (e) { return json(res, { ok: false, error: String(e.message || e) }, 404); }

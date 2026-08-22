@@ -143,6 +143,43 @@ class: "soft"       why: (none)                     ← tag says it all
 
 Rendered as a small corner badge; the sentence sits under the thumbnail, one line, ellipsised.
 
+## Sorting
+
+The sheet's order is a lens, not data. Six of them:
+
+| Sort | Why it exists |
+|---|---|
+| **My order** | the assistant's sequence — the default, so its reasoning is legible |
+| **Name** | original filenames, for cross-referencing against a folder |
+| **Date** | capture time from EXIF when the caller supplies it, falling back to file mtime from `/list` |
+| **State** | Maybe first, then Keep, Not picked, Cut — the things wanting attention at the top |
+| **Your score** | highest first (below) |
+| **Group** | near-duplicate clusters together, so a cluster is judged as a cluster |
+
+## Groups, targets and scores
+
+Two ways to say "these belong together, now choose between them".
+
+**A group** is a named cluster the caller sends per candidate (`group: 'kasaneiwa-sunset'`), usually a
+set of near-duplicates or one location. Groups appear as chips above the sheet showing `chosen/total`,
+and clicking one filters to it.
+
+**A target** turns that into a question: `{ target: 2, mode: 'upto' }` or `{ target: 1, mode: 'exactly' }`
+— "out of these six, no more than two" / "out of these three, exactly one". The chip shows `max 2`,
+`pick 1`, or `✓ 1` when met, and colours amber under / red over.
+
+**Targets never block the export.** They report where you are. A hard cap that refuses to commit is a
+dialog standing in front of a judgement call, and the judgement is the person's.
+
+**A score** is 1–10 per frame — a slider in the panel, or just press a digit (`0` is ten, `` ` ``
+clears). It is deliberately *not* a global star rating: the evidence against those (scale-region bias,
+annotator drift between sessions) is about absolute quality judgements made in isolation. A score
+inside a small group is a different question — "these five are from the same moment, rank them" has a
+real answer — and combined with a target it lets the person hand the choice back: *score these six,
+keep the top two*.
+
+Scores ride in the report per frame, and `window.__scores()` reads them out.
+
 ## Alternates in place
 
 The assistant knows which near-duplicate cluster each pick came from. It ships the losers *with* the
