@@ -65,3 +65,37 @@ circles. Neither `aspect-ratio:4/5` nor `padding-top:125%` on the child works, b
 against a containing block the grid has not sized yet, so track sizing measures the box as zero.
 Swapping one for the other changes nothing. `grid-auto-rows:max-content` is the actual fix; a fixed
 pixel height on the image box is worth having anyway, so mixed orientations give uniform rows.
+
+## A border-trail overlay that animates perfectly and paints nothing
+
+**Two independent traps stack here, and both fail silently with correct-looking computed styles.**
+
+```css
+/* Wrong — the photo paints over the light, and the clip erases what's left */
+.tile .trail { position:absolute; overflow:hidden; padding:3px;
+               mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+               mask-composite:exclude; }
+
+/* Right */
+.tile .trail { position:absolute; z-index:4; padding:3px;
+               mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+               mask-composite:exclude; }
+```
+
+**1. Paint order.** The overlay and the image are positioned siblings at `z-index:auto`, so they
+paint in DOM order. Putting the overlay first in the markup — the natural place for a background
+layer — means the image paints *over* it. It needs an explicit `z-index`.
+
+**2. `overflow:hidden` versus a ring mask.** `overflow` clips descendants to the **padding box**,
+while the `content-box EXCLUDE border-box` ring mask reveals only the **padding band**, which lies
+outside that box. The two regions do not intersect, so everything inside is erased. The mask alone
+already confines the light to the band; adding `overflow:hidden` to "keep it tidy" deletes it.
+
+What makes this expensive is that every diagnostic looks healthy: `getAnimations()` reports the
+animation running, `offset-distance` interpolates across samples, `opacity` is 1, and the computed
+`mask-composite` reads `exclude`. Nothing points at the two properties actually responsible.
+
+Also worth knowing while building one: `mix-blend-mode` inside a masked element has no backdrop to
+composite against, so `plus-lighter` silently does nothing. And prefer `offset-path` over a rotating
+`conic-gradient` — conic sweeps *angularly from the centre*, so on a tall rectangle the bright arc
+crawls the long edges and races the short ones. It animates; it just never reads as travel.

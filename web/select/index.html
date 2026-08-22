@@ -82,60 +82,61 @@ body { grid-template-columns:1fr 366px; }
 .tile:hover { transform:translateY(-2px); border-color:var(--border-strong); }
 .tile.cur { border-color:color-mix(in oklch, var(--edge) 60%, transparent); }
 
-/* --- border trail: a light running the focused IMAGE's edge ------------------------------------
-   It rides the photo's boundary, not the card's outer border - that outer edge is the least visible
-   line on the tile, which is why the first version was easy to miss.
+/* --- border trail: a comet running the focused IMAGE's edge ------------------------------------
+   A conic gradient was the obvious approach and it is the wrong one: conic sweeps ANGULARLY from
+   the centre, so on a tall rectangle the bright arc crawls along the long edges and races the short
+   ones. It animates - `--ta` genuinely interpolates - but it does not read as travel.
 
-   A conic gradient rotated by an @property angle (so it interpolates smoothly - a plain custom
-   property is a string and would step), masked to a thin band by compositing a content-box fill
-   against a border-box fill with `exclude`. The sweep carries the VERDICT colour with a near-white
-   core, so the moving light also tells you the state, and a drop-shadow in the same hue keeps it
-   legible over a bright sky or a blown-out sunset. */
-@property --ta { syntax:'<angle>'; inherits:false; initial-value:0deg; }
-
-.tile .trail {
+   A real motion path does. `offset-path:rect()` walks the element around the border rectangle at
+   constant speed, so the light moves the way the eye expects. The comet is clipped to a thin band
+   by the padding-box/border-box mask, and carries the VERDICT colour with a white core, so the
+   moving light also tells you the state. */
+.tile .trail, .tile .trailGlow {
   position:absolute; left:0; right:0; top:0; height:var(--ph);
   border-radius:var(--radius) var(--radius) 0 0;
+  /* NO overflow:hidden here. It clips descendants to the PADDING box, while the ring mask below
+     reveals only the padding BAND, which lies outside that box - the two regions do not intersect,
+     so the comet animated perfectly and painted absolutely nothing. The mask alone is what confines
+     the light to the border band; it needs no help. */
   pointer-events:none; opacity:0; padding:3px;
-  background:conic-gradient(from var(--ta),
-    transparent 0 48%,
-    color-mix(in oklch, var(--edge) 45%, transparent) 62%,
-    var(--edge) 78%,
-    oklch(0.99 0.02 95) 85%,
-    oklch(1 0 0) 88%,
-    oklch(0.99 0.02 95) 91%,
-    var(--edge) 95%,
-    transparent 99.5%);
+  /* Above the photo. Both .trail and .ph are positioned siblings at z-index auto, so they paint in
+     DOM order - and .trail comes first, which means the photograph was painting straight over the
+     comet. It animated, it painted, and the image covered it. */
+  z-index:4;
   -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
           mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite:xor;
           mask-composite:exclude;
-  animation:sweep 2.6s linear infinite;
-  transition:opacity .35s var(--ease-io);
+  transition:opacity .3s var(--ease-io);
 }
-.tile.cur .trail { opacity:1; }
-@keyframes sweep { to { --ta:360deg; } }
+.tile .trailGlow { padding:7px; filter:blur(9px); }
+.tile.cur .trail, .tile:hover .trail { opacity:1; }
+.tile.cur .trailGlow, .tile:hover .trailGlow { opacity:.85; }
 
-/* the glow is a separate layer so it can blur without softening the ring itself */
-.tile .trailGlow {
-  position:absolute; left:0; right:0; top:0; height:var(--ph);
-  border-radius:var(--radius) var(--radius) 0 0;
-  pointer-events:none; opacity:0; padding:4px;
-  background:conic-gradient(from var(--ta), transparent 0 58%, var(--edge) 85%, transparent 99%);
-  -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-          mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite:xor;
-          mask-composite:exclude;
-  filter:blur(10px); animation:sweep 2.6s linear infinite;
-  transition:opacity .35s var(--ease-io);
+.tile .trail::before, .tile .trailGlow::before {
+  content:''; position:absolute; left:0; top:0; width:190px; aspect-ratio:1;
+  background:radial-gradient(circle closest-side,
+    oklch(1 0 0) 0%, oklch(1 0 0) 8%, var(--edge) 24%,
+    color-mix(in oklch, var(--edge) 40%, transparent) 46%, transparent 70%);
+  offset-path:rect(0 auto auto 0 round var(--radius) var(--radius) 0 0);
+  offset-anchor:center; offset-rotate:0deg;
+  animation:comet 2.2s linear infinite;
 }
-.tile.cur .trailGlow { opacity:1; }
+/* a second, dimmer comet opposite keeps the whole edge alive rather than one lonely dot */
+.tile .trail::after {
+  content:''; position:absolute; left:0; top:0; width:90px; aspect-ratio:1; opacity:.55;
+  background:radial-gradient(circle closest-side, var(--edge) 0%, transparent 70%);
+  offset-path:rect(0 auto auto 0 round var(--radius) var(--radius) 0 0);
+  offset-anchor:center; offset-rotate:0deg;
+  animation:comet 2.2s linear infinite; animation-delay:-1.1s;
+}
+@keyframes comet { from { offset-distance:0%; } to { offset-distance:100%; } }
 
-/* the focused card itself lifts and takes an ambient pool in its own verdict colour */
+/* the static ring underneath, so an unfocused-but-stateful tile still reads */
 .tile.cur {
   transform:translateY(-3px);
-  box-shadow:0 0 0 1px color-mix(in oklch, var(--edge) 55%, transparent),
-             0 14px 34px -14px color-mix(in oklch, var(--edge) 60%, transparent),
+  box-shadow:0 0 0 1px color-mix(in oklch, var(--edge) 50%, transparent),
+             0 16px 38px -16px color-mix(in oklch, var(--edge) 65%, transparent),
              var(--highlight);
 }
 .tile.cur:hover { transform:translateY(-4px); }
@@ -192,6 +193,12 @@ body { grid-template-columns:1fr 366px; }
   content:''; position:absolute; inset:0; pointer-events:none;
   box-shadow:inset 0 0 0 3px var(--edge);
   transition:box-shadow .25s var(--ease-io);
+}
+/* On the focused tile the static ring steps back to a third of its strength. Without this the ring
+   and the comet are the same colour at the same brightness, so the travelling light adds nothing
+   and the whole thing reads as static - which is exactly how it looked. */
+.tile.cur .ph::after, .tile:hover .ph::after {
+  box-shadow:inset 0 0 0 3px color-mix(in oklch, var(--edge) 30%, transparent);
 }
 /* a cut frame is dimmed, not hidden — auditing the rejects has to be as cheap as reviewing the
    picks, or the sheet is worthless and the person re-culls by hand */
@@ -381,7 +388,7 @@ kbd {
   #loupe { animation:none; }
   /* a continuous indicator never stops on its own, so it matters more here than the one-shots.
      The ring stays as a static state-coloured outline; only the sweep stops. */
-  .tile .trail, .tile .trailGlow { animation:none; }
+  .tile .trail::before, .tile .trail::after, .tile .trailGlow::before { animation:none; }
   .tile .trailGlow { opacity:0 !important; }
   .tile.cur .trail { opacity:1; background:var(--edge); }
 }
