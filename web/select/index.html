@@ -95,47 +95,51 @@ body { grid-template-columns:1fr 366px; }
 .tile:hover { transform:translateY(-2px); border-color:var(--border-strong); }
 .tile.cur { border-color:color-mix(in oklch, var(--edge) 60%, transparent); }
 
-/* --- shine border on the FOCUSED image ---------------------------------------------------------
-   The technique is Magic UI's ShineBorder, and the important part is what it is NOT: a bright dot
-   travelling a motion path. A dot on an `offset-path` reads as a retro marquee chase - a hard point
-   circling the frame. A shine is a soft, wide gradient BAND that slides diagonally across an
-   oversized background, so the edge brightens and dims in a long sweep with no visible head.
+/* --- selection ring on the FOCUSED image -------------------------------------------------------
+   Third attempt, and the two rejected ones are worth recording because they fail differently.
 
-   Mechanics: a radial gradient whose colour sits in the MIDDLE stops with transparent on both ends,
-   blown up to `background-size:300% 300%` so only part of it covers the box at a time, then the
-   background-position animated 0% 0% -> 100% 100% -> 0% 0%. The padding-box/border-box exclude mask
-   confines it to the border band. Nothing moves geometrically; the gradient just slides.
+   A bright dot on an `offset-path` is a marquee chase: a hard point circling the frame, which reads
+   as retro. A translucent gradient slid across an oversized background (Magic UI's ShineBorder)
+   brightens and dims unevenly on a tall rectangle, because a radial gradient moving diagonally
+   covers the short edges and the long ones at different rates - it looks like a rendering glitch
+   rather than a sheen.
 
-   Focus only, never hover. Hover is the pointer wandering; this marks the frame under judgement. */
+   What works is a WIDE luminous arc rotating at constant speed: a conic gradient spanning ~200deg
+   with a soft falloff at both ends, spun by an @property angle so it interpolates rather than steps.
+   There is no head to track, the whole ring is lit to varying degrees at all times, and the motion
+   reads as a light source orbiting the frame. Same family as the card borders on Linear and Vercel.
+
+   Focus only, never hover - hover is the pointer wandering; this marks the frame under judgement. */
+@property --ang { syntax:'<angle>'; inherits:false; initial-value:0deg; }
+
 .tile .trail, .tile .trailGlow {
   position:absolute; left:0; right:0; top:0; height:var(--ph);
   border-radius:var(--radius) var(--radius) 0 0;
   pointer-events:none; opacity:0; padding:2px; z-index:4;
-  background-image:radial-gradient(transparent, transparent,
-    color-mix(in oklch, var(--edge) 40%, oklch(1 0 0)),
-    var(--edge),
-    color-mix(in oklch, var(--edge) 55%, oklch(1 0 0)),
-    transparent, transparent);
-  background-size:300% 300%;
+  background:conic-gradient(from var(--ang) at 50% 50%,
+    transparent 0deg,
+    color-mix(in oklch, var(--edge) 25%, transparent) 45deg,
+    color-mix(in oklch, var(--edge) 70%, transparent) 90deg,
+    var(--edge) 140deg,
+    oklch(0.99 0.02 100) 168deg,
+    var(--edge) 196deg,
+    color-mix(in oklch, var(--edge) 55%, transparent) 250deg,
+    transparent 320deg,
+    transparent 360deg);
   -webkit-mask:linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
           mask:linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite:xor;
           mask-composite:exclude;
-  will-change:background-position;
-  animation:shinePulse 5s infinite linear;
+  animation:orbit 3.2s linear infinite;
   transition:opacity .35s var(--ease-io);
 }
-/* the bloom: same sweep, thicker and blurred, so the shine spills light onto the photo edge */
-.tile .trailGlow { padding:6px; filter:blur(9px); z-index:3; }
+/* the bloom: same arc, thicker and blurred, so the ring spills light onto the photo edge */
+.tile .trailGlow { padding:7px; filter:blur(10px); z-index:3; }
 
 .tile.cur .trail { opacity:1; }
-.tile.cur .trailGlow { opacity:.75; }
+.tile.cur .trailGlow { opacity:.7; }
 
-@keyframes shinePulse {
-  0%   { background-position:0% 0%; }
-  50%  { background-position:100% 100%; }
-  100% { background-position:0% 0%; }
-}
+@keyframes orbit { to { --ang:360deg; } }
 
 /* the focused card lifts and pools ambient light in its own verdict colour */
 .tile.cur {
@@ -410,7 +414,7 @@ kbd {
      The ring stays as a static state-coloured outline; only the sweep stops. */
   .tile .trail, .tile .trailGlow { animation:none; }
   .tile .trailGlow { opacity:0 !important; }
-  .tile.cur .trail { opacity:1; background-image:none; background-color:var(--edge); }
+  .tile.cur .trail { opacity:1; background:var(--edge); }
 }
 </style>
 
