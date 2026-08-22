@@ -485,7 +485,7 @@ kbd {
       <h3>Corner marks</h3>
       <p><b class="pl">⇄ 1 of 3</b> other frames from the same moment. <kbd>[</kbd> <kbd>]</kbd> swaps one in - and tells me you preferred it.</p>
       <p><b class="pl">🔒 set by you</b> you set that verdict by hand, so tags no longer move it. <kbd>U</kbd> hands it back.</p>
-      <p><b class="pl">💬</b> you left a tag or a note on it - both now show on the tile itself, under my reason. The <b class="pl">Your feedback</b> filter collects them.</p>
+      <p><b class="pl">💬</b> you left a tag or a note on it - both now show on the tile itself, under my reason. The <b class="pl">Has notes</b> filter collects them.</p>
       <h3>Keys</h3>
       <p><kbd>P</kbd> keep <kbd>M</kbd> maybe <kbd>X</kbd> cut <kbd>Space</kbd> loupe <kbd>←</kbd><kbd>→</kbd> move <kbd>F</kbd> filter <kbd>⏎</kbd> commit</p>
       <p>Pressing a verdict the frame is <em>already in</em> sends it back to <b data-s="untouched">○ Not picked</b>. <kbd>U</kbd> also does that, and additionally hands the frame back to my proposal.</p>
@@ -743,9 +743,11 @@ function counts() {
 function renderBar() {
   const c = counts();
   const defs = [
+    // Labels match the words on the tiles themselves, and the two content filters share a shape so
+    // they read as a pair: "Has notes" / "Has alternates".
     ['all','All',false], ['selected','Keep',true], ['maybe','Maybe',true],
-    ['rejected','Cut',true], ['untouched','Untouched',true],
-    ['commented','Your feedback',false], ['alternates','Has alternates',false],
+    ['rejected','Cut',true], ['untouched','Not picked',true],
+    ['commented','Has notes',false], ['alternates','Has alternates',false],
   ];
   const openLg = !$('legend').hidden;
   $('bar').innerHTML = defs.map(([f,label,dot]) =>
