@@ -28,6 +28,11 @@ disagreement cheap, precise, and reusable.
 
 - **Not a culling app.** It is not competing with Photo Mechanic or Lightroom for a 3,000-frame
   wedding. It reviews tens of candidates for one post.
+- **No ordering, not even a hint of it.** No slide numbers, no positions, no sequence. That is the
+  Order tool's entire job (`docs/order-tool.md`), and it cannot be done honestly here anyway: a slide
+  is not a file, since a stack is two sources becoming one slide and a pano split is one source
+  becoming several. A position badge on a Select tile would be a lie as soon as either exists. This
+  already leaked in once as a `#2` corner badge and was removed.
 - **No star ratings, no colour labels.** Narrative Select's own documentation concedes ratings
   "don't carry any inherent meaning"; the best-worst-scaling literature documents scale-region bias
   and annotator drift. For a carousel, the ranking *is* the running order — which is the Order tool's

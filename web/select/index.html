@@ -239,7 +239,7 @@ body { grid-template-columns:1fr 366px; }
   background:linear-gradient(oklch(0 0 0 / 26%), transparent 88%);
   border-radius:var(--radius) var(--radius) 0 0;
 }
-.tile .vb, .tile .slot { z-index:2; }
+.tile .vb { z-index:2; }
 
 /* the ring sits ON the image edge, not over its middle */
 .tile .ph::after {
@@ -270,16 +270,6 @@ body { grid-template-columns:1fr 366px; }
 .tile.cur .vb { box-shadow:0 2px 10px oklch(0 0 0 / 55%), inset 0 1px 0 oklch(1 0 0 / 35%); }
 .tile[data-s=untouched] .vb { background:oklch(0 0 0 / 55%); color:var(--mut); backdrop-filter:blur(4px); }
 .tile .vb .g { font-size:10px; line-height:1; }
-
-/* slot number, only once it's in the post */
-.tile .slot {
-  position:absolute; top:7px; right:7px; min-width:19px; height:19px; padding:0 5px;
-  display:none; align-items:center; justify-content:center;
-  font-family:var(--mono); font-size:10px; font-variant-numeric:tabular-nums;
-  background:oklch(0 0 0 / 62%); backdrop-filter:blur(4px); color:var(--fg);
-  border-radius:100px;
-}
-.tile[data-s=selected] .slot { display:inline-flex; }
 
 .tile .foot {
   padding:7px 9px 8px; border-top:1px solid oklch(1 0 0 / 6%);
@@ -467,17 +457,17 @@ kbd {
   <div id="legend" hidden>
     <div class="lg">
       <h3>The four states</h3>
-      <p><b data-s="selected">✓ Keep</b> in the post. <b>#3</b> in the corner is its slide position.</p>
+      <p><b data-s="selected">✓ Keep</b> in the post.</p>
       <p><b data-s="maybe">? Maybe</b> unresolved - it comes back to me as a <em>question</em>, not a decision. Tag something negative on a frame I picked and it lands here automatically.</p>
       <p><b data-s="rejected">✕ Cut</b> I cut it. The line under the name is my reason.</p>
       <p><b data-s="untouched">○ Not picked</b> I neither picked nor cut it - the rest of the shoot, yours to pull from.</p>
       <h3>Corner marks</h3>
-      <p><b class="pl">#2</b> the slide's position in the finished post.</p>
       <p><b class="pl">⇄ 1 of 3</b> other frames from the same moment. <kbd>[</kbd> <kbd>]</kbd> swaps one in - and tells me you preferred it.</p>
       <p><b class="pl">🔒 set by you</b> you set that verdict by hand, so tags no longer move it. <kbd>U</kbd> hands it back.</p>
       <p><b class="pl">💬</b> you left a tag or a note on it.</p>
       <h3>Keys</h3>
-      <p><kbd>P</kbd> keep <kbd>M</kbd> maybe <kbd>X</kbd> cut <kbd>U</kbd> clear <kbd>Space</kbd> loupe <kbd>←</kbd><kbd>→</kbd> move <kbd>F</kbd> filter <kbd>⏎</kbd> commit</p>
+      <p><kbd>P</kbd> keep <kbd>M</kbd> maybe <kbd>X</kbd> cut <kbd>Space</kbd> loupe <kbd>←</kbd><kbd>→</kbd> move <kbd>F</kbd> filter <kbd>⏎</kbd> commit</p>
+      <p>Pressing a verdict the frame is <em>already in</em> sends it back to <b data-s="untouched">○ Not picked</b>. <kbd>U</kbd> also does that, and additionally hands the frame back to my proposal.</p>
     </div>
   </div>
   <div id="sheet" tabindex="0" aria-label="Contact sheet"></div>
@@ -513,7 +503,7 @@ kbd {
           <button data-v="selected"><span class="g">✓</span>Keep</button>
           <button data-v="maybe"><span class="g">?</span>Maybe</button>
           <button data-v="rejected"><span class="g">✕</span>Cut</button>
-          <button data-v="untouched"><span class="g">○</span>Clear</button>
+          <button data-v="untouched"><span class="g">○</span>Not picked</button>
         </div>
         <div class="locknote"><span>🔒</span><span>You set this one by hand, so tags no longer move it. Press <kbd>U</kbd> then re-tag to hand it back.</span></div>
 
@@ -578,7 +568,7 @@ kbd {
 
 // Plain-language explanation of each state, shown on hover and in the legend.
 const VERDICT_HELP = {
-  selected:  'In the post. The number is its slide position.',
+  selected:  'In the post.',
   maybe:     'Unresolved - comes back to me as a question, not a decision.',
   rejected:  'Cut. The line underneath is my reason.',
   untouched: 'I neither picked nor cut this - the rest of the shoot, yours to pull from.',
@@ -658,6 +648,10 @@ function reconcile(it) {
 }
 
 function setVerdict(it, v) {
+  // Pressing the verdict a frame is ALREADY in toggles it back to Not picked. Without this the only
+  // way out of a state you entered by mistake is to hunt for a fourth button, and "undo what I just
+  // did" is the most common correction there is.
+  if (it.state === v && v !== 'untouched') v = 'untouched';
   if (it.state !== v) it._flash = true;
   it.state = v;
   it.locked = true;                            // manual input ends the automation, permanently
@@ -665,12 +659,6 @@ function setVerdict(it, v) {
 }
 
 /* --- render ------------------------------------------------------------------------------------ */
-function slotOf(it) {
-  const sel = IMGS.filter(x => x.state === 'selected');
-  const i = sel.indexOf(it);
-  return i < 0 ? '' : String(i + 1);
-}
-
 function render() {
   const sheet = $('sheet');
   const list = vis();
@@ -693,7 +681,6 @@ function render() {
         '<img loading="lazy" src="' + it.url + '" alt="">' +
         '<span class="vb" title="' + VERDICT_HELP[it.state] + '">' +
           '<span class="g">' + meta.g + '</span>' + meta.t + '</span>' +
-        '<span class="slot" title="Slide ' + slotOf(it) + ' in the post">#' + slotOf(it) + '</span>' +
       '</span>' +
       '<div class="foot" style="position:relative">' +
         (marks.length ? '<div class="marks">' + marks.join('') + '</div>' : '') +
@@ -965,9 +952,14 @@ addEventListener('keydown', e => {
   }
 
   if (!it) return;
-  if (k === 'p') { setVerdict(it, 'selected');  toast('keep'); }
-  else if (k === 'm') { setVerdict(it, 'maybe'); toast('maybe — I\'ll reconsider it'); }
-  else if (k === 'x') { setVerdict(it, 'rejected'); toast('cut'); }
+  if ('pmx'.includes(k)) {
+    const want = k === 'p' ? 'selected' : k === 'm' ? 'maybe' : 'rejected';
+    const toggling = it.state === want;
+    setVerdict(it, want);
+    toast(toggling ? 'back to not picked'
+        : want === 'maybe' ? 'maybe — I\'ll reconsider it'
+        : want === 'selected' ? 'keep' : 'cut');
+  }
   else if (k === 'u') { it.locked = false; reconcile(it); render(); renderPanel(); toast('back under my proposal'); }
   else if (k === 'c') { e.preventDefault(); $('frameText').focus(); }
   else if (k === 'f') {
