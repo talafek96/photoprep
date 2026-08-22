@@ -16,7 +16,13 @@ body { grid-template-columns:1fr 366px; }
    state alone — every tile also shows a distinct glyph and a word. */
 :root {
   --st-sel:   var(--ok);
-  --st-may:   var(--warn);
+  /* Maybe is the state that MATTERS most - it's the one asking a question - so it gets the
+     brightest treatment of the four: rgb(251,213,48), a clear yellow at 10.3:1 against the badge ink.
+     Hue 95 is chosen, not inherited. --warn (42) reads as a muted coral next to --danger, and an
+     orange in the 55-70 band renders almost pixel-identical to the amber accent (72) - Maybe would
+     have been mistaken for interactive state. Yellow is the only bright option that stays distinct
+     from all three of accent, selected (155) and rejected (18). */
+  --st-may:   oklch(0.88 0.17 95);
   --st-rej:   var(--danger);
   --st-unt:   oklch(0.62 0.008 80);
   --ph:       236px;          /* tile image height; see .tile .ph */
@@ -68,6 +74,52 @@ body { grid-template-columns:1fr 366px; }
 }
 .tile:hover { transform:translateY(-2px); border-color:var(--border-strong); }
 .tile.cur { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent), var(--highlight); }
+
+/* --- border trail: a light running the focused tile's edge -------------------------------------
+   A ring-shaped mask (padding-box INTERSECT border-box leaves only the 1px border band) with a
+   blurred dot driven around it by offset-path. The `round` has to match the tile radius or the
+   light cuts the corners. This is the one signature flourish on the sheet - it marks where you are
+   without adding another colour, and it's the only thing on screen that moves continuously. */
+.tile .trail {
+  position:absolute; inset:0; border-radius:inherit; pointer-events:none; opacity:0;
+  border:1.5px solid transparent;
+  -webkit-mask-image:linear-gradient(transparent,transparent), linear-gradient(#000,#000);
+          mask-image:linear-gradient(transparent,transparent), linear-gradient(#000,#000);
+  -webkit-mask-clip:padding-box, border-box;
+          mask-clip:padding-box, border-box;
+  -webkit-mask-composite:destination-in;
+          mask-composite:intersect;
+  transition:opacity .3s var(--ease-io);
+}
+.tile.cur .trail { opacity:1; }
+.tile .trail::before, .tile .trail::after {
+  content:''; position:absolute; width:66px; aspect-ratio:1;
+  background:var(--accent); filter:blur(5px);
+  offset-path:rect(0 auto auto 0 round var(--radius));
+  animation:trail 3.4s linear infinite;
+}
+/* a second, dimmer light on the opposite side keeps the edge alive all the way round */
+.tile .trail::after { animation-delay:-1.7s; opacity:.5; width:44px; }
+@keyframes trail { from { offset-distance:0%; } to { offset-distance:100%; } }
+
+/* the verdict landing: a single ring pulse in the new state's colour, then gone */
+@keyframes verdictPulse {
+  0%   { box-shadow:0 0 0 0 var(--edge); }
+  100% { box-shadow:0 0 0 14px transparent; }
+}
+.tile.flash .ph::after { animation:edgeFlash .45s var(--ease-out); }
+@keyframes edgeFlash {
+  0%   { box-shadow:inset 0 0 0 3px var(--edge); }
+  40%  { box-shadow:inset 0 0 0 9px var(--edge); }
+  100% { box-shadow:inset 0 0 0 3px var(--edge); }
+}
+.tile.flash { animation:verdictPulse .55s var(--ease-out); }
+/* the badge swaps with a little lift rather than snapping */
+.tile.flash .vb { animation:badgeIn .4s var(--ease-out); }
+@keyframes badgeIn {
+  from { transform:translateY(-6px) scale(.85); opacity:0; }
+  to   { transform:none; scale:1; opacity:1; }
+}
 .tile[data-s=selected]  { --edge:var(--st-sel); }
 .tile[data-s=maybe]     { --edge:var(--st-may); }
 .tile[data-s=rejected]  { --edge:var(--st-rej); }
@@ -142,13 +194,30 @@ body { grid-template-columns:1fr 366px; }
   font-family:var(--mono); font-size:9.5px; letter-spacing:.09em; text-transform:uppercase;
   color:var(--faint);
 }
-#status b { color:var(--fg); font-weight:600; font-variant-numeric:tabular-nums; }
+#status b {
+  color:var(--fg); font-weight:600; font-variant-numeric:tabular-nums;
+  transition:color .3s var(--ease-io);
+}
+/* live counts update INSTANTLY — no odometer. Only the colour acknowledges the change. */
+#status b.bump { color:var(--accent); }
 #status .sp { flex:1; }
 
 /* --- panel ------------------------------------------------------------------------------------- */
 #panel { display:flex; flex-direction:column; gap:0; padding:0; overflow:hidden; }
 #panel .scroll { overflow:auto; padding:15px 16px 4px; flex:1; min-height:0; }
 #panel .foot { padding:11px 16px 14px; border-top:1px solid var(--border); background:var(--bg); }
+/* the label leaves upward and a tick arrives from below — the single highest-return small
+   transition there is, because it turns "it finished" into something you actually notice */
+#btnCommit { position:relative; overflow:hidden; }
+#btnCommit.done { background:var(--st-sel); border-color:var(--st-sel); }
+#btnCommit .lbl { display:inline-block; transition:transform .3s var(--ease-out), opacity .2s var(--ease-io); }
+#btnCommit.done .lbl { transform:translateY(-140%); opacity:0; }
+#btnCommit .tick {
+  position:absolute; inset:0; display:grid; place-items:center; font-size:15px;
+  transform:translateY(140%); opacity:0;
+  transition:transform .34s var(--ease-out), opacity .2s var(--ease-io);
+}
+#btnCommit.done .tick { transform:none; opacity:1; }
 
 .seg4 { display:grid; grid-template-columns:repeat(4,1fr); gap:5px; }
 .seg4 button {
@@ -168,7 +237,10 @@ body { grid-template-columns:1fr 366px; }
   border:1px solid var(--border); background:transparent; color:var(--mut); box-shadow:none;
   transition:all .15s var(--ease-io);
 }
-.chip:hover { border-color:var(--border-strong); color:var(--fg); }
+.chip:hover { border-color:var(--border-strong); color:var(--fg); transform:translateY(-1px); }
+.chip:active { transform:scale(.95); }
+.chip.on { animation:chipOn .3s var(--ease-out); }
+@keyframes chipOn { from { transform:scale(.88); } to { transform:none; } }
 .chip.on { background:var(--accent-soft); border-color:var(--accent); color:var(--accent); font-weight:600; }
 .chip.neg.on { background:oklch(0.68 0.19 18 / 15%); border-color:var(--st-rej); color:var(--st-rej); }
 .chip.pos.on { background:oklch(0.78 0.125 155 / 15%); border-color:var(--st-sel); color:var(--st-sel); }
@@ -211,6 +283,14 @@ body.locked .locknote { display:flex; }
   max-width:none; transform-origin:0 0; will-change:transform;
   box-shadow:0 24px 80px oklch(0 0 0 / 55%);
 }
+/* the photo pulls into focus rather than popping — blur release is what separates this from a fade.
+   Applied to the WRAPPER, never to the image's own transform, which pan/zoom owns. */
+#loupe.on #lstage { animation:loupeIn .42s var(--ease-out) both; }
+@keyframes loupeIn {
+  from { opacity:0; filter:blur(9px); transform:scale(.985); }
+  to   { opacity:1; filter:blur(0);   transform:none; }
+}
+#lhead, #lfoot { animation:rise .5s var(--ease-out) .06s both; }
 #lhead, #lfoot {
   display:flex; align-items:center; gap:12px; padding:11px 16px;
   font-family:var(--mono); font-size:9.5px; letter-spacing:.09em; text-transform:uppercase;
@@ -240,6 +320,10 @@ kbd {
 @media (prefers-reduced-motion: reduce) {
   .tile { animation:none; }
   #loupe { animation:none; }
+  /* a continuous indicator never stops on its own, so it matters more here than the one-shots */
+  .tile .trail::before, .tile .trail::after { animation:none; }
+  .tile.cur .trail { opacity:1; }
+  .tile.cur .trail::before { offset-distance:12%; }
 }
 </style>
 
@@ -299,7 +383,7 @@ kbd {
   <div class="foot">
     <div class="row">
       <button id="btnLoupe">⛶ Loupe</button>
-      <button id="btnCommit" class="primary">Commit ⏎</button>
+      <button id="btnCommit" class="primary"><span class="lbl">Commit ⏎</span><span class="tick">✓</span></button>
     </div>
     <p class="hint" id="commitHint">Maybe frames come back to me as questions, not decisions.</p>
   </div>
@@ -397,6 +481,7 @@ function chipSign(it, id) {
 
 function reconcile(it) {
   if (it.locked) return;                       // the person owns this frame now
+  const was = it.state;
   if (it.proposed === 'selected') {
     it.state = negCount(it) > 0 ? 'maybe' : 'selected';
   } else if (it.proposed === 'rejected') {
@@ -405,9 +490,13 @@ function reconcile(it) {
     // untouched by the assistant: a positive signal is the only thing that can move it
     it.state = posCount(it) > 0 ? 'maybe' : 'untouched';
   }
+  // flag synchronously, before render() reads it — a tag-driven move should land as visibly as a
+  // clicked one, since that transition is the tool explaining itself
+  if (it.state !== was) it._flash = true;
 }
 
 function setVerdict(it, v) {
+  if (it.state !== v) it._flash = true;
   it.state = v;
   it.locked = true;                            // manual input ends the automation, permanently
   render(); renderPanel();
@@ -427,7 +516,8 @@ function render() {
   list.forEach((it, n) => {
     const idx = IMGS.indexOf(it);
     const d = document.createElement('div');
-    d.className = 'tile' + (idx === CUR ? ' cur' : '');
+    d.className = 'tile' + (idx === CUR ? ' cur' : '') + (it._flash ? ' flash' : '');
+    if (it._flash) { it._flash = false; }
     d.dataset.s = it.state;
     d.style.animationDelay = Math.min(n * 0.012, 0.3) + 's';
     const meta = ST[it.state];
@@ -436,6 +526,7 @@ function render() {
     if (it.alternates && it.alternates.length) marks.push('<span class="mk">' + (it.altIdx + 1) + '/' + (it.alternates.length + 1) + '</span>');
     if (it.tags.length || it.text) marks.push('<span class="mk">💬</span>');
     d.innerHTML =
+      '<span class="trail"></span>' +
       '<span class="ph">' +
         '<img loading="lazy" src="' + it.url + '" alt="">' +
         '<span class="vb"><span class="g">' + meta.g + '</span>' + meta.t + '</span>' +
@@ -483,10 +574,14 @@ function renderBar() {
 
 function renderStatus() {
   const c = counts();
-  $('stSel').textContent = c.selected;
-  $('stMay').textContent = c.maybe;
-  $('stRej').textContent = c.rejected;
-  $('stUnt').textContent = c.untouched;
+  [['stSel',c.selected],['stMay',c.maybe],['stRej',c.rejected],['stUnt',c.untouched]].forEach(function (p) {
+    const el = $(p[0]);
+    if (el.textContent !== String(p[1])) {
+      el.textContent = p[1];                    // instant, never an odometer
+      el.classList.add('bump');
+      setTimeout(function () { el.classList.remove('bump'); }, 420);
+    }
+  });
   $('commitHint').textContent = c.maybe
     ? c.maybe + ' maybe' + (c.maybe > 1 ? 's' : '') + ' come back to me as questions, not decisions.'
     : 'Maybe frames come back to me as questions, not decisions.';
@@ -745,6 +840,9 @@ function buildResult() {
 function commit() {
   const r = buildResult();
   window.__result = r;
+  const b = $('btnCommit');
+  b.classList.add('done');
+  setTimeout(() => b.classList.remove('done'), 1600);
   const n = r.final.selected.length, m = r.final.maybe.length;
   toast('committed — ' + n + ' in' + (m ? ', ' + m + ' to reconsider' : ''));
   if (window.__runtime && window.__runtime.review) {
