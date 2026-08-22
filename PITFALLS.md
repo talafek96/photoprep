@@ -99,3 +99,22 @@ Also worth knowing while building one: `mix-blend-mode` inside a masked element 
 composite against, so `plus-lighter` silently does nothing. And prefer `offset-path` over a rotating
 `conic-gradient` — conic sweeps *angularly from the centre*, so on a tall rectangle the bright arc
 crawls the long edges and races the short ones. It animates; it just never reads as travel.
+
+## Drag-to-pan on an `<img>` starts a file drag instead
+
+**An `<img>` is natively draggable, so a press-and-move begins an HTML5 drag - ghost image and all -
+and your pointer handler never runs.**
+
+```css
+/* Right */
+#stage img { -webkit-user-drag:none; user-select:none; -webkit-user-select:none; }
+```
+```js
+stage.addEventListener('dragstart', e => e.preventDefault());   // Firefox ignores -webkit-user-drag
+stage.addEventListener('pointerdown', e => { e.preventDefault(); /* ... */ });
+```
+
+Nothing errors and `pointerdown` does fire, so the bug looks like broken pan logic rather than the
+browser claiming the gesture. `-webkit-user-drag` alone is not enough - it is non-standard and
+unsupported in Firefox - so cancel `dragstart` as well, and `preventDefault()` the `pointerdown`
+to stop the text-selection drag on whatever sits behind the image.

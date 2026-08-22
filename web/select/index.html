@@ -421,7 +421,13 @@ body.locked .locknote { display:flex; }
 #lstage img {
   max-width:none; transform-origin:0 0; will-change:transform;
   box-shadow:0 24px 80px oklch(0 0 0 / 55%);
+  /* An <img> is natively draggable, so a press-and-move started an HTML5 file drag - complete with
+     a ghost image following the cursor - and the pan never ran. */
+  -webkit-user-drag:none; user-select:none; -webkit-user-select:none;
 }
+#lstage { user-select:none; -webkit-user-select:none; }
+/* same trap on the contact sheet: dragging a tile shouldn't offer the photo as a file */
+.tile img { -webkit-user-drag:none; user-select:none; -webkit-user-select:none; }
 /* the photo pulls into focus rather than popping — blur release is what separates this from a fade.
    Applied to the WRAPPER, never to the image's own transform, which pan/zoom owns. */
 #loupe.on #lstage { animation:loupeIn .42s var(--ease-out) both; }
@@ -487,8 +493,9 @@ kbd {
       <p><b class="pl">🔒 set by you</b> you set that verdict by hand, so tags no longer move it. <kbd>U</kbd> hands it back.</p>
       <p><b class="pl">💬</b> you left a tag or a note on it - both now show on the tile itself, under my reason. The <b class="pl">Has notes</b> filter collects them.</p>
       <h3>Keys</h3>
-      <p><kbd>P</kbd> keep <kbd>M</kbd> maybe <kbd>X</kbd> cut <kbd>Space</kbd> loupe <kbd>←</kbd><kbd>→</kbd> move <kbd>F</kbd> filter <kbd>⏎</kbd> commit</p>
-      <p>Pressing a verdict the frame is <em>already in</em> sends it back to <b data-s="untouched">○ Not picked</b>. <kbd>U</kbd> also does that, and additionally hands the frame back to my proposal.</p>
+      <p>The flag keys follow Lightroom: <kbd>P</kbd> pick / keep · <kbd>X</kbd> reject / cut · <kbd>U</kbd> unpick · plus <kbd>M</kbd> for maybe, which Lightroom has no equivalent of.</p>
+      <p><kbd>Space</kbd> loupe · <kbd>Z</kbd> zoom fit ↔ 100% · <kbd>←</kbd><kbd>→</kbd> move · <kbd>F</kbd> filter · <kbd>⏎</kbd> commit</p>
+      <p><kbd>R</kbd> reverts a frame to <em>my</em> proposal and clears the 🔒. Pressing a verdict the frame is already in also sends it back to <b data-s="untouched">○ Not picked</b>.</p>
     </div>
   </div>
   <div id="sheet" tabindex="0" aria-label="Contact sheet"></div>
@@ -524,7 +531,7 @@ kbd {
           <button data-v="selected"><span class="g">✓</span>Keep</button>
           <button data-v="maybe"><span class="g">?</span>Maybe</button>
           <button data-v="rejected"><span class="g">✕</span>Cut</button>
-          <button data-v="untouched"><span class="g">○</span>Not picked</button>
+          <button data-v="untouched" title="U — unpick, as in Lightroom"><span class="g">○</span>Not picked</button>
         </div>
         <div class="locknote"><span>🔒</span><span>You set this one by hand, so tags no longer move it. Press <kbd>U</kbd> then re-tag to hand it back.</span></div>
 
@@ -565,11 +572,13 @@ kbd {
   <div id="lfoot">
     <span><kbd>drag</kbd>pan</span>
     <span><kbd>pinch</kbd>zoom</span>
+    <span><kbd>Z</kbd>fit / 100%</span>
     <span><kbd>dbl-click</kbd>fit / 100%</span>
     <span><kbd>←</kbd><kbd>→</kbd>frame</span>
     <span><kbd>P</kbd>keep</span>
     <span><kbd>M</kbd>maybe</span>
     <span><kbd>X</kbd>cut</span>
+    <span><kbd>U</kbd>unpick</span>
     <span><kbd>esc</kbd>back</span>
   </div>
 </div>
@@ -967,8 +976,12 @@ function zoomAt(cx, cy, factor, animate) {
     else fitLoupe(true);
   });
 
+  // -webkit-user-drag is not honoured everywhere (Firefox), so cancel the drag outright as well.
+  st.addEventListener('dragstart', e => e.preventDefault());
+
   let drag = null;
   st.addEventListener('pointerdown', e => {
+    e.preventDefault();
     drag = { x:e.clientX, y:e.clientY, ox:LZ.x, oy:LZ.y };
     st.setPointerCapture(e.pointerId); st.classList.add('drag');
   });
@@ -1027,6 +1040,12 @@ addEventListener('keydown', e => {
   if (e.key === ' ') { e.preventDefault(); open ? closeLoupe() : openLoupe(); return; }
 
   if (open) {
+    if (k === 'z') {                       // Lightroom's zoom toggle
+      const r = $('lstage').getBoundingClientRect();
+      if (Math.abs(LZ.scale - LZ.fit) < 0.001) zoomAt(r.left + r.width / 2, r.top + r.height / 2, 1 / LZ.scale, true);
+      else fitLoupe(true);
+      return;
+    }
     if (k === '0') { fitLoupe(true); return; }
     if (k === '1') {
       const st = $('lstage');
@@ -1045,7 +1064,11 @@ addEventListener('keydown', e => {
         : want === 'maybe' ? 'maybe — I\'ll reconsider it'
         : want === 'selected' ? 'keep' : 'cut');
   }
-  else if (k === 'u') { it.locked = false; reconcile(it); render(); renderPanel(); toast('back under my proposal'); }
+  // Lightroom parity: U unflags. Here that means "not picked" - a decision you own, so it locks
+  // like any other verdict. Handing the frame back to MY proposal is a different action and gets
+  // its own key.
+  else if (k === 'u') { setVerdict(it, 'untouched'); toast('unpicked'); }
+  else if (k === 'r') { it.locked = false; reconcile(it); render(); renderPanel(); toast('reverted to my proposal'); }
   else if (k === 'c') { e.preventDefault(); $('frameText').focus(); }
   else if (k === 'f') {
     const order = ['all','selected','maybe','rejected','untouched'];
