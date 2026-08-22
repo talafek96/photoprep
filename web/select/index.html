@@ -121,21 +121,27 @@ body { grid-template-columns:1fr 366px; }
      highlight travelling over it, not the only thing holding the colour. The arc's own low stops
      stay tinted rather than transparent for the same reason.
 
-     The peak of the arc is a LIGHTENED version of the verdict colour, never neutral white. A white
-     core is brighter, but it washes the state out exactly where the eye is drawn - the moving
-     highlight is the most looked-at part of the ring, so it has to carry the colour too. */
+     The peak of the arc raises LIGHTNESS in oklch while keeping the hue and chroma
+     (`oklch(from var(--edge) 0.97 c h)`), which is not the same as mixing in white and the
+     difference is large. Mixing 28% white into the green gives rgb(204,209,140) - a muddy olive,
+     desaturated AND barely brighter than the base, so the sweep vanished. Raising L to 0.97 gives
+     rgb(167,255,202): clearly brighter, still unmistakably green. Neutral white is brighter still
+     but washes the state out exactly where the eye is drawn.
+
+     The base sits at 62% so the peak has something to be brighter than - contrast is what makes
+     the sweep visible, not absolute brightness. */
   background:
     conic-gradient(from var(--ang) at 50% 50%,
       color-mix(in oklch, var(--edge) 30%, transparent) 0deg,
       color-mix(in oklch, var(--edge) 45%, transparent) 45deg,
       color-mix(in oklch, var(--edge) 80%, transparent) 90deg,
       var(--edge) 140deg,
-      color-mix(in oklch, oklch(1 0 0) 28%, var(--edge)) 168deg,
+      oklch(from var(--edge) 0.97 c h) 168deg,
       var(--edge) 196deg,
       color-mix(in oklch, var(--edge) 70%, transparent) 250deg,
       color-mix(in oklch, var(--edge) 40%, transparent) 320deg,
       color-mix(in oklch, var(--edge) 30%, transparent) 360deg),
-    linear-gradient(var(--edge) 0 0);
+    linear-gradient(color-mix(in oklch, var(--edge) 62%, transparent) 0 0);
   -webkit-mask:linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
           mask:linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite:xor;
