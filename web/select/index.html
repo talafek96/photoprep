@@ -116,16 +116,22 @@ body { grid-template-columns:1fr 366px; }
   position:absolute; left:0; right:0; top:0; height:var(--ph);
   border-radius:var(--radius) var(--radius) 0 0;
   pointer-events:none; opacity:0; padding:2px; z-index:4;
-  background:conic-gradient(from var(--ang) at 50% 50%,
-    transparent 0deg,
-    color-mix(in oklch, var(--edge) 25%, transparent) 45deg,
-    color-mix(in oklch, var(--edge) 70%, transparent) 90deg,
-    var(--edge) 140deg,
-    oklch(0.99 0.02 100) 168deg,
-    var(--edge) 196deg,
-    color-mix(in oklch, var(--edge) 55%, transparent) 250deg,
-    transparent 320deg,
-    transparent 360deg);
+  /* Two layers. The conic arc rides on TOP of a solid base in the verdict colour, so the ring never
+     goes dark on the unlit side - the state stays readable all the way round and the sweep is a
+     highlight travelling over it, not the only thing holding the colour. The arc's own low stops
+     stay tinted rather than transparent for the same reason. */
+  background:
+    conic-gradient(from var(--ang) at 50% 50%,
+      color-mix(in oklch, var(--edge) 30%, transparent) 0deg,
+      color-mix(in oklch, var(--edge) 45%, transparent) 45deg,
+      color-mix(in oklch, var(--edge) 80%, transparent) 90deg,
+      var(--edge) 140deg,
+      oklch(0.99 0.02 100) 168deg,
+      var(--edge) 196deg,
+      color-mix(in oklch, var(--edge) 70%, transparent) 250deg,
+      color-mix(in oklch, var(--edge) 40%, transparent) 320deg,
+      color-mix(in oklch, var(--edge) 30%, transparent) 360deg),
+    linear-gradient(var(--edge) 0 0);
   -webkit-mask:linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
           mask:linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite:xor;
@@ -207,7 +213,7 @@ body { grid-template-columns:1fr 366px; }
    and the comet are the same colour at the same brightness, so the travelling light adds nothing
    and the whole thing reads as static - which is exactly how it looked. */
 .tile.cur .ph::after {
-  box-shadow:inset 0 0 0 3px color-mix(in oklch, var(--edge) 30%, transparent);
+  box-shadow:inset 0 0 0 3px color-mix(in oklch, var(--edge) 55%, transparent);
 }
 /* a cut frame is dimmed, not hidden — auditing the rejects has to be as cheap as reviewing the
    picks, or the sheet is worthless and the person re-culls by hand */
