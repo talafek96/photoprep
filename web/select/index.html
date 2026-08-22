@@ -810,6 +810,11 @@ function setVerdict(it, v) {
 
 /* --- render ------------------------------------------------------------------------------------ */
 function render() {
+  // A group filter can outlive its group - ungroup the frames you were filtered to and the filter
+  // now points at nothing, stranding you on an empty sheet. Fall back rather than showing a dead
+  // end. This covers every route to an empty group, not just the Ungroup button.
+  if (FILTER.startsWith('group:') && !IMGS.some(i => i.group === FILTER.slice(6))) FILTER = 'all';
+
   const sheet = $('sheet');
   // Ctrl-click is a secondary click on macOS, so without this the context menu opens on top of the
   // multi-selection it just made. Ctrl is the Windows modifier and has to work on both.
@@ -880,7 +885,12 @@ function render() {
     d.ondblclick = () => openLoupe();
     sheet.appendChild(d);
   });
-  if (!list.length) sheet.innerHTML = '<p class="empty" style="grid-column:1/-1">Nothing matches this filter.</p>';
+  if (!list.length) {
+    sheet.innerHTML = '<p class="empty" style="grid-column:1/-1">Nothing matches this filter. ' +
+      '<button id="clearFilter" style="margin-left:6px">Show all ' + IMGS.length + '</button></p>';
+    const cf = $('clearFilter');
+    if (cf) cf.onclick = () => { FILTER = 'all'; render(); };
+  }
   renderBar();
   renderStatus();
   renderMulti();
@@ -1357,7 +1367,11 @@ function setScore(it, n) {
   render();
 }
 $('mGroup').onclick = makeGroup;
-$('mUngroup').onclick = () => { applyToSelection(i => { i.group = null; }); toast('ungrouped'); };
+$('mUngroup').onclick = () => {
+  const wasFiltered = FILTER.startsWith('group:');
+  applyToSelection(i => { i.group = null; });
+  toast(wasFiltered && FILTER === 'all' ? 'ungrouped — showing all frames' : 'ungrouped');
+};
 $('mKeep').onclick  = () => { applyToSelection(i => setVerdict(i, 'selected')); };
 $('mMaybe').onclick = () => { applyToSelection(i => setVerdict(i, 'maybe')); };
 $('mCut').onclick   = () => { applyToSelection(i => setVerdict(i, 'rejected')); };
