@@ -347,6 +347,8 @@ body { grid-template-columns:1fr 366px; }
 }
 .mk.lock { color:var(--accent); }
 .mk.sc { color:var(--accent); font-variant-numeric:tabular-nums; font-weight:650; }
+.mk.sc i { font-style:normal; opacity:.6; margin-left:3px; font-weight:400; }
+.mk.sc.top { background:var(--accent); color:var(--accent-ink); }
 
 /* --- multi-selection bar ------------------------------------------------------------------------ */
 #multibar {
@@ -460,6 +462,8 @@ body.locked .locknote { display:flex; }
 /* alternates */
 .scoreRow { display:flex; align-items:center; gap:10px; }
 .scoreRow input { flex:1; }
+#scoreRank { margin-top:5px; }
+#scoreRank b { color:var(--accent); font-variant-numeric:tabular-nums; }
 #scoreVal {
   font-family:var(--mono); font-size:13px; font-variant-numeric:tabular-nums; color:var(--accent);
   min-width:26px; text-align:right;
@@ -570,6 +574,9 @@ kbd {
       <p><kbd>⌘</kbd>-click (or <kbd>Ctrl</kbd>-click) adds a frame to a selection, <kbd>⇧</kbd>-click takes a range, <kbd>⌘A</kbd> / <kbd>Ctrl A</kbd> takes everything on screen, <kbd>esc</kbd> clears. With frames selected, the bar at the bottom groups them and can set a target - <em>up to 2</em> or <em>exactly 1</em> - which I read as "out of these, pick that many". It works both ways: I can suggest a group and a count, and you can make your own and tell me a count. <em>Nothing is ever enforced</em> - a target only shows where you are, and you can commit over, under or ignoring it entirely.</p>
       <p>Verdict keys apply to the whole selection when there is one, so ⇧-click a run of near-duplicates and press <kbd>X</kbd> once.</p>
 
+      <h3>Scores</h3>
+      <p>A score is <em>relative to its group</em>, never absolute — a 7 at Kasaneiwa and a 7 at Angel Road are not the same claim. Focus a frame and press a digit (<kbd>0</kbd> is ten, <kbd>`</kbd> clears); the panel shows where it now ranks among the scored frames of that group, and the tile shows <b class="pl">8 #1</b>. Sorting by <em>Score in group</em> keeps groups together and ranks inside each. So the useful move is: filter to a group, score its frames against each other, and tell me to take the top few.</p>
+
       <h3>Keys</h3>
       <p>The flag keys follow Lightroom: <kbd>P</kbd> pick / keep · <kbd>X</kbd> reject / cut · <kbd>U</kbd> unpick · plus <kbd>M</kbd> for maybe, which Lightroom has no equivalent of.</p>
       <p><kbd>Space</kbd> loupe · <kbd>Z</kbd> zoom fit ↔ 100% · <kbd>←</kbd><kbd>→</kbd> move · <kbd>F</kbd> filter · <kbd>⏎</kbd> commit</p>
@@ -634,11 +641,13 @@ kbd {
         <label>Tags <span class="hint">(a negative tag on a frame I picked drops it to Maybe)</span></label>
         <div class="chips" id="chips"></div>
 
-        <label for="scoreRange">Score <span class="hint">(1-10, or press a digit — 0 is ten, <kbd>`</kbd> clears)</span></label>
+        <label for="scoreRange">Score <span class="hint" id="scoreScope"></span></label>
+        <select id="scoreGroupSel" hidden></select>
         <div class="scoreRow">
           <input type="range" id="scoreRange" min="0" max="10" step="1" value="0">
           <b id="scoreVal">–</b>
         </div>
+        <div class="hint" id="scoreRank"></div>
 
         <label for="frameText">Note on this frame</label>
         <textarea id="frameText" rows="2" placeholder="one line is plenty"></textarea>
@@ -745,8 +754,18 @@ const SORTS = {
   name:    { label:'Name',       fn:(a,b) => a.name.localeCompare(b.name, undefined, { numeric:true }) },
   date:    { label:'Date',       fn:(a,b) => (a.date || 0) - (b.date || 0) },
   verdict: { label:'State',      fn:(a,b) => (V_RANK[a.state] - V_RANK[b.state]) || (a._i - b._i) },
-  score:   { label:'Your score', fn:(a,b) => (b.score || 0) - (a.score || 0) || (a._i - b._i) },
-  group:   { label:'Group',      fn:(a,b) => String(a.group||'~').localeCompare(String(b.group||'~')) || (a._i - b._i) },
+  // Score sorts WITHIN each group - a 7 at Kasaneiwa and a 7 at Angel Road are not the same claim,
+  // so ranking them against each other would be meaningless.
+  score:   { label:'Score in group', fn:(a,b) => {
+              // When filtered to a group, rank inside it. Otherwise keep groups together and rank
+              // within each - a 7 here and a 7 there are not the same claim.
+              const g = filterGroup();
+              if (g) return scoreOf(b, g) - scoreOf(a, g) || (a._i - b._i);
+              const ga = a.groups[0] || '~', gb = b.groups[0] || '~';
+              return String(ga).localeCompare(String(gb))
+                     || scoreOf(b, gb) - scoreOf(a, ga) || (a._i - b._i);
+            } },
+  group:   { label:'Group',      fn:(a,b) => String(a.groups[0]||'~').localeCompare(String(b.groups[0]||'~')) || (a._i - b._i) },
 };
 
 const $  = id => document.getElementById(id);
@@ -761,9 +780,10 @@ function passes(it) {
     case 'rejected':   return it.state === 'rejected';
     case 'untouched':  return it.state === 'untouched';
     case 'commented':  return !!(it.text || it.tags.length);
+    case 'scored':     return anyScore(it);
     case 'alternates': return !!(it.alternates && it.alternates.length);
   }
-  if (FILTER.startsWith('group:')) return it.group === FILTER.slice(6);
+  if (FILTER.startsWith('group:')) return inGroup(it, FILTER.slice(6));
   return true;
 }
 
@@ -813,7 +833,7 @@ function render() {
   // A group filter can outlive its group - ungroup the frames you were filtered to and the filter
   // now points at nothing, stranding you on an empty sheet. Fall back rather than showing a dead
   // end. This covers every route to an empty group, not just the Ungroup button.
-  if (FILTER.startsWith('group:') && !IMGS.some(i => i.group === FILTER.slice(6))) FILTER = 'all';
+  if (FILTER.startsWith('group:') && !IMGS.some(i => inGroup(i, FILTER.slice(6)))) FILTER = 'all';
 
   const sheet = $('sheet');
   // Ctrl-click is a secondary click on macOS, so without this the context menu opens on top of the
@@ -834,7 +854,16 @@ function render() {
     if (it.locked) marks.push('<span class="mk lock" title="You set this verdict by hand, so tags no longer move it. Press U to hand it back.">🔒 set by you</span>');
     if (it.alternates && it.alternates.length) marks.push('<span class="mk" title="' + (it.alternates.length) + ' other frame(s) from this same moment. Press [ or ] to swap one in.">⇄ ' + (it.altIdx + 1) + ' of ' + (it.alternates.length + 1) + '</span>');
     if (it.tags.length || it.text) marks.push('<span class="mk" title="You left feedback on this frame">💬</span>');
-    if (it.score) marks.push('<span class="mk sc" title="Your score, out of 10">' + it.score + '</span>');
+    const sg = scoringGroup(it), sv = scoreOf(it, sg);
+    if (sv) {
+      const r = rankIn(it, sg);
+      const others = Object.keys(it.scores).filter(k => k !== sg && it.scores[k]);
+      const tip = sv + '/10 in ' + gLabel(sg) + (r ? ' — rank ' + r.pos + ' of ' + r.of + ' scored' : '') +
+        (others.length ? '. Also scored in ' + others.map(k => gLabel(k) + ' ' + it.scores[k]).join(', ') : '');
+      marks.push('<span class="mk sc' + (r && r.pos === 1 && r.of > 1 ? ' top' : '') + '" title="' + esc(tip) + '">' +
+                 sv + (r && r.of > 1 ? '<i>#' + r.pos + '</i>' : '') +
+                 (others.length ? '<i>+' + others.length + '</i>' : '') + '</span>');
+    }
     d.innerHTML =
       '<span class="trailGlow"></span><span class="trail"></span>' +
       (MULTI.has(it.id) ? '<span class="mcheck">✓</span>' : '') +
@@ -901,8 +930,8 @@ function render() {
 // the way of a judgement call.
 function groupState(name) {
   const g = GROUPS[name] || {};
-  const inGroup = IMGS.filter(i => i.group === name);
-  const chosen = inGroup.filter(i => i.state === 'selected').length;
+  const members = IMGS.filter(i => inGroup(i, name));
+  const chosen = members.filter(i => i.state === 'selected').length;
   const target = g.target;
   let status = 'ok';
   if (target != null) {
@@ -911,10 +940,10 @@ function groupState(name) {
     else status = 'met';
   }
   return { name, label:g.label || name, target, mode:g.mode || 'upto', by:g.by || 'me',
-           total:inGroup.length, chosen, status };
+           total:members.length, chosen, status };
 }
 
-function activeGroups() { return Object.keys(GROUPS).filter(n => IMGS.some(i => i.group === n)); }
+function activeGroups() { return Object.keys(GROUPS).filter(n => IMGS.some(i => inGroup(i, n))); }
 
 function counts() {
   const c = { all:IMGS.length, selected:0, maybe:0, rejected:0, untouched:0, commented:0, alternates:0 };
@@ -983,6 +1012,30 @@ function renderGroups() {
   });
 }
 
+const inGroup   = (it, g) => it.groups.indexOf(g) >= 0;
+const scoreOf   = (it, g) => (g && it.scores[g]) || 0;
+const anyScore  = it => Object.keys(it.scores).some(k => it.scores[k]);
+const filterGroup = () => FILTER.startsWith('group:') ? FILTER.slice(6) : null;
+
+// Which group a score applies to right now: the one you have filtered to, else the frame's only
+// group, else whichever the panel picked.
+function scoringGroup(it) {
+  if (!it) return null;
+  const f = filterGroup();
+  if (f && inGroup(it, f)) return f;
+  if (it._sg && inGroup(it, it._sg)) return it._sg;
+  return it.groups.length === 1 ? it.groups[0] : (it.groups[0] || null);
+}
+
+// Where a frame stands among the SCORED frames of one group.
+function rankIn(it, g) {
+  if (!g || !scoreOf(it, g)) return null;
+  const peers = IMGS.filter(i => inGroup(i, g) && scoreOf(i, g)).sort((a, b) => scoreOf(b, g) - scoreOf(a, g));
+  return { pos: peers.indexOf(it) + 1, of: peers.length, groupTotal: IMGS.filter(i => inGroup(i, g)).length };
+}
+
+const gLabel = g => g ? ((GROUPS[g] && GROUPS[g].label) || g) : 'no group';
+
 const selected = () => IMGS.filter(i => MULTI.has(i.id));
 
 function renderMulti() {
@@ -991,10 +1044,10 @@ function renderMulti() {
   bar.hidden = !n;
   if (!n) return;
   const mine = selected();
-  const groups = [...new Set(mine.map(i => i.group).filter(Boolean))];
-  const shared = groups.length === 1 && mine.every(i => i.group === groups[0]) ? groups[0] : '';
+  const f = filterGroup();
+  const shared = f && mine.every(i => inGroup(i, f)) ? f : '';
   $('mcount').textContent = n;
-  $('mgroupName').value = shared || $('mgroupName').value;
+  if (shared) $('mgroupName').value = gLabel(shared);
   $('mUngroup').hidden = !shared;
 }
 
@@ -1015,7 +1068,7 @@ function makeGroup() {
   const key = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'group';
   const target = $('mTarget').value === '' ? null : Math.max(0, +$('mTarget').value);
   GROUPS[key] = { label:name, target, mode:$('mMode').value, by:'you' };
-  mine.forEach(i => { i.group = key; });
+  mine.forEach(i => { if (!inGroup(i, key)) i.groups.push(key); });   // add, never replace
   toast(mine.length + ' frames → ' + name + (target != null ? ' (' + $('mMode').value + ' ' + target + ')' : ''));
   render(); renderPanel();
 }
@@ -1066,8 +1119,29 @@ function renderPanel() {
   });
 
   $('frameText').value = it.text || '';
-  $('scoreRange').value = it.score || 0;
-  $('scoreVal').textContent = it.score ? it.score : '–';
+  const sg = scoringGroup(it);
+  $('scoreRange').value = scoreOf(it, sg);
+  $('scoreVal').textContent = scoreOf(it, sg) || '–';
+
+  // With more than one group the frame needs a stated target, or a digit press is ambiguous.
+  const sel = $('scoreGroupSel');
+  sel.hidden = it.groups.length < 2;
+  if (!sel.hidden) {
+    sel.innerHTML = it.groups.map(g =>
+      '<option value="' + g + '"' + (g === sg ? ' selected' : '') + '>' + esc(gLabel(g)) +
+      (it.scores[g] ? ' — ' + it.scores[g] : '') + '</option>').join('');
+  }
+  $('scoreScope').textContent = !sg
+    ? '— this frame is in no group, so a score is not relative to anything'
+    : it.groups.length > 1 ? '— pick which group you are ranking it in'
+    : '— within ' + gLabel(sg) + ', press a digit (0 = ten, ` clears)';
+
+  const r = rankIn(it, sg);
+  const scored = sg ? IMGS.filter(i => inGroup(i, sg) && scoreOf(i, sg)).length : 0;
+  const tot = sg ? IMGS.filter(i => inGroup(i, sg)).length : 0;
+  $('scoreRank').innerHTML = !sg ? ''
+    : r ? 'Rank <b>' + r.pos + '</b> of ' + r.of + ' scored, out of ' + tot + ' in ' + esc(gLabel(sg)) + '.'
+        : scored + ' of ' + tot + ' scored in ' + esc(gLabel(sg)) + '.';
 
   const has = it.alternates && it.alternates.length;
   $('altWrap').hidden = !has;
@@ -1334,8 +1408,10 @@ addEventListener('keydown', e => {
   // 0 and 1 are the zoom presets.
   else if (!open && /^[0-9`]$/.test(e.key)) {
     e.preventDefault();
-    setScore(it, e.key === '`' ? 0 : e.key === '0' ? 10 : +e.key);
-    toast(it.score ? 'scored ' + it.score : 'score cleared');
+    const g = scoringGroup(it);
+    const n = e.key === '`' ? 0 : e.key === '0' ? 10 : +e.key;
+    setScore(it, n, g);
+    toast(n ? 'scored ' + n + ' in ' + gLabel(g) : 'score cleared in ' + gLabel(g));
   }
   else if (k === 'f') {
     const order = ['all','selected','maybe','rejected','untouched'];
@@ -1355,22 +1431,27 @@ $('verdict').querySelectorAll('button').forEach(b => {
 });
 $('frameText').oninput = function () { const it = C(); if (it) it.text = this.value; render(); };
 $('scoreRange').oninput = function () { setScore(C(), +this.value); };
+$('scoreGroupSel').onchange = function () { const it = C(); if (it) { it._sg = this.value; renderPanel(); render(); } };
 
 // A score is a RELATIVE judgement inside a small group, which is why it is worth having even though
 // global star ratings are not: "these five are from the same moment, rank them" is a question with
 // a real answer, where "how good is this photo out of five" drifts between sessions.
-function setScore(it, n) {
+function setScore(it, n, g) {
   if (!it) return;
-  it.score = n > 0 ? n : 0;
-  $('scoreVal').textContent = it.score ? it.score : '–';
-  $('scoreRange').value = it.score;
-  render();
+  const key = g || scoringGroup(it);
+  if (!key) { toast('score needs a group — group this frame first'); return; }
+  if (n > 0) it.scores[key] = n; else delete it.scores[key];
+  render(); renderPanel();
 }
 $('mGroup').onclick = makeGroup;
 $('mUngroup').onclick = () => {
-  const wasFiltered = FILTER.startsWith('group:');
-  applyToSelection(i => { i.group = null; });
-  toast(wasFiltered && FILTER === 'all' ? 'ungrouped — showing all frames' : 'ungrouped');
+  // Remove only the group you are looking at; with several, a blanket wipe would be a surprise.
+  const g = filterGroup();
+  applyToSelection(i => {
+    if (g) { i.groups = i.groups.filter(x => x !== g); delete i.scores[g]; }
+    else { i.groups.forEach(x => delete i.scores[x]); i.groups = []; }
+  });
+  toast(g ? 'removed from ' + gLabel(g) : 'removed from all groups');
 };
 $('mKeep').onclick  = () => { applyToSelection(i => setVerdict(i, 'selected')); };
 $('mMaybe').onclick = () => { applyToSelection(i => setVerdict(i, 'maybe')); };
@@ -1379,7 +1460,8 @@ $('mScore').onclick = () => {
   const v = prompt('Score all ' + MULTI.size + ' selected frames 1-10 (blank clears):', '');
   if (v === null) return;
   const n = v === '' ? 0 : clamp(parseInt(v, 10) || 0, 0, 10);
-  applyToSelection(i => { i.score = n; });
+  const g = filterGroup();
+  applyToSelection(i => setScore(i, n, g || scoringGroup(i)));
 };
 $('mClear').onclick = () => { MULTI.clear(); render(); };
 
@@ -1421,9 +1503,10 @@ function buildResult() {
 
   const frames = {};
   IMGS.forEach(i => {
-    if (i.tags.length || i.text || i.locked || i.score) {
-      frames[i.id] = { tags:i.tags.slice(), text:i.text || '', locked:!!i.locked,
-                       state:i.state, score:i.score || undefined, group:i.group || undefined };
+    if (i.tags.length || i.text || i.locked || anyScore(i) || i.groups.length) {
+      frames[i.id] = { tags:i.tags.slice(), text:i.text || '', locked:!!i.locked, state:i.state,
+                       scores: anyScore(i) ? Object.assign({}, i.scores) : undefined,
+                       groups: i.groups.length ? i.groups.slice() : undefined };
     }
   });
 
@@ -1433,7 +1516,15 @@ function buildResult() {
     proposed, final,
     diff: { added, removed, demoted, promoted, swapped },
     setComment: $('setComment').value.trim(),
-    groups: activeGroups().map(groupState),
+    // Rankings ride WITH their group - that is the only form in which a score is actionable
+    // ("of these eight, he ranked these three top") rather than a floating number.
+    groups: activeGroups().map(n => {
+      const g = groupState(n);
+      const ranked = IMGS.filter(i => inGroup(i, n) && scoreOf(i, n))
+        .sort((a, b) => scoreOf(b, n) - scoreOf(a, n))
+        .map(i => ({ id:i.id, name:i.name, score:scoreOf(i, n), state:i.state }));
+      return Object.assign(g, ranked.length ? { ranked } : {});
+    }),
     sort: SORT,
     frames,
   };
@@ -1480,8 +1571,12 @@ window.__loadSelection = function (spec) {
             : { id:t.id || ('x' + n), t:t.t || t.id, sign:t.sign == null ? -1 : t.sign })
         : null,
       tags: [], text: '', locked: false,
-      score: Number.isFinite(c.score) ? c.score : 0,
-      group: c.group || null,
+      // A frame can sit in several groups at once - a location and a theme, say - and a score only
+      // means something relative to ONE of them, so scores are keyed by group.
+      groups: Array.isArray(c.groups) ? c.groups.slice() : (c.group ? [c.group] : []),
+      scores: (c.scores && typeof c.scores === 'object') ? Object.assign({}, c.scores)
+              : (Number.isFinite(c.score) && c.group ? { [c.group]: c.score } : {}),
+      _sg: null,                                  // which group the panel is scoring against
       date: c.date ? (typeof c.date === 'number' ? c.date : Date.parse(c.date) || 0) : 0,
       _i: i,
     };
@@ -1513,7 +1608,15 @@ window.__setGroupTarget = (name, target, mode) => {
   GROUPS[name] = Object.assign({}, GROUPS[name], { target, mode: mode || 'upto' });
   render(); return groupState(name);
 };
-window.__scores = () => IMGS.filter(i => i.score).map(i => ({ id:i.id, name:i.name, score:i.score, group:i.group }));
+// grouped, because a bare list of scores across groups is not comparable
+window.__scores = () => {
+  const out = {};
+  IMGS.forEach(i => Object.keys(i.scores).forEach(g => {
+    if (i.scores[g]) (out[g] = out[g] || []).push({ id:i.id, name:i.name, score:i.scores[g] });
+  }));
+  Object.values(out).forEach(a => a.sort((x, y) => y.score - x.score));
+  return out;
+};
 window.__result = null;
 
 if (window.__runtime) window.__runtime.ready.then(() => { window.__ready = true; });

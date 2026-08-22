@@ -189,6 +189,20 @@ and being over it is not an error — the badge simply stops looking met. A hard
 commit would be a dialog standing in front of a judgement call, and the judgement is the person's.
 Only a *met* target earns a positive mark; over and under both read as neutral information.
 
+**A frame can belong to several groups at once** — a location and a cross-cutting theme, say — and it
+carries a **separate score in each**, because a score is only ever a claim relative to one set. The
+same frame can be a 7 among everything shot at Kasaneiwa and a 3 among the best sunsets of the trip;
+both are true and neither is the frame's "rating".
+
+Consequences that follow, and that the UI has to honour:
+- The tile badge shows the score for **the group currently in view**, with `+n` when others exist.
+- Digits score against the group you have filtered to. With no filter and several groups, the panel
+  makes you pick which one — otherwise a keypress is ambiguous.
+- Sorting by score ranks *inside* the filtered group, or keeps groups together and ranks within each.
+- Grouping a selection **adds** a group rather than replacing; Ungroup removes only the one in view.
+- Removing a frame from a group drops that group's score with it, since the score was a statement
+  about that set and means nothing outside it.
+
 **A score** is 1–10 per frame — a slider in the panel, or just press a digit (`0` is ten, `` ` ``
 clears). It is deliberately *not* a global star rating: the evidence against those (scale-region bias,
 annotator drift between sessions) is about absolute quality judgements made in isolation. A score
@@ -196,7 +210,9 @@ inside a small group is a different question — "these five are from the same m
 real answer — and combined with a target it lets the person hand the choice back: *score these six,
 keep the top two*.
 
-Scores ride in the report per frame, and `window.__scores()` reads them out.
+Scores ride in the report **inside their group** — `groups[].ranked` is the ordered list for that
+group — which is the only actionable form. A bare cross-group list of numbers is not comparable, so
+`window.__scores()` returns them keyed by group too.
 
 ## Multi-selection
 
