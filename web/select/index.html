@@ -554,6 +554,31 @@ body.locked .locknote { display:flex; }
 .snThumbs img[data-s=rejected]  { border-color:var(--st-rej); opacity:.6; }
 .snThumbs img[data-s=untouched] { border-color:var(--st-unt); }
 
+/* --- every shared comment, in one place ------------------------------------------------------------
+ * The side panel lists these too, but a sidebar section is easy to walk past - so the count also sits
+ * in the bar next to the filters, where every other count lives, and opens the full list.
+ */
+#allNotesWrap {
+  position:fixed; inset:0; z-index:72; display:grid; place-items:center;
+  background:oklch(0.11 0.004 70 / 62%); backdrop-filter:blur(6px);
+  animation:lfade .18s var(--ease-out) both;
+}
+#allNotesBox {
+  width:min(720px, calc(100% - 32px)); max-height:min(78vh, 780px); overflow:auto;
+  padding:16px 18px 18px;
+  background:var(--surface); border:1px solid var(--border-strong); border-radius:var(--radius-lg);
+  box-shadow:0 26px 60px -20px oklch(0 0 0 / 75%), var(--highlight);
+  animation:noteIn .24s var(--ease-out) both;
+}
+#allNotesBox .anHead { display:flex; align-items:center; gap:10px; }
+#allNotesBox h4 { margin:0; flex:1; font-size:14px; color:var(--fg); font-weight:600; }
+#allNotesBox h4 b { color:var(--accent); font-family:var(--mono); font-size:12px; font-weight:600; }
+#allNotesBox .sub { margin:4px 0 12px; font-size:11.5px; color:var(--mut); line-height:1.6; }
+#allNotes .sn { border-top:1px solid var(--border); padding:11px 0 3px; }
+#allNotes .sn:first-child { border-top:0; }
+#allNotes .snText { font-size:12.5px; }
+#allNotes .snThumbs img { width:58px; height:58px; }
+
 /* --- commit confirmation -------------------------------------------------------------------------
  * Committing ends the review and sends it back to me, and Enter is far too easy to hit by accident
  * (it has happened). So it asks - and the ask doubles as the last look at what is actually going out.
@@ -926,6 +951,18 @@ kbd {
       <button id="gnoteCancel">Cancel</button>
       <button id="gnoteSave" class="primary">Save comment</button>
     </div>
+  </div>
+</div>
+
+<div id="allNotesWrap" hidden>
+  <div id="allNotesBox" role="dialog" aria-modal="true" aria-labelledby="allNotesTitle">
+    <div class="anHead">
+      <h4 id="allNotesTitle">Comments on several frames <b id="allNotesCount"></b></h4>
+      <button id="allNotesClose">Close <kbd>esc</kbd></button>
+    </div>
+    <p class="sub">Everything you said about frames <em>together</em> rather than one at a time.
+       <em>Walk</em> or a thumbnail opens the loupe on just that comment's frames.</p>
+    <div id="allNotes"></div>
   </div>
 </div>
 
@@ -1357,6 +1394,8 @@ function renderBar() {
     + '<select id="sortSel">'
     + Object.keys(SORTS).map(k => '<option value="' + k + '"' + (SORT === k ? ' selected' : '') + '>' + SORTS[k].label + '</option>').join('')
     + '</select></span>'
+    + (SETNOTES.length ? '<button class="fbtn" id="notesBtn" title="Every comment you wrote about several frames at once">💬 ' +
+        SETNOTES.length + ' <span class="n">multi</span></button>' : '')
     + '<button class="fbtn" id="addBtn" title="Bring in photos I never showed you">+ add photos</button>'
     + '<button class="fbtn' + (openLg ? ' on' : '') + '" id="lgBtn">' + (openLg ? '✕ close' : '? what do these mean') + '</button>';
   $('bar').querySelectorAll('.fbtn[data-f]').forEach(b => {
@@ -1364,6 +1403,7 @@ function renderBar() {
   });
   $('lgBtn').onclick = () => { $('legend').hidden = !$('legend').hidden; renderBar(); };
   $('sortSel').onchange = function () { SORT = this.value; render(); };
+  if ($('notesBtn')) $('notesBtn').onclick = openAllNotes;
   $('addBtn').onclick = addFromFolder;
   renderGroups();
 }
@@ -1648,12 +1688,9 @@ function saveSetNote() {
 
 const setNotesFor = it => SETNOTES.filter(n => n.ids.indexOf(it.id) >= 0);
 
-function renderSetNotes() {
-  const box = $('setNotes'); if (!box) return;
-  box.hidden = !SETNOTES.length;
-  if (!SETNOTES.length) return;
-  // A count alone ("3 frames") does not answer the only question you ever have about one of these,
-  // which is WHICH three. Show them.
+// One renderer, two homes: the side panel (always there while you work) and the full overview the
+// bar opens. The panel is easy to walk past, so the count in the bar is what makes these findable.
+function paintNoteList(box, big) {
   box.innerHTML = SETNOTES.map((n, i) => {
     const frames = n.ids.map(id => IMGS.find(x => x.id === id)).filter(Boolean);
     return '<div class="sn"><div class="snHead"><b>' + frames.length + ' frames</b>' +
@@ -1662,20 +1699,46 @@ function renderSetNotes() {
       '<button class="snEdit" data-i="' + i + '">edit</button>' +
       '<button class="snDel" data-i="' + i + '">✕</button></div>' +
       '<div class="snText">' + esc(n.text) + '</div>' +
+      // A count alone ("3 frames") never answers the only question you have about one of these,
+      // which is WHICH three.
       '<div class="snThumbs">' + frames.map(f =>
         '<img src="' + f.url + '" alt="" data-id="' + f.id + '" data-n="' + i + '" data-s="' + f.state + '" ' +
         'title="' + esc(f.name) + ' - ' + ST[f.state].t.toLowerCase() + ' - click to open it in the loupe">').join('') +
       '</div></div>';
   }).join('');
+  const after = () => { render(); renderPanel(); if (big) paintNoteList(box, big); };
   // Clicking a thumb opens the loupe on that frame, scoped to the comment - which is what you want
   // one of these for: to look at the frames properly and decide between them, arrows walking only them.
-  box.querySelectorAll('.snThumbs img').forEach(t => t.onclick = () =>
-    openScopedLoupe(SETNOTES[+t.dataset.n], t.dataset.id));
-  box.querySelectorAll('.snView').forEach(b => b.onclick = () => openScopedLoupe(SETNOTES[+b.dataset.i]));
-  box.querySelectorAll('.snPick').forEach(b => b.onclick = () => { MULTI = new Set(SETNOTES[+b.dataset.i].ids); render(); });
-  box.querySelectorAll('.snEdit').forEach(b => b.onclick = () => openSetNote(SETNOTES[+b.dataset.i]));
-  box.querySelectorAll('.snDel').forEach(b => b.onclick = () => { SETNOTES.splice(+b.dataset.i, 1); render(); renderPanel(); });
+  box.querySelectorAll('.snThumbs img').forEach(t => t.onclick = () => {
+    if (big) closeAllNotes();
+    openScopedLoupe(SETNOTES[+t.dataset.n], t.dataset.id);
+  });
+  box.querySelectorAll('.snView').forEach(b => b.onclick = () => {
+    if (big) closeAllNotes();
+    openScopedLoupe(SETNOTES[+b.dataset.i]);
+  });
+  box.querySelectorAll('.snPick').forEach(b => b.onclick = () => {
+    if (big) closeAllNotes();
+    MULTI = new Set(SETNOTES[+b.dataset.i].ids); render();
+  });
+  box.querySelectorAll('.snEdit').forEach(b => b.onclick = () => { if (big) closeAllNotes(); openSetNote(SETNOTES[+b.dataset.i]); });
+  box.querySelectorAll('.snDel').forEach(b => b.onclick = () => { SETNOTES.splice(+b.dataset.i, 1); after(); });
 }
+
+function renderSetNotes() {
+  const box = $('setNotes'); if (!box) return;
+  box.hidden = !SETNOTES.length;
+  if (SETNOTES.length) paintNoteList(box, false);
+  if (!$('allNotesWrap').hidden) paintNoteList($('allNotes'), true);
+}
+
+function openAllNotes() {
+  if (!SETNOTES.length) { toast('no comments on several frames yet - select some and press C'); return; }
+  $('allNotesCount').textContent = SETNOTES.length + (SETNOTES.length > 1 ? ' comments' : ' comment');
+  paintNoteList($('allNotes'), true);
+  $('allNotesWrap').hidden = false;
+}
+function closeAllNotes() { $('allNotesWrap').hidden = true; }
 
 function closeCtx() { const m = $('ctx'); m.hidden = true; m.innerHTML = ''; }
 
@@ -2171,6 +2234,7 @@ addEventListener('keydown', e => {
   }
   // While the confirm is up it is the only thing listening - otherwise Enter would re-ask and the
   // shortcuts underneath would keep editing a review you have already decided to send.
+  if (!$('allNotesWrap').hidden && e.key === 'Escape') { e.preventDefault(); closeAllNotes(); return; }
   if (!$('confirmWrap').hidden) {
     if (e.key === 'Escape') { e.preventDefault(); closeConfirm(); }
     else if (e.key === 'Enter') { e.preventDefault(); commit(); }
@@ -2359,6 +2423,8 @@ $('setComment').oninput = saveState;
 $('btnLoupe').onclick = openLoupe;
 $('btnCommit').onclick = askCommit;
 $('lscopeOut').onclick = clearScope;
+$('allNotesClose').onclick = closeAllNotes;
+$('allNotesWrap').onpointerdown = e => { if (e.target === $('allNotesWrap')) closeAllNotes(); };
 $('cCancel').onclick = closeConfirm;
 $('cGo').onclick = commit;
 $('confirmWrap').onpointerdown = e => { if (e.target === $('confirmWrap')) closeConfirm(); };
