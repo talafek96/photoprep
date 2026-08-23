@@ -518,6 +518,26 @@ body.locked .locknote { display:flex; }
   from { opacity:0; filter:blur(9px); transform:scale(.985); }
   to   { opacity:1; filter:blur(0);   transform:none; }
 }
+/* The note sits ON the photo rather than sending you back to the sheet: deciding what to say about
+   a frame is exactly when you are looking at it closely. */
+#lnote {
+  position:absolute; left:50%; bottom:64px; transform:translateX(-50%);
+  width:min(560px, calc(100% - 32px)); z-index:60;
+  background:color-mix(in oklch, var(--surface) 88%, transparent);
+  backdrop-filter:blur(18px) saturate(1.3); -webkit-backdrop-filter:blur(18px) saturate(1.3);
+  border:1px solid var(--border-strong); border-radius:var(--radius-lg);
+  padding:12px 14px 13px; box-shadow:0 20px 50px -18px oklch(0 0 0 / 70%), var(--highlight);
+  animation:noteIn .26s var(--ease-out) both;
+}
+@keyframes noteIn {
+  from { opacity:0; transform:translate(-50%, 10px) scale(.98); }
+  to   { opacity:1; transform:translate(-50%, 0) scale(1); }
+}
+#lnote label { margin:0 0 8px; }
+#lnote b { color:var(--fg); font-family:var(--mono); text-transform:none; letter-spacing:0; }
+#lnote .chips { margin-bottom:9px; }
+#lnote textarea { font-size:12.5px; }
+
 #lhead, #lfoot { animation:rise .5s var(--ease-out) .06s both; }
 
 /* the exit is the entrance reversed, and faster - leaving should feel lighter than arriving */
@@ -529,6 +549,26 @@ body.locked .locknote { display:flex; }
   to   { opacity:0; filter:blur(9px); transform:scale(.985); }
 }
 #loupe.on.closing #lhead, #loupe.on.closing #lfoot { animation:none; opacity:0; transition:opacity .18s; }
+/* The note sits ON the photo rather than sending you back to the sheet: deciding what to say about
+   a frame is exactly when you are looking at it closely. */
+#lnote {
+  position:absolute; left:50%; bottom:64px; transform:translateX(-50%);
+  width:min(560px, calc(100% - 32px)); z-index:60;
+  background:color-mix(in oklch, var(--surface) 88%, transparent);
+  backdrop-filter:blur(18px) saturate(1.3); -webkit-backdrop-filter:blur(18px) saturate(1.3);
+  border:1px solid var(--border-strong); border-radius:var(--radius-lg);
+  padding:12px 14px 13px; box-shadow:0 20px 50px -18px oklch(0 0 0 / 70%), var(--highlight);
+  animation:noteIn .26s var(--ease-out) both;
+}
+@keyframes noteIn {
+  from { opacity:0; transform:translate(-50%, 10px) scale(.98); }
+  to   { opacity:1; transform:translate(-50%, 0) scale(1); }
+}
+#lnote label { margin:0 0 8px; }
+#lnote b { color:var(--fg); font-family:var(--mono); text-transform:none; letter-spacing:0; }
+#lnote .chips { margin-bottom:9px; }
+#lnote textarea { font-size:12.5px; }
+
 #lhead, #lfoot {
   display:flex; align-items:center; gap:12px; padding:11px 16px;
   font-family:var(--mono); font-size:9.5px; letter-spacing:.09em; text-transform:uppercase;
@@ -608,6 +648,7 @@ kbd {
       <h3>Keys</h3>
       <p>The flag keys follow Lightroom: <kbd>P</kbd> pick / keep · <kbd>X</kbd> reject / cut · <kbd>U</kbd> unpick · plus <kbd>M</kbd> for maybe, which Lightroom has no equivalent of.</p>
       <p><kbd>Space</kbd> loupe · <kbd>Z</kbd> zoom fit ↔ 100% · <kbd>←</kbd><kbd>→</kbd> move · <kbd>F</kbd> filter · <kbd>⏎</kbd> commit</p>
+      <p>Inside the loupe: <kbd>T</kbd> writes a note on the frame you are looking at, tags and all, without going back to the sheet. <kbd>S</kbd> switches whether scrolling zooms or pans.</p>
       <p><kbd>R</kbd> reverts a frame to <em>my</em> proposal and clears the 🔒. Pressing a verdict the frame is already in also sends it back to <b data-s="untouched">○ Not picked</b>.</p>
     </div>
   </div>
@@ -712,6 +753,11 @@ kbd {
     <span id="lpos"></span>
   </div>
   <div id="lstage"><img id="limg" alt=""></div>
+  <div id="lnote" hidden>
+    <label for="lnoteText">Note on <b id="lnoteName"></b> <span class="hint">esc to close · saves as you type</span></label>
+    <div class="chips" id="lnoteChips"></div>
+    <textarea id="lnoteText" rows="2" placeholder="what you want me to know about this frame"></textarea>
+  </div>
   <div id="lfoot">
     <span><kbd>drag</kbd>pan</span>
     <span><kbd>pinch</kbd>zoom</span>
@@ -723,6 +769,7 @@ kbd {
     <span><kbd>M</kbd>maybe</span>
     <span><kbd>X</kbd>cut</span>
     <span><kbd>U</kbd>unpick</span>
+    <span><kbd>T</kbd>note</span>
     <span><kbd>esc</kbd>back</span>
     <span><kbd>click outside</kbd>back</span>
   </div>
@@ -1489,11 +1536,45 @@ let CLOSE_T = null;
 function closeLoupe() {
   const L = $('loupe');
   if (!L.classList.contains('on') || L.classList.contains('closing')) return;
+  $('lnote').hidden = true;
   const done = () => { L.classList.remove('on', 'closing'); CLOSE_T = null; $('sheet').focus(); };
   if (matchMedia('(prefers-reduced-motion: reduce)').matches) return done();
   L.classList.add('closing');
   clearTimeout(CLOSE_T);
   CLOSE_T = setTimeout(done, 250);
+}
+
+// The note box, opened with T from inside the loupe. Same field as the side panel's note - there is
+// one note per frame, not a separate loupe one.
+function toggleLoupeNote(force) {
+  const box = $('lnote'), it = C();
+  if (!it) return;
+  const show = force != null ? force : box.hidden;
+  box.hidden = !show;
+  if (!show) { $('lstage').focus && $('lstage').focus(); return; }
+  $('lnoteName').textContent = it.name;
+  const ta = $('lnoteText');
+  ta.value = it.text || '';
+  renderLoupeChips(it);
+  ta.focus();
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+}
+
+function renderLoupeChips(it) {
+  const pool = it.chipDefs || DEFAULT_CHIPS;
+  const box = $('lnoteChips');
+  box.innerHTML = pool.map(c =>
+    '<button class="chip ' + (c.sign < 0 ? 'neg' : c.sign > 0 ? 'pos' : '') +
+    (it.tags.includes(c.id) ? ' on' : '') + '" data-c="' + c.id + '">' + esc(c.t) + '</button>').join('');
+  box.querySelectorAll('.chip').forEach(b => {
+    b.onclick = () => {
+      const id = b.dataset.c, i = it.tags.indexOf(id);
+      if (i < 0) it.tags.push(id); else it.tags.splice(i, 1);
+      reconcile(it);                       // a negative tag still demotes, exactly as on the sheet
+      render(); renderPanel(); renderLoupeChips(it); loadLoupe();
+      $('lnoteText').focus();
+    };
+  });
 }
 
 function loadLoupe() {
@@ -1509,6 +1590,11 @@ function loadLoupe() {
   $('lvbT').textContent = meta.t;
   const list = vis();
   $('lpos').textContent = (list.indexOf(it) + 1) + ' / ' + list.length;
+  if (!$('lnote').hidden) {                 // moving to another frame re-points the open note
+    $('lnoteName').textContent = it.name;
+    $('lnoteText').value = it.text || '';
+    renderLoupeChips(it);
+  }
 }
 
 function fitLoupe(animate) {
@@ -1657,13 +1743,17 @@ function move(dir) {
 addEventListener('keydown', e => {
   const tag = (e.target.tagName || '').toLowerCase();
   if (tag === 'textarea' || tag === 'input') {
-    if (e.key === 'Escape') e.target.blur();
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      if (e.target.id === 'lnoteText') toggleLoupeNote(false); else e.target.blur();
+    }
     return;
   }
   const it = C();
   const k = e.key.toLowerCase();
   const open = $('loupe').classList.contains('on');
 
+  if (e.key === 'Escape' && open && !$('lnote').hidden) { toggleLoupeNote(false); return; }
   if (e.key === 'Escape' && open) { closeLoupe(); return; }
   if (e.key === 'Escape' && MULTI.size) { MULTI.clear(); render(); return; }
   if ((e.metaKey || e.ctrlKey) && k === 'a') {
@@ -1678,6 +1768,7 @@ addEventListener('keydown', e => {
   if (e.key === ' ') { e.preventDefault(); open ? closeLoupe() : openLoupe(); return; }
 
   if (open) {
+    if (k === 't') { toggleLoupeNote(); return; }    // write a note without leaving the photo
     if (k === 's') { toggleScrollMode(); return; }   // what a plain scroll does
     if (k === 'z') {                       // Lightroom's zoom toggle
       const r = $('lstage').getBoundingClientRect();
@@ -1736,6 +1827,12 @@ $('verdict').querySelectorAll('button').forEach(b => {
   b.onclick = () => { const it = C(); if (it) setVerdict(it, b.dataset.v); };
 });
 $('frameText').oninput = function () { const it = C(); if (it) it.text = this.value; render(); };
+$('lnoteText').oninput = function () {
+  const it = C(); if (!it) return;
+  it.text = this.value;
+  render();
+  $('frameText').value = this.value;       // the side panel is the same note, kept in step
+};
 $('scoreRange').oninput = function () { setScore(C(), +this.value); };
 $('scoreGroupSel').onchange = function () { const it = C(); if (it) { it._sg = this.value; renderPanel(); render(); } };
 
