@@ -1768,16 +1768,20 @@ addEventListener('keydown', e => {
   if (e.key === ' ') { e.preventDefault(); open ? closeLoupe() : openLoupe(); return; }
 
   if (open) {
-    if (k === 't') { toggleLoupeNote(); return; }    // write a note without leaving the photo
-    if (k === 's') { toggleScrollMode(); return; }   // what a plain scroll does
+    // preventDefault is load-bearing: this handler focuses the textarea, and without cancelling the
+    // keystroke the SAME press then types its own letter into the box it just opened.
+    if (k === 't') { e.preventDefault(); toggleLoupeNote(); return; }
+    if (k === 's') { e.preventDefault(); toggleScrollMode(); return; }
     if (k === 'z') {                       // Lightroom's zoom toggle
+      e.preventDefault();
       const r = $('lstage').getBoundingClientRect();
       if (Math.abs(LZ.scale - LZ.fit) < 0.001) zoomAt(r.left + r.width / 2, r.top + r.height / 2, 1 / LZ.scale, true);
       else fitLoupe(true);
       return;
     }
-    if (k === '0') { fitLoupe(true); return; }
+    if (k === '0') { e.preventDefault(); fitLoupe(true); return; }
     if (k === '1') {
+      e.preventDefault();
       const st = $('lstage');
       zoomAt(st.getBoundingClientRect().left + st.clientWidth / 2,
              st.getBoundingClientRect().top + st.clientHeight / 2, 1 / LZ.scale, true);
