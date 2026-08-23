@@ -114,9 +114,10 @@ Say what they are looking at — how many slides, which decisions are still dash
 flagged — and then wait. **Don't drive the page while they are in it.** Synthetic keystrokes hit real
 bindings, and `Enter` ends the pass.
 
-Worth telling them once: dragging does everything (drag onto the *middle* of another frame to stack
-the two), `1` sends a slide to the cover, `S` stacks with the next, `/` splits, `V` opens a fake
-Instagram carousel, and `Z` undoes.
+Worth telling them once: dragging does everything, and where you drop decides what it means — a
+card's left or right **edge** puts the frame there in the order, its **middle** stacks the two, and
+how high up you are picks which of the pair ends on top. `1` sends a slide to the cover, `S` stacks
+with the next, `/` splits, `V` opens a fake Instagram carousel, and `Z` undoes.
 
 The carousel preview is the part worth pointing at. A board tells you what is in the post; only a
 swipe tells you how it reads, and it is the only honest way to judge whether a panorama split lands.

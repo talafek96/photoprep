@@ -158,13 +158,6 @@ body.dragging .slide:hover { border-color:var(--border); }
   transition:color .15s var(--ease-io);
 }
 .media.stack .pane:hover .grip { color:oklch(1 0 0 / 78%); }
-/* dropping a frame onto one half of a stack takes that half's place */
-.media.stack .pane.swapTarget { box-shadow:0 0 0 2px var(--ok), 0 6px 16px -6px oklch(0 0 0 / 85%); }
-.media.stack .pane.swapTarget::after {
-  content:'takes this place'; position:absolute; inset:auto 0 0 0; text-align:center;
-  font-family:var(--mono); font-size:8.5px; letter-spacing:.06em; text-transform:uppercase;
-  color:var(--ok); background:oklch(0 0 0 / 62%); padding:3px 0;
-}
 
 /* A split is ONE photograph across N slides. Rendering the actual slices side by side is the only
    way that reads as one image rather than as N unrelated frames that happen to be adjacent. */
@@ -201,14 +194,28 @@ body.dragging .slide:hover { border-color:var(--border); }
   color:var(--warn); border-radius:100px; padding:1px 6px; margin-right:4px;
 }
 
-/* Drop feedback. Stacking is a different verb from reordering, so it gets a different signal —
-   the target card shows the seam it is about to grow. */
-.slide.stackTarget { border-color:var(--ok); box-shadow:0 0 0 1px var(--ok); }
-.slide.stackTarget::after {
-  content:'⬍ stack'; position:absolute; inset:auto 0 38% 0; text-align:center;
-  font-family:var(--mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase;
-  color:var(--ok); background:oklch(0 0 0 / 55%); padding:5px 0; pointer-events:none;
+/* Drop feedback. Stacking and reordering are different verbs, so they get different pictures: a
+   reorder opens a GAP in the row, a stack draws the RESULT inside the card you are aiming at. */
+.slide.zoneHint { border-color:var(--ok); }
+.slide.dropTarget { border-color:var(--ok); box-shadow:0 0 0 1px var(--ok), 0 10px 30px -14px var(--ok); }
+.stackPrev {
+  position:absolute; inset:0; z-index:3; display:flex; flex-direction:column; gap:4px;
+  background:oklch(0.12 0.004 70 / 78%); backdrop-filter:blur(2px);
+  animation:fade .12s var(--ease-out) both;
 }
+.stackPrev .h {
+  flex:1; min-height:0; background:#000 center/cover no-repeat; border-radius:4px;
+  box-shadow:0 0 0 1px oklch(1 0 0 / 20%); opacity:.55;
+}
+/* the frame you are holding, in the half it would land in */
+.stackPrev .h.in { opacity:1; box-shadow:0 0 0 2px var(--ok), 0 4px 14px -6px oklch(0 0 0 / 80%); }
+.stackPrev .lbl {
+  position:absolute; left:0; right:0; bottom:0; text-align:center;
+  font-family:var(--mono); font-size:9px; letter-spacing:.09em; text-transform:uppercase;
+  color:var(--ok); background:oklch(0 0 0 / 72%); padding:4px 0;
+}
+/* the media box hosts that overlay */
+.media { position:relative; }
 
 /* --- status line ------------------------------------------------------------------------------- */
 #status {
@@ -463,7 +470,9 @@ kbd {
         <kbd>1</kbd> send to cover · <kbd>S</kbd> stack with the next · <kbd>⇧S</kbd> unstack ·
         <kbd>/</kbd> split, then <kbd>2</kbd>–<kbd>5</kbd> · <kbd>A</kbd> approve · <kbd>X</kbd> take out ·
         <kbd>C</kbd> comment · <kbd>Z</kbd> undo · <kbd>V</kbd> preview · <kbd>⏎</kbd> send back.
-        Dragging does all of it too — drag onto the middle of another frame to stack them.
+        Dragging does all of it too. Onto a card's <b>left or right edge</b> puts it there in the
+        order; onto the <b>middle</b> stacks the two — high on the card to go <b>on top</b>, low to go
+        <b>underneath</b>. On a card that is already a stack, the half you hover is the half you take.
       </p>
     </fieldset>
   </div>
@@ -943,6 +952,24 @@ function stackWith(i, j) {
   toast('stacked — one slide instead of two');
 }
 
+// Dropping one frame onto another. Which is on top came from where the cursor was, and the pair
+// takes the TARGET's slot - you dropped it there, so that is where it belongs.
+function makeStack(dragId, tgtId, onTop) {
+  const a = SLIDES.find(s => s.id === dragId), b = SLIDES.find(s => s.id === tgtId);
+  if (!a || !b || !canStack(a, b)) { toast('those two cannot be stacked'); return; }
+  const sources = onTop ? [a.sources[0], b.sources[0]] : [b.sources[0], a.sources[0]];
+  snapshot();
+  reflow(() => {
+    const merged = { id:nid(), kind:'stack', sources, why:b.why || a.why || '',
+                     tags:[], text:[b.text, a.text].filter(Boolean).join(' · '), ruled:true };
+    SLIDES.splice(SLIDES.indexOf(a), 1);
+    SLIDES.splice(SLIDES.indexOf(b), 1, merged);
+    CUR = SLIDES.indexOf(merged);
+  });
+  renderPanel(); saveState();
+  toast((SRC[sources[0]] || {}).name + ' over ' + (SRC[sources[1]] || {}).name + ' — one slide now');
+}
+
 function unstack(i) {
   const sl = SLIDES[i];
   if (!sl || sl.kind !== 'stack') { toast('that is not a stack'); return; }
@@ -1096,14 +1123,71 @@ function ghostFrom(el, x, y) {
   DRAG.ghost = g;
 }
 
-function stackable(a, b) {
-  if (!a || !b || a === b) return false;
-  if (a.kind !== 'solo' || b.kind !== 'solo') return false;
-  return isLandscape(SRC[a.sources[0]]) || isLandscape(SRC[b.sources[0]]);
+/* Where you are over a card decides WHAT the drop means, and it is answered by geometry alone -
+ * no timers deciding your intent, no hidden mode. The card is read as three zones:
+ *
+ *      ┌───────────────┐        left  edge  →  reorder, land before this card
+ *      │ ↑  goes on top│        centre-top  →  stack, your frame ON TOP
+ *      ├ ─ ─ ─ ─ ─ ─ ─ ┤        centre-low  →  stack, your frame UNDERNEATH
+ *      │ ↓ goes under  │        right edge  →  reorder, land after this card
+ *      └───────────────┘
+ *
+ * So which of the two frames ends up on top is just where your cursor is - move it up, it goes on
+ * top; move it down, it goes under. On a card that is already a stack the same halves mean "replace
+ * this half", which is the same idea and needs no second explanation.
+ */
+const canStack = (a, b) => a && b && a !== b && a.kind === 'solo' && b.kind === 'solo';
+
+function zoneFor(el, tgt, x, y) {
+  const me = DRAG.byId.get(DRAG.id);
+  const r = el.getBoundingClientRect();
+  const fx = (x - r.left) / r.width;
+  if (fx <= 0.24 || fx >= 0.76) return null;                       // the edges are for reordering
+  const media = el.querySelector('.media');
+  const m = media ? media.getBoundingClientRect() : r;
+  const upper = y < m.top + m.height / 2;
+  if (tgt.kind === 'stack' && me.kind === 'solo') return { mode:'swap', pane: upper ? 0 : 1 };
+  if (canStack(me, tgt)) return { mode:'stack', top: upper };
+  return null;
 }
+
+/* What the drop will produce, drawn inside the card you are dropping onto: the actual two frames,
+ * in the actual order, with the incoming one lit. A border colour and the word "stack" told you
+ * that SOMETHING would happen; this tells you what you are about to get. */
+function armDrop(el, tgt, zone) {
+  const me = DRAG.byId.get(DRAG.id);
+  let pair, incoming, label;
+  if (zone.mode === 'swap') {
+    pair = tgt.sources.slice();
+    pair[zone.pane] = me.sources[0];
+    incoming = zone.pane;
+    label = zone.pane === 0 ? 'replaces the top' : 'replaces the bottom';
+  } else {
+    pair = zone.top ? [me.sources[0], tgt.sources[0]] : [tgt.sources[0], me.sources[0]];
+    incoming = zone.top ? 0 : 1;
+    label = zone.top ? '↑ goes on top' : '↓ goes underneath';
+  }
+  const key = tgt.id + ':' + zone.mode + ':' + pair.join('+');
+  if (DRAG.pkey === key) return;
+  DRAG.pkey = key;
+  clearTargets();
+  const media = el.querySelector('.media');
+  const box = document.createElement('div');
+  box.className = 'stackPrev';
+  box.innerHTML = pair.map((id, k) => {
+    const src = SRC[id] || {};
+    return '<div class="h' + (k === incoming ? ' in' : '') + '"' +
+           ' style="background-image:url(&quot;' + (src.url || '') + '&quot;)"></div>';
+  }).join('') + '<span class="lbl">' + esc(label) + '</span>';
+  media.appendChild(box);
+  el.classList.add('dropTarget');
+}
+
 function clearTargets() {
-  document.querySelectorAll('.stackTarget').forEach(el => el.classList.remove('stackTarget'));
-  document.querySelectorAll('.swapTarget').forEach(el => el.classList.remove('swapTarget'));
+  document.querySelectorAll('.stackPrev').forEach(el => el.remove());
+  document.querySelectorAll('.dropTarget').forEach(el => el.classList.remove('dropTarget'));
+  document.querySelectorAll('.zoneHint').forEach(el => el.classList.remove('zoneHint'));
+  if (DRAG) DRAG.pkey = null;
 }
 
 // Pulling one frame out of a stack: the stack becomes two solo slides, and the drag carries on with
@@ -1251,26 +1335,29 @@ function step() {
   const tgt = overCard && overCard !== CARDS.get(DRAG.id) ? DRAG.byId.get(overCard.dataset.id) : null;
 
   if (tgt) {
-    const r = overCard.getBoundingClientRect();
-    const inner = (x - r.left) / r.width;
-    // Dropping onto the MIDDLE of a solo makes a stack; onto one half of an existing stack takes
-    // that frame's place. Both arm on a short hold, so passing over a card on the way somewhere
-    // else can't grab it, and both say what they are about to do before you let go.
-    const wantStack = inner > 0.27 && inner < 0.73 && stackable(DRAG.byId.get(DRAG.id), tgt);
-    const wantSwap = overPane && tgt.kind === 'stack' && DRAG.byId.get(DRAG.id).kind === 'solo';
-    if (wantStack || wantSwap) {
-      const pane = wantSwap ? Number(overPane.dataset.panel || 0) : -1;
-      const key = tgt.id + ':' + pane;
-      if (DRAG.tkey !== key) { DRAG.tkey = key; DRAG.hoverAt = t; DRAG.target = null; clearTargets(); }
-      if (!DRAG.target && t - DRAG.hoverAt > 240) {
-        DRAG.target = { id:tgt.id, mode: wantSwap ? 'swap' : 'stack', pane };
-        (wantSwap ? overPane : overCard).classList.add(wantSwap ? 'swapTarget' : 'stackTarget');
-        // dropping INTO a card is not a reorder, so the board closes the gap it was offering
-        preview(DRAG.home);
+    const zone = zoneFor(overCard, tgt, x, y);
+    if (zone) {
+      // A short dwell, not a long hold: sweeping across a row to reorder passes through the middle
+      // of every card on the way, and 150ms separates "on my way past" from "here". It has to be a
+      // TIMER rather than a check on the next pointer event - hold perfectly still over the target,
+      // which is exactly what someone deciding does, and no further events arrive to arm it.
+      const key = tgt.id + ':' + zone.mode + ':' + (zone.pane != null ? zone.pane : zone.top);
+      overCard.classList.add('zoneHint');
+      if (DRAG.tkey !== key) {
+        DRAG.tkey = key;
+        clearTimeout(DRAG.armT);
+        if (DRAG.target) { DRAG.target = null; clearTargets(); DRAG.tkey = key; }
+        DRAG.armT = setTimeout(() => {
+          if (!DRAG || DRAG.tkey !== key) return;
+          DRAG.target = Object.assign({ id:tgt.id }, zone);
+          armDrop(overCard, tgt, zone);
+          preview(DRAG.home);          // dropping ONTO a card is not a reorder: close the gap
+        }, 150);
       }
-      if (DRAG.target) return;
-    } else if (DRAG.tkey) { DRAG.tkey = null; DRAG.target = null; clearTargets(); }
-  } else if (DRAG.tkey) { DRAG.tkey = null; DRAG.target = null; clearTargets(); }
+      return;
+    }
+    if (DRAG.tkey) { DRAG.tkey = null; clearTimeout(DRAG.armT); DRAG.target = null; clearTargets(); }
+  } else if (DRAG.tkey) { DRAG.tkey = null; clearTimeout(DRAG.armT); DRAG.target = null; clearTargets(); }
 
   preview(indexFromPoint(x, y));
 
@@ -1284,6 +1371,7 @@ function endDrag() {
   if (!DRAG) return;
   const d = DRAG; DRAG = null;
   if (d.raf) cancelAnimationFrame(d.raf);
+  clearTimeout(d.armT);
   clearTargets();
   document.body.classList.remove('dragging');
   const el = CARDS.get(d.id);
@@ -1321,12 +1409,7 @@ function endDrag() {
     const i = SLIDES.findIndex(s => s.id === d.id);
     const j = SLIDES.findIndex(s => s.id === t.id);
     if (i >= 0 && j >= 0) {
-      if (t.mode === 'stack') {
-        // the frame you dragged lands on top of the one you dropped it onto
-        reflow(() => { const [a] = SLIDES.splice(i, 1); SLIDES.splice(SLIDES.findIndex(s => s.id === t.id), 0, a); });
-        stackWith(SLIDES.findIndex(s => s.id === d.id), SLIDES.findIndex(s => s.id === t.id));
-        return;
-      }
+      if (t.mode === 'stack') { makeStack(d.id, t.id, t.top); return; }
       // swap: your frame takes that half of the stack, and the one it displaces takes your slot
       const stack = SLIDES[j], solo = SLIDES[i];
       const displaced = stack.sources[t.pane];
