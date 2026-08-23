@@ -1,10 +1,9 @@
 # photoprep
 
-Three browser tools (Select, Layout, Watermark) served by a local Node CLI. No runtime
+Four browser tools (Select, Sort, Layout, Watermark) served by a local Node CLI. No runtime
 dependencies, and none get added without asking.
 
-Select and the planned Order tool have design specs in `docs/` — read the relevant one before
-changing either. They record *why* the four verdict states exist, why Maybe is a message rather
+Select and Sort have design specs in `docs/` — read the relevant one before changing either. They record *why* the four verdict states exist, why Maybe is a message rather
 than a decision, and which features were deliberately rejected, so those don't get re-litigated or
 quietly re-added.
 

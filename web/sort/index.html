@@ -1,0 +1,1422 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>photoprep — Sort</title>
+<!-- Already dark by design; see the note in web/index.html. -->
+<meta name="darkreader-lock">
+<link rel="stylesheet" href="/shared/theme.css">
+<style>
+/* Sort is a storyboard, not a single-canvas tool, so it opts out of the shared two-pane canvas shell
+   but keeps its palette. The governing constraint from theme.css still holds: this chrome surrounds
+   PHOTOGRAPHS. Structure — seams, brackets, dashes, weight — carries meaning here; a tint over an
+   image never does, because it would change how the photograph reads. */
+body { grid-template-columns:1fr 352px; }
+
+:root {
+  --card-h: 180px;            /* media height for every card; widths derive from it */
+  --tile-w: 144px;            /* 4:5 at --card-h */
+  --seam:   oklch(1 0 0 / 22%);
+}
+
+#left { display:grid; grid-template-rows:auto 1fr auto; min-width:0; min-height:0; }
+
+/* --- top bar ----------------------------------------------------------------------------------- */
+#bar {
+  display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:10px 14px;
+  background:color-mix(in oklch, var(--bg) 72%, transparent);
+  backdrop-filter:blur(18px) saturate(1.4); -webkit-backdrop-filter:blur(18px) saturate(1.4);
+  border-bottom:1px solid var(--border); position:relative; z-index:10;
+}
+.fbtn {
+  flex:0 0 auto; display:inline-flex; align-items:center; gap:6px;
+  font-family:var(--mono); font-size:9.5px; letter-spacing:.09em; text-transform:uppercase;
+  background:transparent; border:1px solid var(--border); color:var(--mut);
+  padding:5px 9px; border-radius:100px; box-shadow:none; cursor:pointer;
+  transition:border-color .18s var(--ease-io), background .18s var(--ease-io),
+             color .18s var(--ease-io), transform .18s var(--ease-out);
+}
+.fbtn:hover { border-color:var(--border-strong); background:oklch(1 0 0 / 4%); transform:translateY(-1px); }
+.fbtn:active { transform:scale(.96); }
+.fbtn:disabled { opacity:.4; transform:none; cursor:default; }
+
+/* The slide meter is the number that composites keep changing under you, so it is never more than
+   a glance away and it says the limit out loud rather than only turning red at 21. */
+#meter {
+  display:flex; align-items:center; gap:7px; padding:4px 11px 4px 9px; border-radius:100px;
+  border:1px solid var(--border); font-family:var(--mono); font-size:10px; letter-spacing:.06em;
+  color:var(--mut); text-transform:uppercase;
+}
+#meter b { color:var(--fg); font-size:12px; font-variant-numeric:tabular-nums; }
+#meter .track { width:74px; height:4px; border-radius:3px; background:oklch(1 0 0 / 10%); overflow:hidden; }
+#meter .fill { height:100%; background:var(--accent); transition:width .3s var(--ease-out), background .3s var(--ease-io); }
+#meter.over { border-color:var(--danger); color:var(--danger); }
+#meter.over b { color:var(--danger); }
+#meter.over .fill { background:var(--danger); }
+
+#warnChip { color:var(--warn); border-color:color-mix(in oklch, var(--warn) 45%, transparent); }
+#warnChip[hidden] { display:none; }
+#bar .sp { flex:1; }
+
+/* --- the board --------------------------------------------------------------------------------- */
+/* A wrapping storyboard, not a single scrolling row. Twenty slides in one row means the ending is
+   off-screen while you judge the opening, and the whole point is to feel the sequence at once. */
+#board {
+  display:flex; flex-wrap:wrap; align-content:flex-start; gap:14px;
+  padding:18px; overflow:auto; min-height:0; background:var(--sunken);
+  scrollbar-width:thin;
+}
+#empty {
+  margin:auto; text-align:center; color:var(--faint); font-size:12px; line-height:1.7; max-width:400px;
+}
+#empty b { color:var(--mut); display:block; font-size:13px; margin-bottom:6px; }
+#empty code { font-family:var(--mono); font-size:11px; color:var(--accent); }
+
+.slide {
+  position:relative; flex:0 0 auto; border:1px solid var(--border); border-radius:var(--radius);
+  background:var(--surface); box-shadow:var(--highlight); cursor:grab; user-select:none;
+  transition:border-color .15s var(--ease-io), box-shadow .2s var(--ease-io),
+             transform .18s var(--ease-out), opacity .15s var(--ease-io);
+  animation:cardIn .34s var(--ease-out) both;
+}
+@keyframes cardIn { from { opacity:0; transform:translateY(8px) } to { opacity:1; transform:none } }
+.slide:hover { border-color:var(--border-strong); }
+.slide.on { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent), 0 10px 30px -14px var(--accent); }
+.slide.lift { cursor:grabbing; transform:scale(1.035) rotate(-.6deg); z-index:5; opacity:.94;
+              box-shadow:0 24px 50px -18px oklch(0 0 0 / 80%); animation:none; }
+
+/* A composite I proposed but you have not ruled on is DASHED. That is the whole affordance: the
+   structural decisions still open are visible at a glance instead of indistinguishable from settled
+   ones. Approving makes it solid. */
+.slide.proposed { border-style:dashed; border-color:color-mix(in oklch, var(--accent) 55%, var(--border)); }
+.slide.proposed .media { opacity:.93; }
+
+/* Slot 1 is categorically different — it is the only slide most people ever see — so it gets weight,
+   not just position 1. */
+.slide.cover { border-color:color-mix(in oklch, var(--accent) 40%, var(--border-strong)); }
+.slide.cover .hd { background:var(--accent-soft); color:var(--accent); }
+
+.slide .hd {
+  display:flex; align-items:center; gap:6px; padding:5px 8px;
+  font-family:var(--mono); font-size:9px; letter-spacing:.09em; text-transform:uppercase;
+  color:var(--faint); border-bottom:1px solid var(--border);
+}
+.slide .hd .no { color:var(--fg); font-size:11px; font-variant-numeric:tabular-nums; }
+.slide .hd .sp { flex:1; }
+.slide .hd .kind { color:var(--mut); }
+.slide .hd .flag { color:var(--warn); font-size:11px; cursor:help; }
+.slide .hd .mk { color:var(--accent); font-size:11px; }
+
+.media { display:flex; gap:0; background:#000; overflow:hidden; }
+.pane { position:relative; width:var(--tile-w); height:var(--card-h); background:#000;
+        background-repeat:no-repeat; }
+/* Solo frames sit at their REAL aspect inside the 4:5 slot, letterboxed. A landscape therefore looks
+   small here — which is the truth about how it will look in the feed, and the reason to stack it. */
+.pane.contain { background-size:contain; background-position:center; }
+.pane.cover-fit { background-size:cover; background-position:center; }
+
+/* A stack is one slide made of two panels, so it reads as one card with a visible seam. */
+.media.stack { flex-direction:column; gap:0; width:var(--tile-w); }
+.media.stack .pane { width:var(--tile-w); height:calc(var(--card-h) / 2); }
+.media.stack .pane + .pane { border-top:1px solid var(--seam); }
+
+/* A split is ONE photograph across N slides. Rendering the actual slices side by side is the only
+   way that reads as one image rather than as N unrelated frames that happen to be adjacent. */
+.media.split .pane { border-right:1px solid var(--seam); }
+.media.split .pane:last-child { border-right:0; }
+.pane .slot {
+  position:absolute; left:4px; top:4px; font-family:var(--mono); font-size:9px;
+  background:oklch(0 0 0 / 62%); color:oklch(0.9 0 0); padding:1px 5px; border-radius:3px;
+  font-variant-numeric:tabular-nums;
+}
+/* The bracket under a split group says "these move together" without a word of copy. */
+.brk { height:5px; margin:0 8px 0; border:1px solid var(--accent); border-top:0;
+       border-radius:0 0 5px 5px; opacity:.55; }
+
+.slide .ft { padding:5px 8px 7px; min-width:0; }
+.slide .nm {
+  font-family:var(--mono); font-size:9px; color:var(--faint);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+/* One line, hard-capped, ellipsised — the same discipline as Select. A reason nobody reads is worse
+   than no reason, because it takes up the room a readable one needed. */
+.slide .why {
+  font-size:10.5px; color:var(--mut); line-height:1.4; margin-top:3px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.slide .yours {
+  margin-top:5px; padding-top:5px; border-top:1px solid var(--border);
+  font-size:10.5px; color:var(--fg); line-height:1.4;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.slide .yours .tg {
+  display:inline-block; font-family:var(--mono); font-size:8.5px; letter-spacing:.05em;
+  text-transform:uppercase; border:1px solid color-mix(in oklch, var(--warn) 45%, transparent);
+  color:var(--warn); border-radius:100px; padding:1px 6px; margin-right:4px;
+}
+
+/* Drop feedback. Stacking is a different verb from reordering, so it gets a different signal —
+   the target card shows the seam it is about to grow. */
+.slide.stackTarget { border-color:var(--ok); box-shadow:0 0 0 1px var(--ok); }
+.slide.stackTarget::after {
+  content:'⬍ stack'; position:absolute; inset:auto 0 38% 0; text-align:center;
+  font-family:var(--mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--ok); background:oklch(0 0 0 / 55%); padding:5px 0; pointer-events:none;
+}
+
+/* --- status line ------------------------------------------------------------------------------- */
+#status {
+  display:flex; align-items:center; gap:14px; padding:9px 14px;
+  border-top:1px solid var(--border); position:relative; z-index:10;
+  background:color-mix(in oklch, var(--bg) 72%, transparent);
+  backdrop-filter:blur(18px) saturate(1.4); -webkit-backdrop-filter:blur(18px) saturate(1.4);
+  font-family:var(--mono); font-size:9.5px; letter-spacing:.09em; text-transform:uppercase;
+  color:var(--faint);
+}
+#status b { color:var(--fg); font-weight:600; font-variant-numeric:tabular-nums; }
+#status .sp { flex:1; }
+
+/* --- side panel -------------------------------------------------------------------------------- */
+#panel { display:flex; flex-direction:column; padding:0; overflow:hidden;
+         background:linear-gradient(var(--surface), color-mix(in oklch, var(--surface) 92%, var(--bg))); }
+#panel .scroll { overflow:auto; padding:16px 17px 20px; }
+#panel .seg { display:flex; gap:5px; }
+#panel .seg button { flex:1; padding:7px 4px; font-size:11px; }
+#panel .seg button.on { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); font-weight:650; }
+.hint { font-size:10.5px; color:var(--faint); line-height:1.55; margin:7px 0 0; }
+kbd {
+  font-family:var(--mono); font-size:9px; border:1px solid var(--border-strong); border-radius:3px;
+  padding:0 3px; color:var(--faint); background:oklch(1 0 0 / 4%);
+}
+
+#insName { font-size:12px; color:var(--fg); margin:0 0 2px; word-break:break-all; }
+#insWhy { font-size:11px; color:var(--mut); line-height:1.5; margin:0; }
+#insWhy:empty { display:none; }
+
+/* A proposal is a claim I made. Rejecting it should offer the alternatives, not just undo — the
+   question "then what instead?" is the actual decision, and leaving it unanswered is how a rejected
+   proposal turns into a frame nobody ever ruled on. */
+#ruleBox { border:1px dashed color-mix(in oklch, var(--accent) 55%, var(--border)); border-radius:var(--radius);
+           padding:9px 10px 10px; margin-bottom:12px; background:var(--accent-soft); }
+#ruleBox h5 { margin:0 0 6px; font-family:var(--mono); font-size:9.5px; letter-spacing:.09em;
+              text-transform:uppercase; color:var(--accent); }
+#ruleBox p { margin:0 0 8px; font-size:11px; color:var(--mut); line-height:1.5; }
+#altBox { margin-top:8px; display:grid; gap:5px; }
+#altBox button { text-align:left; font-size:11px; padding:6px 9px; }
+
+.tagRow { display:flex; flex-wrap:wrap; gap:5px; margin-top:6px; }
+.tg {
+  font-family:var(--mono); font-size:9px; letter-spacing:.06em; text-transform:uppercase;
+  border:1px solid var(--border); color:var(--mut); background:transparent;
+  border-radius:100px; padding:4px 9px; cursor:pointer;
+  transition:border-color .15s var(--ease-io), color .15s var(--ease-io), background .15s var(--ease-io);
+}
+.tg:hover { border-color:var(--border-strong); color:var(--fg); }
+.tg.on { border-color:var(--warn); color:var(--warn); background:color-mix(in oklch, var(--warn) 12%, transparent); }
+
+/* --- warnings ---------------------------------------------------------------------------------- */
+/* None of these block anything. They are advice with a visible reason and a way to say "I know". */
+#warnList { display:grid; gap:6px; }
+.wrn {
+  display:flex; gap:8px; align-items:flex-start; font-size:11px; line-height:1.45;
+  border-left:2px solid var(--warn); padding:2px 0 2px 8px; color:var(--mut);
+}
+.wrn b { color:var(--fg); font-weight:600; font-family:var(--mono); font-size:10px; }
+.wrn .sp { flex:1; }
+.wrn .x { cursor:pointer; color:var(--faint); font-size:11px; padding:0 2px; }
+.wrn .x:hover { color:var(--fg); }
+.wrn.hard { border-left-color:var(--danger); color:var(--danger); }
+#warnNone { font-size:11px; color:var(--faint); }
+
+/* --- the cut shelf ------------------------------------------------------------------------------ */
+/* Sorting is not selecting. A frame pulled out here is not silently gone — it lands on a shelf with
+   the reason attached, and the reason is what goes back to whoever chose the set. */
+#shelf { display:flex; flex-wrap:wrap; gap:6px; }
+.cut {
+  position:relative; width:52px; height:65px; border-radius:var(--radius-sm); overflow:hidden;
+  background:#000 center/cover no-repeat; border:1px solid var(--border); cursor:pointer;
+}
+.cut::after { content:'↩'; position:absolute; inset:0; display:grid; place-items:center;
+              background:oklch(0 0 0 / 55%); color:var(--fg); font-size:15px; opacity:0;
+              transition:opacity .15s var(--ease-io); }
+.cut:hover::after { opacity:1; }
+.cut .r { position:absolute; left:0; right:0; bottom:0; font-family:var(--mono); font-size:8px;
+          background:oklch(0 0 0 / 68%); color:oklch(0.86 0 0); padding:1px 3px;
+          white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+/* --- commit confirmation ------------------------------------------------------------------------
+ * Committing ends the pass and sends it back. Enter is far too easy to hit by accident — that has
+ * happened, mid-review, and cost someone their sitting. So it asks, and the ask doubles as the last
+ * look at what is actually going out. */
+#confirmWrap {
+  position:fixed; inset:0; z-index:75; display:grid; place-items:center;
+  background:oklch(0.11 0.004 70 / 62%); backdrop-filter:blur(6px);
+  animation:fade .18s var(--ease-out) both;
+}
+@keyframes fade { from { opacity:0 } to { opacity:1 } }
+@keyframes pop { from { opacity:0; transform:translateY(10px) scale(.98) } to { opacity:1; transform:none } }
+#confirm {
+  width:min(470px, calc(100% - 32px)); padding:16px 18px 18px;
+  background:var(--surface); border:1px solid var(--border-strong); border-radius:var(--radius-lg);
+  box-shadow:0 26px 60px -20px oklch(0 0 0 / 75%), var(--highlight);
+  animation:pop .24s var(--ease-out) both;
+}
+#confirm h4 { margin:0 0 3px; font-size:14px; font-weight:600; }
+#confirm .sub { margin:0 0 12px; font-size:11.5px; color:var(--mut); line-height:1.6; }
+#cTally { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:11px; }
+#cTally .t { display:flex; align-items:center; gap:5px; padding:4px 9px; border-radius:999px;
+             border:1px solid var(--border); font-size:11px; color:var(--mut); }
+#cTally .t b { color:var(--fg); font-family:var(--mono); font-size:12px; }
+#cWarn { font-size:11.5px; line-height:1.55; color:var(--warn); margin:0 0 12px;
+         border-left:2px solid var(--warn); padding-left:9px; }
+#confirm .row button { padding:9px; }
+
+/* --- fake Instagram carousel --------------------------------------------------------------------
+ * The only honest way to judge whether a panorama split lands, and the only way to FEEL the rhythm
+ * of a sequence rather than read it as a grid. */
+#igWrap { position:fixed; inset:0; background:oklch(0 0 0 / 80%); backdrop-filter:blur(6px);
+          display:none; align-items:center; justify-content:center; z-index:80; }
+#igWrap.on { display:flex; animation:fade .18s var(--ease-out) both; }
+#igCard { width:min(430px,92vw); background:#000; color:#fff; border:1px solid #262626;
+          border-radius:10px; overflow:hidden; font-size:13px; animation:pop .28s var(--ease-out) both; }
+#igHead { display:flex; align-items:center; gap:9px; padding:9px 11px; }
+#igAv { width:30px; height:30px; border-radius:50%; background:conic-gradient(#f9ce34,#ee2a7b,#6228d7,#f9ce34); padding:2px; }
+#igAv i { display:block; width:100%; height:100%; border-radius:50%; background:#3a3a3a; }
+#igUser { font-weight:600; font-size:12.5px; outline:none; border-bottom:1px dashed transparent; cursor:text; }
+#igUser:hover, #igUser:focus { border-bottom-color:#555; }
+#igHead .sp { flex:1; } #igClose { cursor:pointer; color:#aaa; font-size:15px; padding:0 4px; }
+#igView { position:relative; width:100%; aspect-ratio:4/5; background:#000; overflow:hidden;
+          touch-action:pan-y; cursor:grab; user-select:none; }
+#igView.drag { cursor:grabbing; }
+#igTrack { display:flex; height:100%; will-change:transform; }
+.igF { flex:0 0 100%; height:100%; display:flex; flex-direction:column; background:#000; }
+.igF .p { flex:1; background:#000 center/contain no-repeat; min-height:0; }
+.igF.stackF .p { background-size:cover; }
+.igF.tileF .p { background-repeat:no-repeat; }
+#igCount { position:absolute; top:9px; right:10px; background:rgba(0,0,0,.6); color:#fff;
+           font-size:11px; padding:2px 8px; border-radius:12px; font-variant-numeric:tabular-nums; }
+.igNav { position:absolute; top:50%; transform:translateY(-50%); background:rgba(0,0,0,.45);
+         color:#fff; border:0; width:28px; height:28px; border-radius:50%; cursor:pointer; font-size:15px;
+         display:grid; place-items:center; padding:0; }
+#igL { left:8px; } #igR { right:8px; }
+#igDots { display:flex; gap:4px; justify-content:center; padding:8px 0 2px; }
+#igDots i { width:5px; height:5px; border-radius:50%; background:#3c3c3c; display:block; }
+#igDots i.on { background:#3897f0; }
+#igMeta { padding:6px 11px 12px; }
+#igMeta .lk { font-weight:600; font-size:12px; margin-bottom:3px; }
+#igMeta .mut { color:#8e8e8e; font-size:11px; margin-top:5px; }
+#igActions { display:flex; gap:11px; padding:7px 11px 0; font-size:16px; }
+#igActions .sp { flex:1; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration:.01ms !important; transition-duration:.01ms !important; }
+}
+</style>
+
+<div id="left">
+  <div id="bar">
+    <div id="meter" title="Slides Instagram will actually show. Composites change this.">
+      <b id="mNum">0</b><span>/ 20 slides</span>
+      <span class="track"><span class="fill" id="mFill" style="width:0"></span></span>
+    </div>
+    <button class="fbtn" id="warnChip" hidden>⚠ <b id="warnN">0</b> to look at</button>
+    <span class="sp"></span>
+    <button class="fbtn" id="btnUndo" disabled title="Undo the last change (Z)">↺ Undo</button>
+    <button class="fbtn" id="btnPreview">▣ Preview as carousel <kbd>V</kbd></button>
+    <button class="fbtn" id="btnCommit">⏎ Send the order back</button>
+  </div>
+
+  <div id="board">
+    <div id="empty">
+      <b>Nothing to sequence yet.</b>
+      Open a folder of picked frames with <code>photoprep sort &lt;folder&gt;</code>,
+      or let an assistant load a proposed order with <code>window.__loadOrder(…)</code>.
+    </div>
+  </div>
+
+  <div id="status">
+    <span><b id="stSlides">0</b> slides</span>
+    <span><b id="stSrc">0</b> frames</span>
+    <span><b id="stComp">0</b> composites</span>
+    <span><b id="stOpen">0</b> unruled</span>
+    <span class="sp"></span>
+    <span id="stMsg"></span>
+  </div>
+</div>
+
+<div id="panel">
+  <div class="scroll">
+    <a class="backlink" href="/">← photoprep</a>
+    <h1>Sort</h1>
+    <p class="sub" id="setPrompt">Nothing loaded.</p>
+
+    <fieldset id="insBox">
+      <legend>Slide <span id="insNo"></span></legend>
+      <p id="insName">—</p>
+      <p id="insWhy"></p>
+
+      <div id="ruleBox" hidden>
+        <h5>I decided this — overturn me</h5>
+        <p id="ruleWhat">This is a proposal, not a fact.</p>
+        <div class="row">
+          <button id="ruleOk" class="primary">✓ Keep it</button>
+          <button id="ruleNo">✕ No</button>
+        </div>
+        <div id="altBox" hidden></div>
+      </div>
+
+      <label style="margin-top:0">Shape</label>
+      <div class="seg" id="kindSeg">
+        <button data-k="solo">▯ Solo</button>
+        <button data-k="stack">⬍ Stack</button>
+        <button data-k="split">⬌ Split</button>
+      </div>
+      <div id="splitBox" hidden>
+        <label>Slices <span id="nV">2</span> <span class="hint">— tiles this photo becomes</span></label>
+        <input type="range" id="nSlices" min="2" max="5" value="2">
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button id="btnSwap">⇅ Swap panels</button>
+        <button id="btnCover">① Make cover</button>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <button id="btnLeft">← Move left</button>
+        <button id="btnRight">Move right →</button>
+      </div>
+      <button id="btnCut" style="width:100%; margin-top:6px">✕ Take this out of the post</button>
+
+      <label>Your comment on this slide</label>
+      <textarea id="insText" rows="2" placeholder="what's wrong with it here — wrong slot, wrong partner, wrong order"></textarea>
+      <div class="tagRow" id="insTags"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>About the whole sequence</legend>
+      <textarea id="setComment" rows="3" placeholder="too many food slides in a row · don't put the two sea views together · the sunset should close"></textarea>
+      <p class="hint">Ordering critiques are usually about <b>relationships</b>, not single slides. This is
+         where the useful ones live.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Worth a look</legend>
+      <div id="warnList"></div>
+      <p id="warnNone">Nothing flagged. None of these ever block you anyway.</p>
+    </fieldset>
+
+    <fieldset id="shelfBox" hidden>
+      <legend>Taken out (<span id="shelfN">0</span>)</legend>
+      <div id="shelf"></div>
+      <p class="hint">Click one to put it back. These go back with your reason attached — the selection
+         itself stays as it was.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Keys</legend>
+      <p class="hint" style="margin:0">
+        <kbd>←</kbd><kbd>→</kbd> move between slides · <kbd>⌥←</kbd><kbd>⌥→</kbd> move the slide ·
+        <kbd>1</kbd> send to cover · <kbd>S</kbd> stack with the next · <kbd>⇧S</kbd> unstack ·
+        <kbd>/</kbd> split, then <kbd>2</kbd>–<kbd>5</kbd> · <kbd>A</kbd> approve · <kbd>X</kbd> take out ·
+        <kbd>C</kbd> comment · <kbd>Z</kbd> undo · <kbd>V</kbd> preview · <kbd>⏎</kbd> send back.
+        Dragging does all of it too — drag onto the middle of another frame to stack them.
+      </p>
+    </fieldset>
+  </div>
+</div>
+
+<div id="confirmWrap" hidden>
+  <div id="confirm" role="dialog" aria-modal="true" aria-labelledby="cTitle">
+    <h4 id="cTitle">Send this order back?</h4>
+    <p class="sub">This ends the pass and hands over the whole sequence — every move, every shape you
+       changed, everything you took out, and why.</p>
+    <div id="cTally"></div>
+    <p id="cWarn" hidden></p>
+    <div class="row">
+      <button id="cCancel">Keep sorting <kbd>esc</kbd></button>
+      <button id="cGo" class="primary">Send it <kbd>⏎</kbd></button>
+    </div>
+  </div>
+</div>
+
+<div id="igWrap">
+  <div id="igCard">
+    <div id="igHead">
+      <div id="igAv"><i></i></div>
+      <b id="igUser" contenteditable="plaintext-only" spellcheck="false" title="Click to edit — this is just the preview's handle">your_handle</b>
+      <span class="sp"></span><span id="igClose" title="Close (Esc)">✕</span>
+    </div>
+    <div id="igView">
+      <div id="igTrack"></div>
+      <div id="igCount">1/1</div>
+      <button class="igNav" id="igL">‹</button><button class="igNav" id="igR">›</button>
+    </div>
+    <div id="igDots"></div>
+    <div id="igActions">♡ <span>💬</span> <span>➤</span> <span class="sp"></span> <span>🔖</span></div>
+    <div id="igMeta">
+      <div class="lk">128 likes</div>
+      <div><b id="igUser2">your_handle</b> caption goes here …</div>
+      <div class="mut" id="igNote"></div>
+    </div>
+  </div>
+</div>
+
+<script src="/shared/util.js"></script>
+<script src="/shared/runtime.js"></script>
+<script>
+'use strict';
+/* photoprep — Sort.
+ *
+ * Select decides WHICH frames are in. Sort decides WHAT SEQUENCE they appear in and WHAT SHAPE each
+ * slide takes. They are deliberately separate tools: selecting wants a grid and a yes/no reflex,
+ * sequencing wants a board you drag.
+ *
+ * The one modelling decision everything else follows from: A SLIDE IS NOT A FILE.
+ *
+ *   solo    one source  → one slide
+ *   stack   two sources → one slide   (A over B, composed into a single 4:5 frame)
+ *   split   one source  → N slides    (a wide photo sliced into tiles that must stay adjacent)
+ *
+ * So the model is a list of SLIDES, each referencing one or more sources — never an ordered array of
+ * filenames. Getting that wrong is what makes a split group scrambleable and a stack un-representable.
+ *
+ * Sort produces the PLAN that the layout tool then executes. It decides pairings, stacking order,
+ * sequence and slice counts. It does not crop, pan, zoom or export — those belong in layout, where
+ * the framing is chosen against the real pixels.
+ */
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c =>
+  ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+const toast = makeToast('stMsg');
+
+const IG_MAX = 20;              // Instagram's carousel limit
+const R45 = 0.8;                // 4:5 — the tallest shape Instagram shows uncropped
+const CARD_H = 180, TILE_W = 144;
+
+let SRC = {};                   // id -> { id, name, url, path, w, h, group }
+let SLIDES = [];                // the sequence
+let CUT = [];                   // { srcIds:[], reason, name, url }
+let CUR = 0;
+let SET_PROMPT = '';
+let PROPOSED = null;            // snapshot taken at load; the diff is measured against it
+let SPEC = null;
+let UNDO = [];
+
+const TAGS = [
+  { id:'wrong-slot',   t:'wrong slot' },
+  { id:'bad-partner',  t:"don't stack these" },
+  { id:'split-wrong',  t:'split it differently' },
+  { id:'not-here',     t:"shouldn't be in this post" },
+  { id:'cover',        t:'this should be the cover' },
+  { id:'too-similar',  t:'too like its neighbour' },
+];
+
+let SEQ = 0;
+const nid = () => 's' + (++SEQ) + '-' + (Date.now() % 100000);
+
+/* --- the model --------------------------------------------------------------------------------- */
+
+const slideCount = s => (s.kind === 'split' ? (s.n || 2) : 1);
+const totalSlides = () => SLIDES.reduce((a, s) => a + slideCount(s), 0);
+const srcOf = s => s.sources.map(id => SRC[id]).filter(Boolean);
+
+// Slot numbers are Instagram positions, not array indexes — a split group occupies several of them,
+// and that is exactly what you need to see when you are deciding what closes the post.
+function slotsFor(i) {
+  let n = 1;
+  for (let k = 0; k < i; k++) n += slideCount(SLIDES[k]);
+  const c = slideCount(SLIDES[i]);
+  return { first:n, last:n + c - 1, count:c };
+}
+
+const ratioOf = s => {
+  if (s.kind === 'stack' || s.kind === 'split') return R45;      // both compose to 4:5 by construction
+  const src = SRC[s.sources[0]];
+  return src && src.w && src.h ? src.w / src.h : 0;
+};
+const isLandscape = src => src && src.w && src.h && src.w / src.h > 1.05;
+const near45 = r => r > 0 && Math.abs(r - R45) < 0.06;
+
+function snapshot() {
+  UNDO.push(JSON.stringify({ slides:SLIDES, cut:CUT, cur:CUR }));
+  if (UNDO.length > 60) UNDO.shift();
+  $('btnUndo').disabled = false;
+}
+function undo() {
+  const d = UNDO.pop();
+  if (!d) { toast('nothing to undo'); return; }
+  const s = JSON.parse(d);
+  SLIDES = s.slides; CUT = s.cut; CUR = Math.min(s.cur, SLIDES.length - 1);
+  $('btnUndo').disabled = !UNDO.length;
+  render(); renderPanel(); saveState();
+  toast('undone');
+}
+
+/* --- rendering ---------------------------------------------------------------------------------- */
+/* Keyed reconciliation, id -> element. A full rebuild would destroy the card the pointer is
+   currently dragging, and reordering during a drag is the whole interaction. */
+const CARDS = new Map();
+
+function paneStyle(el, src, mode) {
+  el.style.backgroundImage = src && src.url ? 'url("' + src.url + '")' : 'none';
+  el.className = 'pane ' + (mode || 'contain');
+  el.style.backgroundSize = ''; el.style.backgroundPosition = '';
+}
+
+// A split tile shows the real slice of the real photograph. Anything less (the whole image repeated
+// N times, or a generic bracket) makes it impossible to judge whether the panorama actually reads.
+function sliceStyle(el, src, i, n) {
+  el.className = 'pane';
+  el.style.backgroundImage = src && src.url ? 'url("' + src.url + '")' : 'none';
+  if (!src || !src.w || !src.h) { el.style.backgroundSize = 'cover'; el.style.backgroundPosition = 'center'; return; }
+  // The tallest crop that yields n tiles of 4:5, centred on the source.
+  const cropH = Math.min(src.h, src.w / (n * R45));
+  const cropW = cropH * R45 * n;
+  const x0 = (src.w - cropW) / 2, y0 = (src.h - cropH) / 2;
+  const s = CARD_H / cropH;                       // source px -> screen px
+  el.style.backgroundSize = (src.w * s) + 'px ' + (src.h * s) + 'px';
+  el.style.backgroundPosition = (-(x0 + i * cropH * R45) * s) + 'px ' + (-y0 * s) + 'px';
+}
+
+function cardFor(sl) {
+  let el = CARDS.get(sl.id);
+  if (el) return el;
+  el = document.createElement('div');
+  el.className = 'slide';
+  el.dataset.id = sl.id;
+  el.innerHTML = '<div class="hd"></div><div class="media"></div><div class="brk" hidden></div><div class="ft"></div>';
+  CARDS.set(sl.id, el);
+  return el;
+}
+
+function paintCard(el, sl, i) {
+  const slots = slotsFor(i);
+  const srcs = srcOf(sl);
+  const warns = warnsFor(sl, i);
+  el.classList.toggle('on', i === CUR);
+  el.classList.toggle('cover', slots.first === 1);
+  el.classList.toggle('proposed', !!sl.proposed && !sl.ruled);
+
+  const kindLabel = sl.kind === 'stack' ? '⬍ stack' : sl.kind === 'split' ? '⬌ split ×' + (sl.n || 2) : '▯ solo';
+  el.querySelector('.hd').innerHTML =
+    '<span class="no">' + (slots.count > 1 ? slots.first + '–' + slots.last : slots.first) + '</span>' +
+    '<span class="kind">' + kindLabel + '</span>' +
+    (slots.first === 1 ? '<span class="kind">cover</span>' : '') +
+    '<span class="sp"></span>' +
+    (sl.text || (sl.tags && sl.tags.length) ? '<span class="mk" title="You left a comment on this slide">💬</span>' : '') +
+    (warns.length ? '<span class="flag" title="' + esc(warns.map(w => w.text).join(' · ')) + '">⚠</span>' : '');
+
+  const media = el.querySelector('.media');
+  media.className = 'media ' + sl.kind;
+  const want = sl.kind === 'split' ? (sl.n || 2) : sl.kind === 'stack' ? 2 : 1;
+  // The card is exactly as wide as the frames it holds. Without this the FOOTER sizes the card -
+  // a long filename made a solo card wider than its own photo, so the media sat in a pool of black
+  // and a split group no longer read as one continuous image.
+  el.style.width = ((sl.kind === 'split' ? want : 1) * TILE_W + 2) + 'px';
+  while (media.children.length > want) media.lastChild.remove();
+  while (media.children.length < want) media.appendChild(document.createElement('div'));
+  for (let k = 0; k < want; k++) {
+    const pane = media.children[k];
+    if (sl.kind === 'split') {
+      sliceStyle(pane, srcs[0], k, want);
+      pane.innerHTML = '<span class="slot">' + (slots.first + k) + '</span>';
+    } else {
+      paneStyle(pane, srcs[k], sl.kind === 'stack' ? 'cover-fit' : 'contain');
+      pane.innerHTML = '';
+    }
+  }
+  el.querySelector('.brk').hidden = sl.kind !== 'split';
+
+  const names = srcs.map(s => s.name).join('  ·  ');
+  el.querySelector('.ft').innerHTML =
+    '<div class="nm" title="' + esc(names) + '">' + esc(names || '—') + '</div>' +
+    (sl.why ? '<div class="why" title="' + esc(sl.why) + '">' + esc(sl.why) + '</div>' : '') +
+    (sl.text || (sl.tags && sl.tags.length)
+      ? '<div class="yours">' +
+        (sl.tags || []).map(t => '<span class="tg">' + esc(tagLabel(t)) + '</span>').join('') +
+        esc(sl.text || '') + '</div>'
+      : '');
+}
+
+const tagLabel = id => (TAGS.find(t => t.id === id) || { t:id }).t;
+
+function render() {
+  const board = $('board');
+  $('empty').hidden = SLIDES.length > 0;
+  // drop cards for slides that no longer exist
+  const live = new Set(SLIDES.map(s => s.id));
+  CARDS.forEach((el, id) => { if (!live.has(id)) { el.remove(); CARDS.delete(id); } });
+
+  // appendChild MOVES an existing node, so one pass in sequence order both adds the new cards and
+  // puts every card in its slot - without ever recreating the one the pointer is dragging.
+  SLIDES.forEach((sl, i) => {
+    const el = cardFor(sl);
+    paintCard(el, sl, i);
+    board.appendChild(el);
+  });
+
+  const n = totalSlides();
+  $('mNum').textContent = n;
+  $('mFill').style.width = Math.min(100, (n / IG_MAX) * 100) + '%';
+  $('meter').classList.toggle('over', n > IG_MAX);
+  $('stSlides').textContent = n;
+  $('stSrc').textContent = new Set(SLIDES.flatMap(s => s.sources)).size;
+  $('stComp').textContent = SLIDES.filter(s => s.kind !== 'solo').length;
+  $('stOpen').textContent = SLIDES.filter(s => s.proposed && !s.ruled).length;
+  renderWarnings();
+  renderShelf();
+}
+
+/* --- warnings ----------------------------------------------------------------------------------- */
+/* Advice with a visible reason, dismissible per slide. None of it blocks the commit — a tool that
+   refuses to let you do the thing you meant is worse than one that tells you what it costs. */
+function warnsFor(sl, i) {
+  const out = [];
+  const mute = sl.mute || [];
+  const slots = slotsFor(i);
+  const srcs = srcOf(sl);
+  if (sl.kind === 'solo' && srcs[0] && srcs[0].w && !near45(ratioOf(sl)) && !mute.includes('aspect')) {
+    out.push({ k:'aspect', text: isLandscape(srcs[0])
+      ? 'landscape — it will render small in the feed unless you stack or split it'
+      : 'not 4:5 — Instagram will crop it to fit' });
+  }
+  if (slots.first === 1 && isLandscape(srcs[0]) && sl.kind === 'solo' && !mute.includes('cover')) {
+    out.push({ k:'cover', text:'a landscape cover reads small in the grid — a portrait establishes the post better' });
+  }
+  if (i > 0 && !mute.includes('dupe')) {
+    const prev = srcOf(SLIDES[i - 1]);
+    const g = srcs.map(s => s.group).filter(Boolean);
+    if (g.length && prev.some(p => g.includes(p.group))) {
+      out.push({ k:'dupe', text:'sits right beside another frame from the same cluster — the swipe repeats' });
+    }
+  }
+  return out;
+}
+
+function renderWarnings() {
+  const rows = [];
+  const n = totalSlides();
+  if (n > IG_MAX) {
+    rows.push('<div class="wrn hard"><b>' + n + '/' + IG_MAX + '</b><span>Instagram takes 20 slides. ' +
+      (n - IG_MAX) + ' would not be posted — stack a pair, or drop the weakest.</span></div>');
+  }
+  SLIDES.forEach((sl, i) => {
+    warnsFor(sl, i).forEach(w => {
+      rows.push('<div class="wrn" data-id="' + sl.id + '" data-k="' + w.k + '">' +
+        '<b>' + slotsFor(i).first + '</b><span>' + esc(w.text) + '</span>' +
+        '<span class="sp"></span><span class="x" title="I know — stop flagging this">✕</span></div>');
+    });
+  });
+  $('warnList').innerHTML = rows.join('');
+  $('warnNone').hidden = rows.length > 0;
+  const count = rows.length;
+  $('warnChip').hidden = !count;
+  $('warnN').textContent = count;
+}
+
+$('warnList').onclick = e => {
+  const row = e.target.closest('.wrn'); if (!row || !e.target.classList.contains('x')) return;
+  const sl = SLIDES.find(s => s.id === row.dataset.id); if (!sl) return;
+  sl.mute = (sl.mute || []).concat(row.dataset.k);
+  render(); saveState();
+};
+$('warnChip').onclick = () => {
+  const first = SLIDES.findIndex((s, i) => warnsFor(s, i).length);
+  if (first >= 0) { CUR = first; render(); renderPanel(); scrollToCur(); }
+};
+
+/* --- the cut shelf ------------------------------------------------------------------------------ */
+function renderShelf() {
+  $('shelfBox').hidden = !CUT.length;
+  $('shelfN').textContent = CUT.length;
+  $('shelf').innerHTML = CUT.map((c, i) =>
+    '<div class="cut" data-i="' + i + '" title="' + esc(c.name + (c.reason ? ' — ' + c.reason : '')) + '"' +
+    ' style="background-image:url(&quot;' + c.url + '&quot;)">' +
+    (c.reason ? '<span class="r">' + esc(c.reason) + '</span>' : '') + '</div>').join('');
+}
+$('shelf').onclick = e => {
+  const el = e.target.closest('.cut'); if (!el) return;
+  snapshot();
+  const c = CUT.splice(Number(el.dataset.i), 1)[0];
+  SLIDES.push({ id:nid(), kind:'solo', sources:c.srcIds, why:'', tags:[], text:'' });
+  CUR = SLIDES.length - 1;
+  render(); renderPanel(); saveState();
+  toast('back in, at the end');
+};
+
+/* --- the inspector ------------------------------------------------------------------------------ */
+function renderPanel() {
+  const sl = SLIDES[CUR];
+  $('insBox').hidden = !sl;
+  if (!sl) return;
+  const slots = slotsFor(CUR);
+  const srcs = srcOf(sl);
+  $('insNo').textContent = slots.count > 1 ? slots.first + '–' + slots.last : String(slots.first);
+  $('insName').textContent = srcs.map(s => s.name).join('  ·  ') || '—';
+  $('insWhy').textContent = sl.why || '';
+
+  const open = sl.proposed && !sl.ruled;
+  $('ruleBox').hidden = !open;
+  if (open) {
+    $('ruleWhat').textContent = sl.kind === 'stack'
+      ? 'I paired these two into one 4:5 frame. If they do not belong together, say so.'
+      : sl.kind === 'split'
+        ? 'I sliced this one photo across ' + (sl.n || 2) + ' slides so it scrolls as a panorama.'
+        : 'I put this here, on its own.';
+    $('altBox').hidden = true;
+  }
+
+  [...$('kindSeg').children].forEach(b => b.classList.toggle('on', b.dataset.k === sl.kind));
+  $('kindSeg').children[1].disabled = sl.kind !== 'stack' && srcs.length < 2;
+  $('splitBox').hidden = sl.kind !== 'split';
+  $('nSlices').value = sl.n || 2;
+  $('nV').textContent = sl.n || 2;
+  $('btnSwap').disabled = sl.kind !== 'stack';
+  $('btnCover').disabled = CUR === 0;
+  $('btnLeft').disabled = CUR === 0;
+  $('btnRight').disabled = CUR === SLIDES.length - 1;
+
+  $('insText').value = sl.text || '';
+  $('insTags').innerHTML = TAGS.map(t =>
+    '<button class="tg' + ((sl.tags || []).includes(t.id) ? ' on' : '') + '" data-t="' + t.id + '">' +
+    esc(t.t) + '</button>').join('');
+}
+
+$('insTags').onclick = e => {
+  const b = e.target.closest('.tg'); if (!b) return;
+  const sl = SLIDES[CUR]; if (!sl) return;
+  sl.tags = sl.tags || [];
+  const i = sl.tags.indexOf(b.dataset.t);
+  if (i >= 0) sl.tags.splice(i, 1); else sl.tags.push(b.dataset.t);
+  sl.ruled = true;
+  render(); renderPanel(); saveState();
+};
+$('insText').oninput = () => {
+  const sl = SLIDES[CUR]; if (!sl) return;
+  sl.text = $('insText').value;
+  paintCard(CARDS.get(sl.id), sl, CUR);
+  saveState();
+};
+$('setComment').oninput = saveState;
+
+/* --- the verbs ---------------------------------------------------------------------------------- */
+function move(from, to) {
+  to = clamp(to, 0, SLIDES.length - 1);
+  if (from === to) return;
+  snapshot();
+  const [sl] = SLIDES.splice(from, 1);
+  SLIDES.splice(to, 0, sl);
+  sl.moved = true;
+  CUR = to;
+  render(); renderPanel(); scrollToCur(); saveState();
+}
+
+function toCover() { if (CUR > 0) { move(CUR, 0); toast('now the cover'); } }
+
+// Stacking is the answer to "this landscape will render tiny". It consumes the next slide, so the
+// slide count drops by one — which is also how a set of 24 picks becomes a postable 18.
+function stackWith(i, j) {
+  const a = SLIDES[i], b = SLIDES[j];
+  if (!a || !b) { toast('nothing to stack with'); return; }
+  if (a.kind === 'split' || b.kind === 'split') { toast('a split group cannot be stacked — unsplit it first'); return; }
+  const sources = a.sources.concat(b.sources);
+  if (sources.length !== 2) { toast('a stack is exactly two frames'); return; }
+  snapshot();
+  const merged = { id:nid(), kind:'stack', sources, why:a.why || b.why || '',
+                   tags:[], text:[a.text, b.text].filter(Boolean).join(' · '), ruled:true };
+  SLIDES.splice(Math.min(i, j), 2, merged);
+  CUR = Math.min(i, j);
+  render(); renderPanel(); saveState();
+  toast('stacked — one slide instead of two');
+}
+
+function unstack(i) {
+  const sl = SLIDES[i];
+  if (!sl || sl.kind !== 'stack') { toast('that is not a stack'); return; }
+  snapshot();
+  const parts = sl.sources.map(id => ({ id:nid(), kind:'solo', sources:[id], why:'', tags:[], text:'', ruled:true }));
+  SLIDES.splice(i, 1, ...parts);
+  render(); renderPanel(); saveState();
+  toast('unstacked');
+}
+
+function setSplit(i, n) {
+  const sl = SLIDES[i]; if (!sl) return;
+  if (sl.sources.length !== 1) { toast('only a single photo can be split'); return; }
+  snapshot();
+  sl.kind = 'split'; sl.n = clamp(n || 2, 2, 5); sl.ruled = true;
+  render(); renderPanel(); saveState();
+  toast('split into ' + sl.n + ' tiles — ' + totalSlides() + ' slides now');
+}
+
+function unsplit(i) {
+  const sl = SLIDES[i]; if (!sl || sl.kind !== 'split') return;
+  snapshot();
+  sl.kind = 'solo'; delete sl.n; sl.ruled = true;
+  render(); renderPanel(); saveState();
+}
+
+function setKind(k) {
+  const sl = SLIDES[CUR]; if (!sl) return;
+  if (k === sl.kind) return;
+  if (k === 'solo') { sl.kind === 'stack' ? unstack(CUR) : unsplit(CUR); return; }
+  if (k === 'split') { if (sl.kind === 'stack') { toast('unstack it first'); return; } setSplit(CUR, sl.n || 2); return; }
+  if (k === 'stack') stackWith(CUR, CUR + 1);
+}
+
+function swapPanels() {
+  const sl = SLIDES[CUR];
+  if (!sl || sl.kind !== 'stack') return;
+  snapshot();
+  sl.sources.reverse(); sl.ruled = true;
+  render(); renderPanel(); saveState();
+  toast('swapped — ' + (SRC[sl.sources[0]] || {}).name + ' on top');
+}
+
+// Taking a frame out is NOT re-selecting it. The selection pass stays committed; this is recorded as
+// feedback about the selection and handed back with the reason attached.
+function cutCurrent() {
+  const sl = SLIDES[CUR]; if (!sl) return;
+  const srcs = srcOf(sl);
+  const reason = (sl.text || (sl.tags || []).map(tagLabel).join(', ') || '').slice(0, 40);
+  snapshot();
+  CUT.push({ srcIds:sl.sources.slice(), name:srcs.map(s => s.name).join(' + '),
+             url:(srcs[0] || {}).url || '', reason });
+  SLIDES.splice(CUR, 1);
+  CUR = clamp(CUR, 0, SLIDES.length - 1);
+  render(); renderPanel(); saveState();
+  toast(reason ? 'out — reason kept' : 'out — add a reason in the shelf comment if you can');
+}
+
+$('kindSeg').onclick = e => { const b = e.target.closest('button'); if (b) setKind(b.dataset.k); };
+rng('nSlices', v => { txt('nV', v); setSplit(CUR, Number(v)); });
+$('btnSwap').onclick = swapPanels;
+$('btnCover').onclick = toCover;
+$('btnLeft').onclick = () => move(CUR, CUR - 1);
+$('btnRight').onclick = () => move(CUR, CUR + 1);
+$('btnCut').onclick = cutCurrent;
+$('btnUndo').onclick = undo;
+
+/* Ruling on a proposal. "No" offers what to do instead, because "then what?" is the actual decision
+   and an un-answered rejection is how a frame ends up in a slot nobody chose. */
+$('ruleOk').onclick = () => {
+  const sl = SLIDES[CUR]; if (!sl) return;
+  sl.ruled = true; render(); renderPanel(); saveState(); toast('kept');
+};
+$('ruleNo').onclick = () => {
+  const sl = SLIDES[CUR]; if (!sl) return;
+  const alts = [];
+  if (sl.kind === 'stack') {
+    alts.push(['✂ Break it up — both post solo', () => unstack(CUR)]);
+    alts.push(['⇅ Keep the pair, swap which is on top', swapPanels]);
+  }
+  if (sl.kind === 'split') {
+    alts.push(['▯ Post it whole instead', () => unsplit(CUR)]);
+    alts.push(['⬌ Split into 3 instead', () => setSplit(CUR, 3)]);
+  }
+  alts.push(['✕ Take it out of the post', cutCurrent]);
+  $('altBox').hidden = false;
+  $('altBox').innerHTML = alts.map((a, i) => '<button data-i="' + i + '">' + esc(a[0]) + '</button>').join('');
+  $('altBox').onclick = e => {
+    const b = e.target.closest('button'); if (!b) return;
+    alts[Number(b.dataset.i)][1]();
+    $('altBox').hidden = true;
+  };
+};
+
+function scrollToCur() {
+  const sl = SLIDES[CUR]; if (!sl) return;
+  const el = CARDS.get(sl.id);
+  if (el) el.scrollIntoView({ block:'nearest', inline:'nearest', behavior:'smooth' });
+}
+
+/* --- drag ---------------------------------------------------------------------------------------
+ * Dragging is the primary verb. Reordering happens LIVE as you drag — the board rearranges under the
+ * pointer rather than showing a placeholder and jumping at the end, so what you see mid-drag is what
+ * you get. Dropping onto the MIDDLE of another frame stacks instead of reordering; the target says so
+ * before you let go, and it only offers when the pair could actually become one 4:5 frame.
+ */
+let DRAG = null;
+
+$('board').addEventListener('pointerdown', e => {
+  const card = e.target.closest('.slide'); if (!card) return;
+  if (e.target.closest('button, textarea, input')) return;
+  const i = SLIDES.findIndex(s => s.id === card.dataset.id);
+  if (i < 0) return;
+  CUR = i; render(); renderPanel();
+  DRAG = { id:card.dataset.id, x0:e.clientX, y0:e.clientY, on:false, target:null, hoverAt:0 };
+  try { $('board').setPointerCapture(e.pointerId); } catch (err) { /* a synthetic pointer has no id to capture */ }
+});
+
+$('board').addEventListener('pointermove', e => {
+  if (!DRAG) return;
+  const el = CARDS.get(DRAG.id); if (!el) return;
+  if (!DRAG.on) {
+    if (Math.hypot(e.clientX - DRAG.x0, e.clientY - DRAG.y0) < 5) return;
+    DRAG.on = true; el.classList.add('lift'); snapshot();
+  }
+  const from = SLIDES.findIndex(s => s.id === DRAG.id);
+
+  // which card is under the pointer?
+  let overIdx = -1, r = null;
+  for (let i = 0; i < SLIDES.length; i++) {
+    const c = CARDS.get(SLIDES[i].id); if (!c || c === el) continue;
+    const b = c.getBoundingClientRect();
+    if (e.clientX >= b.left && e.clientX <= b.right && e.clientY >= b.top && e.clientY <= b.bottom) {
+      overIdx = i; r = b; break;
+    }
+  }
+  clearStackTarget();
+  if (overIdx >= 0) {
+    const inner = (e.clientX - r.left) / r.width;
+    const canStack = stackable(SLIDES[from], SLIDES[overIdx]);
+    if (canStack && inner > 0.27 && inner < 0.73) {
+      // hold briefly before offering — otherwise passing over a card on the way somewhere else arms it
+      if (DRAG.target !== SLIDES[overIdx].id) { DRAG.target = SLIDES[overIdx].id; DRAG.hoverAt = e.timeStamp; }
+      if (e.timeStamp - DRAG.hoverAt > 260) CARDS.get(DRAG.target).classList.add('stackTarget');
+      return;
+    }
+    DRAG.target = null;
+    const before = e.clientX < r.left + r.width / 2;
+    let to = overIdx + (before ? 0 : 1);
+    if (from < to) to--;
+    if (to !== from) { const [s] = SLIDES.splice(from, 1); SLIDES.splice(to, 0, s); s.moved = true; CUR = to; render(); renderPanel(); }
+  } else DRAG.target = null;
+
+  // edge autoscroll, so a drag can reach a slide that is off-screen
+  const bb = $('board').getBoundingClientRect();
+  if (e.clientY < bb.top + 60) $('board').scrollTop -= 14;
+  else if (e.clientY > bb.bottom - 60) $('board').scrollTop += 14;
+});
+
+function stackable(a, b) {
+  if (!a || !b || a === b) return false;
+  if (a.kind !== 'solo' || b.kind !== 'solo') return false;
+  return isLandscape(SRC[a.sources[0]]) || isLandscape(SRC[b.sources[0]]);
+}
+function clearStackTarget() { CARDS.forEach(c => c.classList.remove('stackTarget')); }
+
+function endDrag() {
+  if (!DRAG) return;
+  const el = CARDS.get(DRAG.id);
+  if (el) el.classList.remove('lift');
+  const armed = DRAG.target && CARDS.get(DRAG.target) && CARDS.get(DRAG.target).classList.contains('stackTarget');
+  const targetId = DRAG.target;
+  const wasDrag = DRAG.on;
+  DRAG = null;
+  clearStackTarget();
+  if (armed) {
+    const i = SLIDES.findIndex(s => s.id === el.dataset.id);
+    const j = SLIDES.findIndex(s => s.id === targetId);
+    // the dragged frame lands on top of the one it was dropped onto
+    if (i >= 0 && j >= 0) {
+      const [a] = SLIDES.splice(i, 1);
+      const jj = SLIDES.findIndex(s => s.id === targetId);
+      SLIDES.splice(jj, 0, a);
+      stackWith(jj, jj + 1);
+      return;
+    }
+  }
+  if (wasDrag) { render(); renderPanel(); saveState(); }
+}
+$('board').addEventListener('pointerup', endDrag);
+$('board').addEventListener('pointercancel', endDrag);
+
+/* --- keyboard ------------------------------------------------------------------------------------ */
+document.addEventListener('keydown', e => {
+  if (!$('confirmWrap').hidden) {
+    if (e.key === 'Escape') { e.preventDefault(); closeConfirm(); }
+    else if (e.key === 'Enter') { e.preventDefault(); commit(); }
+    return;
+  }
+  if ($('igWrap').classList.contains('on')) {
+    if (e.key === 'Escape') igClose();
+    else if (e.key === 'ArrowLeft') igGo(IG_I - 1);
+    else if (e.key === 'ArrowRight') igGo(IG_I + 1);
+    return;
+  }
+  const t = e.target;
+  if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable)) {
+    if (e.key === 'Escape') t.blur();
+    return;
+  }
+  const k = e.key.toLowerCase();
+  if ((e.metaKey || e.ctrlKey) && k === 'z') { e.preventDefault(); undo(); return; }
+  if (e.metaKey || e.ctrlKey) return;
+
+  if (e.key === 'ArrowLeft')  { e.preventDefault(); e.altKey ? move(CUR, CUR - 1) : select(CUR - 1); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); e.altKey ? move(CUR, CUR + 1) : select(CUR + 1); }
+  else if (k === '1') toCover();
+  else if (k === 's') { e.preventDefault(); e.shiftKey ? unstack(CUR) : stackWith(CUR, CUR + 1); }
+  else if (k === '/') { e.preventDefault(); setSplit(CUR, SLIDES[CUR] && SLIDES[CUR].n || 2); }
+  else if (k >= '2' && k <= '5' && SLIDES[CUR] && SLIDES[CUR].kind === 'split') setSplit(CUR, Number(k));
+  else if (k === 'a') { if (!$('ruleBox').hidden) $('ruleOk').click(); }
+  else if (k === 'x') { e.preventDefault(); cutCurrent(); }
+  else if (k === 'c') { e.preventDefault(); $('insText').focus(); }
+  else if (k === 'z') { e.preventDefault(); undo(); }
+  else if (k === 'v') { e.preventDefault(); igOpen(); }
+  else if (e.key === 'Enter') { e.preventDefault(); askCommit(); }
+});
+
+function select(i) {
+  if (!SLIDES.length) return;
+  CUR = clamp(i, 0, SLIDES.length - 1);
+  render(); renderPanel(); scrollToCur();
+}
+
+/* --- carousel preview ----------------------------------------------------------------------------
+ * A grid tells you what is in the post; only a swipe tells you how it reads. Split groups expand into
+ * their real tiles here, which is the only honest way to judge whether a panorama lands. */
+let IG_I = 0, IG_FRAMES = [];
+
+function igFrames() {
+  const out = [];
+  SLIDES.forEach(sl => {
+    const srcs = srcOf(sl);
+    if (sl.kind === 'split') {
+      for (let i = 0; i < (sl.n || 2); i++) out.push({ kind:'tile', src:srcs[0], i, n:sl.n || 2 });
+    } else if (sl.kind === 'stack') {
+      out.push({ kind:'stack', srcs });
+    } else out.push({ kind:'solo', src:srcs[0] });
+  });
+  return out;
+}
+
+function igOpen() {
+  IG_FRAMES = igFrames();
+  if (!IG_FRAMES.length) { toast('nothing to preview yet'); return; }
+  const track = $('igTrack');
+  track.innerHTML = '';
+  const vw = $('igView').clientWidth || 380;
+  const vh = vw * 1.25;
+  IG_FRAMES.forEach(f => {
+    const el = document.createElement('div');
+    el.className = 'igF' + (f.kind === 'stack' ? ' stackF' : f.kind === 'tile' ? ' tileF' : '');
+    if (f.kind === 'stack') {
+      el.innerHTML = '<div class="p"></div><div class="p"></div>';
+      f.srcs.forEach((s, i) => { el.children[i].style.backgroundImage = 'url("' + s.url + '")'; });
+    } else {
+      el.innerHTML = '<div class="p"></div>';
+      const p = el.firstChild;
+      p.style.backgroundImage = f.src ? 'url("' + f.src.url + '")' : 'none';
+      if (f.kind === 'tile' && f.src && f.src.w) {
+        const cropH = Math.min(f.src.h, f.src.w / (f.n * R45));
+        const cropW = cropH * R45 * f.n;
+        const x0 = (f.src.w - cropW) / 2, y0 = (f.src.h - cropH) / 2;
+        const s = vh / cropH;
+        p.style.backgroundSize = (f.src.w * s) + 'px ' + (f.src.h * s) + 'px';
+        p.style.backgroundPosition = (-(x0 + f.i * cropH * R45) * s) + 'px ' + (-y0 * s) + 'px';
+      }
+    }
+    track.appendChild(el);
+  });
+  $('igNote').textContent = IG_FRAMES.length + ' slide' + (IG_FRAMES.length > 1 ? 's' : '') +
+    (IG_FRAMES.length > IG_MAX ? ' — over Instagram\'s limit of 20' : '');
+  $('igWrap').classList.add('on');
+  igGo(clamp(slotsFor(CUR).first - 1, 0, IG_FRAMES.length - 1));
+}
+function igClose() { $('igWrap').classList.remove('on'); }
+function igGo(i) {
+  IG_I = clamp(i, 0, IG_FRAMES.length - 1);
+  $('igTrack').style.transition = 'transform .34s var(--ease-out)';
+  $('igTrack').style.transform = 'translateX(' + (-IG_I * 100) + '%)';
+  $('igCount').textContent = (IG_I + 1) + '/' + IG_FRAMES.length;
+  $('igDots').innerHTML = IG_FRAMES.map((_, k) => '<i class="' + (k === IG_I ? 'on' : '') + '"></i>').join('');
+}
+$('btnPreview').onclick = igOpen;
+$('igClose').onclick = igClose;
+$('igL').onclick = () => igGo(IG_I - 1);
+$('igR').onclick = () => igGo(IG_I + 1);
+$('igWrap').onpointerdown = e => { if (e.target === $('igWrap')) igClose(); };
+$('igUser').oninput = () => { $('igUser2').textContent = $('igUser').textContent; };
+window.__setPreviewUser = v => { $('igUser').textContent = v; $('igUser2').textContent = v; return v; };
+
+// swipe
+let SW = null;
+$('igView').addEventListener('pointerdown', e => {
+  SW = { x:e.clientX, at:IG_I }; $('igView').classList.add('drag');
+  try { $('igView').setPointerCapture(e.pointerId); } catch (err) { /* likewise */ }
+});
+$('igView').addEventListener('pointermove', e => {
+  if (!SW) return;
+  const dx = e.clientX - SW.x, w = $('igView').clientWidth || 1;
+  $('igTrack').style.transition = 'none';
+  $('igTrack').style.transform = 'translateX(' + (-SW.at * 100 + (dx / w) * 100) + '%)';
+});
+function swEnd(e) {
+  if (!SW) return;
+  const dx = e.clientX - SW.x, w = $('igView').clientWidth || 1;
+  $('igView').classList.remove('drag');
+  const at = SW.at; SW = null;
+  igGo(Math.abs(dx) > w * 0.18 ? at + (dx < 0 ? 1 : -1) : at);
+}
+$('igView').addEventListener('pointerup', swEnd);
+$('igView').addEventListener('pointercancel', swEnd);
+
+/* --- the report -----------------------------------------------------------------------------------
+ * The diff IS the product. Following git range-diff: positions on both sides, one glyph between, and
+ * a MOVE is its own class rather than a delete plus an add — otherwise a reordering drowns in churn
+ * that never happened.
+ */
+const shapeOf = s => ({ kind:s.kind, sources:s.sources.slice(), n:s.kind === 'split' ? (s.n || 2) : undefined });
+const keyOf = s => s.kind + ':' + s.sources.slice().sort().join('+');
+
+// Longest common subsequence of two key lists. Small sequences (a post is 20 slides at most), so the
+// plain quadratic table is the right amount of machinery.
+function lcs(a, b) {
+  const m = a.length, n = b.length;
+  const t = Array.from({ length:m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = m - 1; i >= 0; i--) for (let j = n - 1; j >= 0; j--) {
+    t[i][j] = a[i] === b[j] ? t[i + 1][j + 1] + 1 : Math.max(t[i + 1][j], t[i][j + 1]);
+  }
+  const out = [];
+  let i = 0, j = 0;
+  while (i < m && j < n) {
+    if (a[i] === b[j]) { out.push(a[i]); i++; j++; }
+    else if (t[i + 1][j] >= t[i][j + 1]) i++; else j++;
+  }
+  return out;
+}
+
+function buildResult() {
+  const final = SLIDES.map(shapeOf);
+  const before = PROPOSED || [];
+  const beforeKeys = before.map(keyOf);
+  const afterKeys = SLIDES.map(keyOf);
+
+  // Which slides actually MOVED is a longest-common-subsequence question, not a position comparison.
+  // Take one slide out, or drag one card six slots forward, and every slide between shifts a place -
+  // reporting those as moves is the false churn that makes a reordering diff unreadable, and nobody
+  // moved any of them. The LCS is the part of the sequence that stayed put; everything else is a
+  // real move, which is also how `git diff --color-moved` avoids drowning a reorder in noise.
+  const beforeSurv = beforeKeys.filter(k => afterKeys.includes(k));
+  const afterSurv = afterKeys.filter(k => beforeKeys.includes(k));
+  const stayed = new Set(lcs(beforeSurv, afterSurv));
+  const moved = [];
+  SLIDES.forEach((s, i) => {
+    const key = afterKeys[i];
+    if (beforeKeys.includes(key) && !stayed.has(key)) {
+      moved.push({ id:s.id, from:beforeKeys.indexOf(key) + 1, to:i + 1 });
+    }
+  });
+
+  // A composite that changed shape is neither an add nor a delete — it is the same photographs,
+  // arranged differently, and that is the single most useful thing to hand back.
+  const composites = [];
+  before.forEach(b => {
+    const srcKey = b.sources.slice().sort().join('+');
+    const still = SLIDES.filter(s => s.sources.some(x => b.sources.includes(x)));
+    const nowKey = still.map(s => s.kind).join('+');
+    const wasKey = b.kind + (b.n ? '×' + b.n : '');
+    if (still.length && (still.length > 1 || still[0].kind !== b.kind ||
+        (b.kind === 'split' && (still[0].n || 2) !== b.n))) {
+      const sl = still[0];
+      composites.push({
+        sources:b.sources, was:wasKey,
+        now: still.length > 1 ? 'solo×' + still.length : sl.kind + (sl.n ? '×' + sl.n : ''),
+        cause: (sl.tags && sl.tags.length) ? 'tag:' + sl.tags.join(',') : (sl.text ? 'comment:' + sl.text : 'manual'),
+      });
+    }
+    if (!still.length) { /* fully removed — reported under `removed` */ }
+    void srcKey; void nowKey;
+  });
+
+  const slides = {};
+  SLIDES.forEach((s, i) => {
+    if ((s.tags && s.tags.length) || s.text) {
+      slides[s.id] = { slot:slotsFor(i).first, sources:s.sources.slice(),
+                       tags:(s.tags || []).slice(), text:s.text || '' };
+    }
+  });
+
+  return {
+    tool: 'sort',
+    setPrompt: SET_PROMPT,
+    slideCount: totalSlides(),
+    overLimit: Math.max(0, totalSlides() - IG_MAX),
+    proposed: before,
+    final,
+    // What layout needs, flat and in posting order — one entry per Instagram slide.
+    plan: SLIDES.flatMap((s, i) => {
+      const slots = slotsFor(i);
+      if (s.kind === 'split') return [{ slot:slots.first, kind:'split', source:s.sources[0], tiles:s.n || 2 }];
+      if (s.kind === 'stack') return [{ slot:slots.first, kind:'stack', top:s.sources[0], bottom:s.sources[1] }];
+      return [{ slot:slots.first, kind:'solo', source:s.sources[0] }];
+    }),
+    diff: {
+      moved,
+      composites,
+      removed: CUT.map(c => ({ sources:c.srcIds, cause: c.reason ? 'comment:' + c.reason : 'manual' })),
+    },
+    // Not a re-selection: the pass stays committed, these come back as feedback ABOUT it.
+    takenOut: CUT.map(c => ({ sources:c.srcIds, name:c.name, reason:c.reason || '' })),
+    setComment: $('setComment').value.trim(),
+    slides,
+  };
+}
+
+function askCommit() {
+  if (!SLIDES.length) { toast('nothing to send yet'); return; }
+  const n = totalSlides();
+  const comps = SLIDES.filter(s => s.kind !== 'solo').length;
+  const open = SLIDES.filter(s => s.proposed && !s.ruled).length;
+  const commented = SLIDES.filter(s => s.text || (s.tags || []).length).length;
+  $('cTally').innerHTML = [
+    ['slides', n], ['composites', comps], ['taken out', CUT.length], ['commented', commented],
+  ].filter(x => x[1]).map(x => '<span class="t"><b>' + x[1] + '</b> ' + x[0] + '</span>').join('');
+
+  const bits = [];
+  if (n > IG_MAX) bits.push(n + ' slides is over Instagram\'s limit of ' + IG_MAX + ' - ' + (n - IG_MAX) + ' would not post');
+  if (open) bits.push(open + ' of my proposals you never ruled on - they go back as accepted');
+  if (CUT.length && CUT.some(c => !c.reason)) bits.push('some frames were taken out with no reason attached');
+  $('cWarn').hidden = !bits.length;
+  $('cWarn').textContent = bits.join('. ') + (bits.length ? '.' : '');
+
+  $('confirmWrap').hidden = false;
+  $('cGo').focus();
+}
+function closeConfirm() { $('confirmWrap').hidden = true; }
+
+function commit() {
+  closeConfirm();
+  const r = buildResult();
+  window.__result = r;
+  toast('sent back — ' + r.slideCount + ' slides' + (CUT.length ? ', ' + CUT.length + ' taken out' : ''));
+  if (window.__runtime && window.__runtime.review) {
+    fetch('/feedback?name=sort_' + Date.now() + '.json',
+      { method:'POST', body:JSON.stringify(r, null, 2) }).catch(() => {});
+  }
+}
+
+$('btnCommit').onclick = askCommit;
+$('cCancel').onclick = closeConfirm;
+$('cGo').onclick = commit;
+$('confirmWrap').onpointerdown = e => { if (e.target === $('confirmWrap')) closeConfirm(); };
+
+/* --- surviving a refresh --------------------------------------------------------------------------
+ * A sequencing pass is a long sitting, and losing it to a reload is not an acceptable failure — it
+ * has happened, in the tool next door, and it cost someone an hour. Mirrored on every change.
+ */
+const SAVE_KEY = 'photoprep.sort.v1';
+let SAVE_T = null;
+
+function saveState() {
+  if (!SLIDES.length && !CUT.length) return;
+  clearTimeout(SAVE_T);
+  SAVE_T = setTimeout(() => {
+    try {
+      localStorage.setItem(SAVE_KEY, JSON.stringify({
+        ts:Date.now(), spec:SPEC, src:SRC, slides:SLIDES, cut:CUT, proposed:PROPOSED,
+        setPrompt:SET_PROMPT, setComment:$('setComment').value,
+      }));
+    } catch (e) { /* quota or private mode — not worth interrupting the pass over */ }
+  }, 400);
+}
+
+function restoreState() {
+  let d;
+  try { d = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); } catch (e) { return false; }
+  if (!d || !d.slides || !d.slides.length) return false;
+  SRC = d.src || {}; SLIDES = d.slides; CUT = d.cut || []; PROPOSED = d.proposed || null;
+  SET_PROMPT = d.setPrompt || '';
+  SPEC = d.spec || null;
+  $('setPrompt').textContent = SET_PROMPT || (SLIDES.length + ' slides.');
+  $('setComment').value = d.setComment || '';
+  CUR = 0;
+  measureAll();
+  render(); renderPanel();
+  const mins = Math.round((Date.now() - d.ts) / 60000);
+  toast('picked up where you left off' + (mins > 1 ? ', ' + mins + ' min ago' : ''));
+  return true;
+}
+window.__clearSaved = () => { localStorage.removeItem(SAVE_KEY); toast('saved pass discarded'); };
+
+/* --- loading --------------------------------------------------------------------------------------
+ * Orientation decides everything downstream — what gets flagged, what can stack, how a split slices —
+ * and it cannot be guessed from a filename. So every source is measured from its real pixels.
+ */
+function measureAll() {
+  Object.values(SRC).forEach(s => {
+    if (s.w || !s.url) return;
+    const im = new Image();
+    im.onload = () => { s.w = im.naturalWidth; s.h = im.naturalHeight; render(); saveState(); };
+    im.src = s.url;
+  });
+}
+
+const pathFromUrl = u => {
+  const m = /^\/file\?path=(.+)$/.exec(u || '');
+  try { return m ? decodeURIComponent(m[1]) : ''; } catch (e) { return ''; }
+};
+
+function addSource(c) {
+  const id = c.id || c.name || c.url;
+  if (!SRC[id]) {
+    SRC[id] = { id, name:c.name || id, url:c.url, path:c.path || pathFromUrl(c.url),
+                w:c.w || 0, h:c.h || 0, group:c.group || '' };
+  }
+  return id;
+}
+
+function loadOrder(spec) {
+  SPEC = spec;
+  SET_PROMPT = spec.setPrompt || '';
+  SRC = {}; CUT = []; UNDO = []; CARDS.forEach(el => el.remove()); CARDS.clear();
+  (spec.sources || []).forEach(addSource);
+
+  SLIDES = (spec.slides || []).map(s => {
+    // a slide may name its sources by id, or carry them inline — both are natural to write
+    const sources = (s.sources || (s.source ? [s.source] : [])).map(x =>
+      typeof x === 'string' ? (SRC[x] ? x : addSource({ id:x, name:x })) : addSource(x));
+    const kind = s.kind === 'stack' || s.kind === 'split' ? s.kind : 'solo';
+    return {
+      id: s.id || nid(),
+      kind: kind === 'stack' && sources.length < 2 ? 'solo' : kind,
+      sources,
+      n: kind === 'split' ? clamp(s.n || 2, 2, 5) : undefined,
+      // one line, hard-capped — anything longer does not get read
+      why: s.why ? String(s.why).slice(0, 70) : '',
+      proposed: !!s.proposed,
+      ruled: !s.proposed,
+      tags: [], text: '', mute: [],
+    };
+  });
+
+  PROPOSED = SLIDES.map(shapeOf);
+  CUR = 0;
+  $('setPrompt').textContent = SET_PROMPT || (SLIDES.length + ' slides to sequence.');
+  measureAll();
+  render(); renderPanel();
+  return SLIDES.length;
+}
+
+window.__loadOrder = spec => { const n = loadOrder(spec || {}); saveState(); return n; };
+// same name as the plan it produces reads better from a skill, and both spellings are natural to type
+window.__loadPlan = window.__loadOrder;
+
+window.__loadFolder = dir =>
+  fetch('/list?dir=' + encodeURIComponent(dir)).then(r => r.json()).then(j => {
+    if (!j.ok || !j.files.length) { toast('no photos in that folder'); return 0; }
+    return window.__loadOrder({
+      setPrompt: (j.files.length + ' frames from ' + dir.split('/').filter(Boolean).pop() +
+                  ', in file order. Nothing is arranged yet.'),
+      slides: j.files.map(f => ({
+        kind:'solo',
+        sources:[{ id:dir + '/' + f.name, name:f.name, path:dir + '/' + f.name,
+                   url:'/file?path=' + encodeURIComponent(dir + '/' + f.name) }],
+      })),
+    });
+  });
+
+window.__result = null;
+if (window.__runtime) window.__runtime.ready.then(() => { window.__ready = true; });
+else window.__ready = true;
+
+render(); renderPanel();
+const RESTORED = restoreState();
+
+// `photoprep sort <folder>` opens straight onto a folder of already-picked frames, with no assistant
+// involved. A restored pass always wins — losing one to a stray command line would be the worse bug.
+(async function fromCommandLine() {
+  const dir = new URLSearchParams(location.search).get('folder');
+  if (!dir || RESTORED) return;
+  await window.__loadFolder(dir);
+})();
+</script>

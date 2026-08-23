@@ -1,16 +1,21 @@
-# Order — design spec
+# Sort — design spec
 
-The fourth tool. Select decides **which** frames are in; Order decides **what sequence they appear in
+The fourth tool. Select decides **which** frames are in; Sort decides **what sequence they appear in
 and what shape each slide takes**. They are deliberately separate: selecting wants a grid and a
 yes/no reflex, sequencing wants a filmstrip you drag. Lightroom split Survey from Compare for the same
 reason.
 
-Status: **spec, not yet built.** Select shipped in 0.4.0; this is next.
+Status: **built** — `web/sort/index.html`, shipped in 0.6.0. This document is both the spec and the
+record of what was decided; the "Open questions" at the bottom are now answered, in place.
 
-Tal's framing, 2026-08-23: *"similarly to the selector tool, we can work together on arranging the
+(It was called the Order tool while it was a spec. Renamed to **Sort** on the way in: "order" is both
+a verb and a noun and collides with the report's own `order` field, and the CLI reads better as
+`photoprep sort <folder>`.)
+
+Framing that started it, 2026-08-23: *"similarly to the selector tool, we can work together on arranging the
 selected photos into posts — which should be stacked on top of each other, who on top of who, in
 which order, which gets pano splitted — the kind of thing you would do before actually asking me to
-do the actual layout step. Kind of planning-before-action."* So Order produces **the plan that
+do the actual layout step. Kind of planning-before-action."* So Sort produces **the plan that
 `layout` then executes**. It decides pairings, stacking order within a pair, sequence and split
 counts; it does not do the framing, the pan/zoom or the export — those stay in `layout`, where the
 crop is chosen against the real pixels.
@@ -66,7 +71,7 @@ source may produce one or more slides. Consequences that must be designed for, n
 **Not every time.** Most sets have an obvious opener and closer and a middle that barely matters —
 forcing a sequencing pass through those is friction for no gain.
 
-Order is entered **on demand**, and the tooling should say when it is worth entering:
+Sort is entered **on demand**, and the tooling should say when it is worth entering:
 
 - several frames are near-equally strong candidates for slot 1;
 - the proposed order and the person's selection diverge a lot;
@@ -216,11 +221,36 @@ add** — `--color-moved` exists because otherwise a reordering diff drowns in f
 | Feel the sequence, don't read it | Layout's existing IG preview | Swipeable fake post, panos expanded |
 | Scope toggle | Frame.io | Slide comment vs sequence comment, one switch |
 
-## Open questions
+## Decisions that were open, and how they were settled
 
-- **Does the assistant propose an order at all when it has no strong opinion**, or hand over an
-  unordered tray? A weak proposal may anchor the person unhelpfully; an empty tray may just be work.
-- **Should composite proposals be pre-applied or pre-*offered*?** Dashed-and-applied is fewer clicks;
-  offered-but-not-applied is more honest about what the assistant actually decided.
-- **Do rejected slides go back to Select**, reopening that pass, or are they simply dropped with the
-  reason recorded? The first is more correct and more disruptive.
+- **Does the assistant propose an order at all when it has no strong opinion?** It always proposes.
+  An unordered tray is not neutrality — it hands back the work that was asked for. The anchoring risk
+  is real, and it is answered by *dashed* composites and a one-line reason on every slide rather than
+  by withholding a sequence: it is much easier to argue with a claim than with an empty board.
+- **Pre-applied or pre-offered composites?** Pre-applied, dashed until ruled on. Offered-but-not-built
+  means the slide count and the visual rhythm are both wrong until every proposal is accepted — and
+  the slide count is precisely the number that decides whether the post fits. Dashed carries the
+  honesty that "offered" was meant to carry, without lying about the shape of the post.
+- **Do rejected slides go back to Select?** No. They land on a shelf with the reason attached, and the
+  reason is reported as feedback *about* the selection. Reopening the selection pass mid-sequence
+  pulls the person out of the mode they are in — judging and sequencing want different heads — and
+  the correct-but-disruptive option was the worse trade.
+
+## What shipped, where it differs from the drawing above
+
+- **A split group is ONE card containing N tiles**, not N cards under a bracket. Atomicity then needs
+  no enforcement — there is nothing to drag apart — and each tile still carries its own slot number,
+  so the Instagram positions stay visible. The tiles render the real slices of the real photograph,
+  which is the only way to see whether the panorama reads.
+- **The board wraps** rather than scrolling as one row. Twenty slides in a single row means the ending
+  is off-screen while you judge the opening, and feeling the whole sequence at once is the point.
+- **Moves are computed by longest common subsequence.** Comparing raw positions reports every slide
+  after a change as "moved", which is the exact false churn `git diff --color-moved` exists to avoid.
+  The LCS is what stayed put; everything else genuinely moved.
+- **Drag onto the middle of a card to stack**, with a short hold and a visible target before it arms.
+  Reordering and stacking are different verbs on the same gesture, so the tool says which one it is
+  about to do before you let go, and only offers the stack when the pair could actually become one
+  4:5 frame.
+- **Solo frames sit at their real aspect inside the 4:5 slot**, letterboxed. A landscape therefore
+  *looks* small on the board — which is the truth about how it will look in the feed, and the reason
+  to stack it. That was worth more than a tidy grid of equal rectangles.

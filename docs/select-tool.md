@@ -5,7 +5,7 @@ The third tool, alongside Layout and Watermark. Where those two *transform* imag
 assistant argue about that decision without either of them writing an essay.
 
 Status: **spec, not yet built.** Ordering is deliberately out of scope here; it is its own tool with
-its own document (`docs/order-tool.md`).
+its own document (`docs/sort-tool.md`).
 
 ## The problem it solves
 
@@ -29,13 +29,13 @@ disagreement cheap, precise, and reusable.
 - **Not a culling app.** It is not competing with Photo Mechanic or Lightroom for a 3,000-frame
   wedding. It reviews tens of candidates for one post.
 - **No ordering, not even a hint of it.** No slide numbers, no positions, no sequence. That is the
-  Order tool's entire job (`docs/order-tool.md`), and it cannot be done honestly here anyway: a slide
+  Sort tool's entire job (`docs/sort-tool.md`), and it cannot be done honestly here anyway: a slide
   is not a file, since a stack is two sources becoming one slide and a pano split is one source
   becoming several. A position badge on a Select tile would be a lie as soon as either exists. This
   already leaked in once as a `#2` corner badge and was removed.
 - **No star ratings, no colour labels.** Narrative Select's own documentation concedes ratings
   "don't carry any inherent meaning"; the best-worst-scaling literature documents scale-region bias
-  and annotator drift. For a carousel, the ranking *is* the running order — which is the Order tool's
+  and annotator drift. For a carousel, the ranking *is* the running order — which is the Sort tool's
   job, not this one's.
 - **No multi-reviewer machinery.** Threads, @mentions, approval-calculation rules and stage locking
   all exist to reconcile several humans. There is one human.

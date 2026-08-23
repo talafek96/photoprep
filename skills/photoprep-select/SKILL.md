@@ -13,8 +13,9 @@ A list of filenames in chat can't be argued with. photoprep's Select tool shows 
 looked at — kept and cut alike — with your reason on each, and hands back what they changed. That
 diff is the point: it tells you where your taste was wrong, so the next proposal is better.
 
-> Selection only. This tool has no notion of ordering, deliberately — sequencing wants a filmstrip
-> you drag, judging wants a grid and a yes/no reflex, and mixing them makes both worse.
+> Selection only. This tool has no notion of ordering, deliberately — sequencing wants a board you
+> drag, judging wants a grid and a yes/no reflex, and mixing them makes both worse. Ordering is
+> `photoprep-sort`.
 
 ## Look at every frame before you propose anything
 
@@ -138,7 +139,8 @@ Three things worth handling deliberately:
 
 Say what changed and what you concluded from it. If the selection is now larger than the platform
 allows, remember that **picks are not slides** — pairing two landscapes into one frame turns 2 picks
-into 1 slide, so composing often beats cutting. That's `photoprep-layout`.
+into 1 slide, so composing often beats cutting. Deciding which pairs up is `photoprep-sort`;
+building the frames afterwards is `photoprep-layout`.
 
 ## Clean up
 

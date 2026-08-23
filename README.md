@@ -2,11 +2,15 @@
 
 Get photos ready to post — frame them, mark them, done.
 
-Three small tools that run locally in your browser:
+Four small tools that run locally in your browser:
 
 - **Select** — decide which frames make the cut. Shows what was left out and why, not just what was
   kept, so nothing good disappears quietly. Mark the ones you're unsure about, tag what's wrong,
   and swap in the frame that wasn't picked.
+- **Sort** — arrange the keepers into the running order of a post. Decide what opens, which
+  landscapes pair into one frame, which wide shot scrolls as a panorama — and watch the slide count
+  as you go, since pairing two photos into one frame is what gets an over-long post under the limit.
+  Produces the plan Layout then builds.
 - **Layout** — stack two landscape photos into one portrait frame, split a panorama into slices
   that scroll like one wide shot, or just crop one photo to the frame ratio. Exports clean, at full
   resolution.
@@ -27,7 +31,8 @@ open while you work.
 
 ```bash
 npx photoprep                    # opens the home screen
-npx photoprep watermark          # straight to a tool
+npx photoprep sort <folder>      # straight to a tool
+npx photoprep watermark          # …with a folder to work on, where it takes one
 npx photoprep --no-open          # start the server, don't launch a browser
 ```
 
@@ -58,7 +63,7 @@ Your marks and settings live outside the install, so upgrading never touches the
 
 ### Claude Code plugin
 
-If you use Claude Code, install the plugin and Claude gets skills for all three tools — when to reach
+If you use Claude Code, install the plugin and Claude gets skills for all four tools — when to reach
 for each, the automation hooks, and the judgement calls worth handing back to you rather than
 guessing at:
 
@@ -71,7 +76,7 @@ The skills are generic — they carry good practice for these tools, not anyone'
 live in `skills/` and are readable on their own if you'd rather adapt them than install them.
 
 
-All three tools expose automation hooks on `window`, so an assistant can set a job up and hand the
+All four tools expose automation hooks on `window`, so an assistant can set a job up and hand the
 browser to a person for the judgement calls:
 
 ```js
@@ -87,6 +92,17 @@ await window.__loadSelection({
   groups: { 'angel-road': { label: 'Angel Road', target: 3, mode: 'upto' } },
 });
 window.__result;   // null until they commit — see "Reading a selection back"
+// sort — the sequence and the shape of each slide; `proposed: true` renders dashed, awaiting a ruling
+await window.__loadOrder({
+  setPrompt: 'One day on the island. 13 frames, 9 slides as proposed.',
+  slides: [
+    { kind: 'solo',  sources: ['p_1815.jpg'], why: 'strongest portrait - it sets the day' },
+    { kind: 'stack', sources: ['1007.jpg', '1010.jpg'], why: 'better together', proposed: true },
+    { kind: 'split', sources: ['1640.jpg'], n: 2, why: 'wide enough to scroll', proposed: true },
+  ],
+  sources: [{ id: 'p_1815.jpg', name: '1815', url: '/file?path=...', group: 'ridge' }],
+});
+window.__result;   // null until they commit — `plan[]` is what layout should build
 // layout
 await window.__loadCandidates([
   { name: 'hero', mode: 'stack', panels: { 0: '/work/a.jpg', 1: '/work/b.jpg' } },

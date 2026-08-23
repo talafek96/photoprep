@@ -141,3 +141,23 @@ wrong in only *some* cases, so it looks like a flaky bug rather than a wrong rea
 It also defeats the obvious test. Dispatching a synthetic `pointerup` on the child **passes**, because
 nothing simulated the capture — the assertion confirms a behaviour the real browser never produces.
 Synthetic pointer tests must send `pointerup` to the capturing element to mean anything.
+
+## A card sized by its text, not by the photo it holds
+
+**A flex item with no width is sized by its widest child — and a one-line filename is usually wider
+than the image above it.**
+
+```css
+/* Wrong - the footer decides how wide the card is, so the photo floats in a pool of black,
+   and split tiles stop touching, which is exactly what makes a panorama read as one image. */
+.card .name { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+/* Right - the card is exactly as wide as its media; the footer clips to fit. */
+el.style.width = (tiles * TILE_W + 2) + 'px';   /* +2: box-sizing:border-box eats the 1px borders */
+.card .ft { min-width:0; }                      /* without this the ellipsis never engages */
+```
+
+`text-overflow:ellipsis` reads like it caps the width. It does not — it only takes effect once
+something else constrains the box, and `min-width:auto` on a flex child means nothing does. So the
+layout looks *almost* right, which is worse than looking broken: the seams between adjacent tiles
+open by a few pixels and the failure gets blamed on the gap or the border.

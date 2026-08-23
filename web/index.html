@@ -13,7 +13,7 @@
   h1 em { font-style:normal; color:var(--accent); }
   .lede { color:var(--mut); font-size:15.5px; line-height:1.65; max-width:46ch; margin:0 0 52px; text-wrap:pretty; }
 
-  /* Bento: the two tools carry the page, settings is a quieter wide cell beneath them. */
+  /* Bento: the four tools carry the page, settings is a quieter wide cell beneath them. */
   .cards { display:grid; grid-template-columns:repeat(2, 1fr); gap:14px; }
   @media (max-width:680px) { .cards { grid-template-columns:1fr; } }
   a.card {
@@ -61,21 +61,28 @@
       <p>Decide which frames make the cut. See what was left out and why, mark the ones you're
          unsure about, and say what you actually think.</p>
     </a>
-    <a class="card rise" style="animation-delay:.19s" href="/layout/">
+    <a class="card rise" style="animation-delay:.19s" href="/sort/">
+      <span class="go">&#8594;</span>
+      <span class="glyph">&#8942;&#8942;</span>
+      <h2>Sort</h2>
+      <p>Arrange the keepers into slides. Decide what opens, what pairs up, what scrolls as a
+         panorama - and see the slide count as you go.</p>
+    </a>
+    <a class="card rise" style="animation-delay:.24s" href="/layout/">
       <span class="go">→</span>
       <span class="glyph">⬍</span>
       <h2>Layout</h2>
       <p>Stack two landscapes into one portrait frame, or split a panorama into slices that scroll
          like one wide shot.</p>
     </a>
-    <a class="card rise" style="animation-delay:.24s" href="/watermark/">
+    <a class="card rise" style="animation-delay:.29s" href="/watermark/">
       <span class="go">→</span>
       <span class="glyph">◆</span>
       <h2>Watermark</h2>
       <p>Your mark on one photo or a whole batch. Drag to place it, and it picks the variant that
          stays legible on each shot.</p>
     </a>
-    <a class="card wide rise" style="animation-delay:.29s" href="/settings/">
+    <a class="card wide rise" style="animation-delay:.34s" href="/settings/">
       <span class="go">→</span>
       <span class="glyph">⚙</span>
       <h2>Settings</h2>
