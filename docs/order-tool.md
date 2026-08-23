@@ -5,7 +5,15 @@ and what shape each slide takes**. They are deliberately separate: selecting wan
 yes/no reflex, sequencing wants a filmstrip you drag. Lightroom split Survey from Compare for the same
 reason.
 
-Status: **spec, not yet built.** Build after Select.
+Status: **spec, not yet built.** Select shipped in 0.4.0; this is next.
+
+Tal's framing, 2026-08-23: *"similarly to the selector tool, we can work together on arranging the
+selected photos into posts — which should be stacked on top of each other, who on top of who, in
+which order, which gets pano splitted — the kind of thing you would do before actually asking me to
+do the actual layout step. Kind of planning-before-action."* So Order produces **the plan that
+`layout` then executes**. It decides pairings, stacking order within a pair, sequence and split
+counts; it does not do the framing, the pan/zoom or the export — those stay in `layout`, where the
+crop is chosen against the real pixels.
 
 ## Why this is not a sortable list
 
