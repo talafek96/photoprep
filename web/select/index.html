@@ -541,6 +541,18 @@ body.locked .locknote { display:flex; }
 .snHead button { padding:2px 7px; font-size:10px; box-shadow:none; }
 .snText { font-size:11.5px; color:var(--fg); line-height:1.5; }
 .snText::before { content:'“'; color:var(--faint); } .snText::after { content:'”'; color:var(--faint); }
+.snThumbs { display:flex; gap:4px; flex-wrap:wrap; margin-top:7px; }
+.snThumbs img {
+  width:40px; height:40px; object-fit:cover; border-radius:var(--radius-sm); background:#000;
+  cursor:pointer; border:1px solid var(--border);
+  /* the state colour rides the thumb, so the list says which frames AND where each one stands */
+  box-shadow:inset 0 0 0 99px transparent; transition:transform .15s var(--ease-io), border-color .15s var(--ease-io);
+}
+.snThumbs img:hover { transform:translateY(-2px); border-color:var(--border-strong); }
+.snThumbs img[data-s=selected]  { border-color:var(--st-sel); }
+.snThumbs img[data-s=maybe]     { border-color:var(--st-may); }
+.snThumbs img[data-s=rejected]  { border-color:var(--st-rej); opacity:.6; }
+.snThumbs img[data-s=untouched] { border-color:var(--st-unt); }
 
 /* --- commit confirmation -------------------------------------------------------------------------
  * Committing ends the review and sends it back to me, and Enter is far too easy to hit by accident
@@ -1607,12 +1619,30 @@ function renderSetNotes() {
   const box = $('setNotes'); if (!box) return;
   box.hidden = !SETNOTES.length;
   if (!SETNOTES.length) return;
-  box.innerHTML = SETNOTES.map((n, i) =>
-    '<div class="sn"><div class="snHead"><b>' + n.ids.length + ' frames</b>' +
+  // A count alone ("3 frames") does not answer the only question you ever have about one of these,
+  // which is WHICH three. Show them.
+  box.innerHTML = SETNOTES.map((n, i) => {
+    const frames = n.ids.map(id => IMGS.find(x => x.id === id)).filter(Boolean);
+    return '<div class="sn"><div class="snHead"><b>' + frames.length + ' frames</b>' +
       '<button class="snPick" data-i="' + i + '">select</button>' +
       '<button class="snEdit" data-i="' + i + '">edit</button>' +
       '<button class="snDel" data-i="' + i + '">✕</button></div>' +
-      '<div class="snText">' + esc(n.text) + '</div></div>').join('');
+      '<div class="snText">' + esc(n.text) + '</div>' +
+      '<div class="snThumbs">' + frames.map(f =>
+        '<img src="' + f.url + '" alt="" data-id="' + f.id + '" data-s="' + f.state + '" ' +
+        'title="' + esc(f.name) + ' — ' + ST[f.state].t.toLowerCase() + '">').join('') +
+      '</div></div>';
+  }).join('');
+  // Clicking a thumb goes to that frame, which is the natural follow-up to spotting it in the list.
+  box.querySelectorAll('.snThumbs img').forEach(t => t.onclick = () => {
+    const j = IMGS.findIndex(x => x.id === t.dataset.id);
+    if (j < 0) return;
+    CUR = j;
+    if (FILTER !== 'all' && vis().indexOf(IMGS[j]) < 0) FILTER = 'all';   // don't hide what was clicked
+    render(); renderPanel();
+    const el = TILES.get(IMGS[j].id);
+    if (el && el.scrollIntoView) el.scrollIntoView({ block:'nearest', behavior:'smooth' });
+  });
   box.querySelectorAll('.snPick').forEach(b => b.onclick = () => { MULTI = new Set(SETNOTES[+b.dataset.i].ids); render(); });
   box.querySelectorAll('.snEdit').forEach(b => b.onclick = () => openSetNote(SETNOTES[+b.dataset.i]));
   box.querySelectorAll('.snDel').forEach(b => b.onclick = () => { SETNOTES.splice(+b.dataset.i, 1); render(); renderPanel(); });
