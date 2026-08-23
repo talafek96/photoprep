@@ -541,6 +541,8 @@ body.locked .locknote { display:flex; }
 #lnote label { margin:0 0 8px; }
 #lnote b { color:var(--fg); font-family:var(--mono); text-transform:none; letter-spacing:0; }
 #lnote .chips { margin-bottom:9px; }
+#lscoreBlock { margin-bottom:10px; padding-bottom:10px; border-bottom:1px solid var(--border); }
+#lscoreBlock label { margin-top:0; }
 #lnote textarea { font-size:12.5px; }
 
 #lhead, #lfoot { animation:rise .5s var(--ease-out) .06s both; }
@@ -658,7 +660,7 @@ kbd {
       <h3>Keys</h3>
       <p>The flag keys follow Lightroom: <kbd>P</kbd> pick / keep · <kbd>X</kbd> reject / cut · <kbd>U</kbd> unpick · plus <kbd>M</kbd> for maybe, which Lightroom has no equivalent of.</p>
       <p><kbd>Space</kbd> loupe · <kbd>Z</kbd> zoom fit ↔ 100% · <kbd>←</kbd><kbd>→</kbd> move · <kbd>F</kbd> filter · <kbd>⏎</kbd> commit</p>
-      <p>Inside the loupe: <kbd>T</kbd> writes a note on the frame you are looking at, tags and all, without going back to the sheet. <kbd>S</kbd> switches whether scrolling zooms or pans.</p>
+      <p>Inside the loupe: <kbd>T</kbd> opens everything you can say about the frame you are looking at — score, tags and a note — without going back to the sheet. Digits are the zoom presets in there, so the score is a slider. <kbd>S</kbd> switches whether scrolling zooms or pans.</p>
       <p><kbd>R</kbd> reverts a frame to <em>my</em> proposal and clears the 🔒. Pressing a verdict the frame is already in also sends it back to <b data-s="untouched">○ Not picked</b>.</p>
     </div>
   </div>
@@ -765,6 +767,15 @@ kbd {
   <div id="lstage"><img id="limg" alt=""></div>
   <div id="lnote" hidden>
     <label for="lnoteText">Note on <b id="lnoteName"></b> <span class="hint">esc to close · saves as you type</span></label>
+    <div id="lscoreBlock">
+      <label for="lscoreRange">Score <span class="hint" id="lscoreScope"></span></label>
+      <select id="lscoreGroupSel" hidden></select>
+      <div class="scoreRow">
+        <input type="range" id="lscoreRange" min="0" max="10" step="1" value="0">
+        <b id="lscoreVal">–</b>
+      </div>
+      <div class="hint" id="lscoreRank"></div>
+    </div>
     <div class="chips" id="lnoteChips"></div>
     <textarea id="lnoteText" rows="2" placeholder="what you want me to know about this frame"></textarea>
   </div>
@@ -1440,29 +1451,35 @@ function renderPanel() {
   });
 
   $('frameText').value = it.text || '';
+  paintScore(it, { block:'scoreBlock', scope:'scoreScope', sel:'scoreGroupSel',
+                   range:'scoreRange', val:'scoreVal', rank:'scoreRank' });
+}
+
+// The score UI is identical in the side panel and in the loupe's note card - same state, same rules,
+// so it is painted by one function rather than kept in step by hand.
+function paintScore(it, id) {
   const sg = scoringGroup(it);
   // A score with no group is a number about nothing, so the control is not offered at all.
-  $('scoreBlock').hidden = !sg && it.groups.length < 2;
-  $('scoreRange').value = scoreOf(it, sg);
-  $('scoreVal').textContent = scoreOf(it, sg) || '–';
+  $(id.block).hidden = !sg && it.groups.length < 2;
+  $(id.range).value = scoreOf(it, sg);
+  $(id.val).textContent = scoreOf(it, sg) || '–';
 
-  // With more than one group the frame needs a stated target, or a digit press is ambiguous.
-  const sel = $('scoreGroupSel');
+  // With more than one group the frame needs a stated target, or a score is ambiguous.
+  const sel = $(id.sel);
   sel.hidden = it.groups.length < 2;
   if (!sel.hidden) {
     sel.innerHTML = it.groups.map(g =>
       '<option value="' + g + '"' + (g === sg ? ' selected' : '') + '>' + esc(gLabel(g)) +
       (it.scores[g] ? ' — ' + it.scores[g] : '') + '</option>').join('');
   }
-  $('scoreScope').textContent = !sg
+  $(id.scope).textContent = !sg
     ? '— pick which group you are ranking it in'
-    : (filterGroup() === sg ? '— within ' + gLabel(sg) + ' (the group in view), press a digit (0 = ten, ` clears)'
-                            : '— within ' + gLabel(sg) + ', press a digit (0 = ten, ` clears)');
+    : '— within ' + gLabel(sg) + (filterGroup() === sg ? ' (the group in view)' : '');
 
   const r = rankIn(it, sg);
   const scored = sg ? IMGS.filter(i => inGroup(i, sg) && scoreOf(i, sg)).length : 0;
   const tot = sg ? IMGS.filter(i => inGroup(i, sg)).length : 0;
-  $('scoreRank').innerHTML = !sg ? ''
+  $(id.rank).innerHTML = !sg ? ''
     : r ? 'Rank <b>' + r.pos + '</b> of ' + r.of + ' scored, out of ' + tot + ' in ' + esc(gLabel(sg)) + '.'
         : scored + ' of ' + tot + ' scored in ' + esc(gLabel(sg)) + '.';
 
@@ -1582,6 +1599,8 @@ function toggleLoupeNote(force) {
   $('lnoteName').textContent = it.name;
   const ta = $('lnoteText');
   ta.value = it.text || '';
+  paintScore(it, { block:'lscoreBlock', scope:'lscoreScope', sel:'lscoreGroupSel',
+                   range:'lscoreRange', val:'lscoreVal', rank:'lscoreRank' });
   renderLoupeChips(it);
   ta.focus();
   ta.setSelectionRange(ta.value.length, ta.value.length);
@@ -1620,6 +1639,8 @@ function loadLoupe() {
   if (!$('lnote').hidden) {                 // moving to another frame re-points the open note
     $('lnoteName').textContent = it.name;
     $('lnoteText').value = it.text || '';
+    paintScore(it, { block:'lscoreBlock', scope:'lscoreScope', sel:'lscoreGroupSel',
+                     range:'lscoreRange', val:'lscoreVal', rank:'lscoreRank' });
     renderLoupeChips(it);
   }
 }
@@ -1866,6 +1887,13 @@ $('lnoteText').oninput = function () {
 };
 $('scoreRange').oninput = function () { setScore(C(), +this.value); };
 $('scoreGroupSel').onchange = function () { const it = C(); if (it) { it._sg = this.value; renderPanel(); render(); } };
+$('lscoreRange').oninput = function () { setScore(C(), +this.value); };
+$('lscoreGroupSel').onchange = function () {
+  const it = C(); if (!it) return;
+  it._sg = this.value; renderPanel(); render();
+  paintScore(it, { block:'lscoreBlock', scope:'lscoreScope', sel:'lscoreGroupSel',
+                   range:'lscoreRange', val:'lscoreVal', rank:'lscoreRank' });
+};
 
 // A score is a RELATIVE judgement inside a small group, which is why it is worth having even though
 // global star ratings are not: "these five are from the same moment, rank them" is a question with
@@ -1876,6 +1904,8 @@ function setScore(it, n, g) {
   if (!key) { toast('score needs a group — group this frame first'); return; }
   if (n > 0) it.scores[key] = n; else delete it.scores[key];
   render(); renderPanel();
+  if (!$('lnote').hidden) paintScore(it, { block:'lscoreBlock', scope:'lscoreScope', sel:'lscoreGroupSel',
+                                           range:'lscoreRange', val:'lscoreVal', rank:'lscoreRank' });
 }
 $('mGroup').onclick = makeGroup;
 $('mRemove').onclick = () => {

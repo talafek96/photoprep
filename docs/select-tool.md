@@ -212,6 +212,11 @@ inside a small group is a different question — "these five are from the same m
 real answer — and combined with a target it lets the person hand the choice back: *score these six,
 keep the top two*.
 
+The score control appears in two places — the side panel and the loupe's note card — painted by one
+function from one piece of state, because a frame's quality is judged while looking at it properly,
+not from a thumbnail. Inside the loupe the digits are taken by the zoom presets, so there it is a
+slider rather than a keypress.
+
 Scores ride in the report **inside their group** — `groups[].ranked` is the ordered list for that
 group — which is the only actionable form. A bare cross-group list of numbers is not comparable, so
 `window.__scores()` returns them keyed by group too.
