@@ -63,6 +63,11 @@ body { grid-template-columns:1fr 352px; }
   display:flex; flex-wrap:wrap; align-content:flex-start; gap:14px;
   padding:18px; overflow:auto; min-height:0; background:var(--sunken);
   scrollbar-width:thin;
+  /* Cards keep their own height. The default `stretch` makes every card in a row as tall as the
+     tallest, which means adding a comment to one silently resizes its neighbours - and the drag
+     simulates the wrap from measured sizes, so a size that changes under it would put the preview
+     somewhere the card does not land. */
+  align-items:flex-start;
 }
 #empty {
   margin:auto; text-align:center; color:var(--faint); font-size:12px; line-height:1.7; max-width:400px;
@@ -74,10 +79,19 @@ body { grid-template-columns:1fr 352px; }
   position:relative; flex:0 0 auto; border:1px solid var(--border); border-radius:var(--radius);
   background:var(--surface); box-shadow:var(--highlight); cursor:grab; user-select:none;
   transition:border-color .15s var(--ease-io), box-shadow .2s var(--ease-io),
-             transform .18s var(--ease-out), opacity .15s var(--ease-io);
+             transform .26s var(--ease-out), opacity .15s var(--ease-io);
   animation:cardIn .34s var(--ease-out) both;
 }
-@keyframes cardIn { from { opacity:0; transform:translateY(8px) } to { opacity:1; transform:none } }
+/* During a drag the cards are moved by transform alone and nothing else about them changes, so the
+   compositor can carry the whole board on its own. Promoting them up front avoids a hitch on the
+   first move, when the browser would otherwise have to build the layers mid-gesture. */
+body.dragging .slide { will-change:transform; }
+/* The entrance uses `translate`, NOT `transform`, and that is load-bearing rather than stylistic.
+   A finished animation with `fill-mode: both` keeps applying its `to` state, and an animation beats
+   an inline style in the cascade - so `transform:none` here silently overrode every transform the
+   drag and the FLIP wrote. The cards simply never moved, which reads as "the app ignores me".
+   `translate` is its own property, so it composes with `transform` instead of fighting it. */
+@keyframes cardIn { from { opacity:0; translate:0 8px } to { opacity:1; translate:none } }
 .slide:hover { border-color:var(--border-strong); }
 .slide.on { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent), 0 10px 30px -14px var(--accent); }
 
@@ -1037,19 +1051,37 @@ function scrollToCur() {
 }
 
 /* --- drag ---------------------------------------------------------------------------------------
- * Dragging is the primary verb, so it has to LOOK like dragging. Three things happen at once:
+ * The rule that makes this fluid: NOTHING IS REORDERED UNTIL YOU DROP.
  *
- *   1. a GHOST - a clone of the card - leaves the board and follows the pointer, held where you
- *      grabbed it, so the thing you are moving is in your hand rather than snapping between slots;
- *   2. the real card stays in the flow as the LANDING PREVIEW, showing the gap it will drop into;
- *   3. every card it displaces FLIPs out of the way, so the new arrangement assembles itself under
- *      the pointer and you can read the post before you let go.
+ * The obvious implementation - splice the array and re-render whenever the target index changes - is
+ * what every drag in this file used to do, and it is jumpy for reasons that are structural rather
+ * than slow. Re-rendering rewrites background-images, so the browser re-resolves them; the DOM order
+ * changes under the pointer, so hit-testing lands on a board that moved; and any animation still
+ * playing is cancelled and restarted from a new inverted position, which is the actual stutter.
  *
- * Pulling a frame out of a stack is not a separate mechanism: the stack unstacks and the drag
- * continues on the frame you grabbed. So stacking and unstacking are the same gesture in both
- * directions, which is the only way "drag two together, drag one back out" feels like one idea.
+ * So during a drag the DOM is frozen. Card sizes are measured once, the wrap is simulated in plain
+ * arithmetic, and each card is moved with a `transform` toward where it WOULD sit if you dropped
+ * here. Changing a transform target is the one thing browsers interpolate for free: it is composited,
+ * interruptible mid-flight, and costs no layout. The array is spliced once, on drop, at which point
+ * the cards are already exactly where the new order puts them - so committing is invisible.
  */
 let DRAG = null;
+
+/* Simulate flex-wrap over a list of ids. Every card's width and height is known and fixed for the
+   duration of the drag, so where the whole board lands for ANY candidate order is arithmetic - no
+   measuring, no layout, no reading the DOM back. */
+function project(ids, geo) {
+  const pos = new Map();
+  let x = 0, y = 0, rowH = 0;
+  ids.forEach(id => {
+    const it = geo.byId.get(id); if (!it) return;
+    if (x > 0 && x + it.w > geo.inner + 0.5) { x = 0; y += rowH + geo.gap; rowH = 0; }
+    pos.set(id, { x, y, w:it.w, h:it.h });
+    x += it.w + geo.gap;
+    rowH = Math.max(rowH, it.h);
+  });
+  return pos;
+}
 
 function ghostFrom(el, x, y) {
   const r = el.getBoundingClientRect();
@@ -1058,14 +1090,10 @@ function ghostFrom(el, x, y) {
   g.classList.remove('on', 'placeholder');
   g.style.width = r.width + 'px';
   g.style.height = r.height + 'px';
+  g.style.transform = '';
   document.body.appendChild(g);
   DRAG.ox = x - r.left; DRAG.oy = y - r.top;
   DRAG.ghost = g;
-  moveGhost(x, y);
-}
-function moveGhost(x, y) {
-  if (!DRAG || !DRAG.ghost) return;
-  DRAG.ghost.style.transform = 'translate(' + (x - DRAG.ox) + 'px,' + (y - DRAG.oy) + 'px)';
 }
 
 function stackable(a, b) {
@@ -1080,7 +1108,8 @@ function clearTargets() {
 
 // Pulling one frame out of a stack: the stack becomes two solo slides, and the drag carries on with
 // the one you grabbed. From here it is an ordinary card - drop it anywhere, or back onto its old
-// partner to put the stack back.
+// partner to put the stack back. This is the one mutation that happens mid-gesture, and it happens
+// before any geometry is measured, so the frozen-DOM rule still holds.
 function pullPanel() {
   const i = SLIDES.findIndex(s => s.id === DRAG.id);
   const sl = SLIDES[i];
@@ -1096,6 +1125,85 @@ function pullPanel() {
   toast('out of the stack — drop it where it belongs');
 }
 
+// Everything the drag needs, measured exactly once.
+function beginDrag(x, y) {
+  const board = $('board');
+  const cs = getComputedStyle(board);
+  const gap = parseFloat(cs.gap) || 14;
+  const items = SLIDES.map(sl => {
+    const el = CARDS.get(sl.id), r = el.getBoundingClientRect();
+    return { id:sl.id, w:r.width, h:r.height };
+  });
+  const geo = {
+    gap, padL:parseFloat(cs.paddingLeft), padT:parseFloat(cs.paddingTop),
+    inner: board.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight),
+    byId: new Map(items.map(it => [it.id, it])),
+  };
+  DRAG.geo = geo;
+  DRAG.byId = new Map(SLIDES.map(sl => [sl.id, sl]));
+  DRAG.ids = SLIDES.map(sl => sl.id);
+  DRAG.home = DRAG.ids.indexOf(DRAG.id);
+  DRAG.rest = DRAG.ids.filter(id => id !== DRAG.id);
+  DRAG.base = project(DRAG.ids, geo);            // where everything sits right now
+  DRAG.slots = project(DRAG.rest, geo);          // the gaps the pointer is measured against
+  DRAG.idx = DRAG.home;
+  const el = CARDS.get(DRAG.id);
+  ghostFrom(el, x, y);
+  el.classList.add('placeholder');
+  document.body.classList.add('dragging');
+}
+
+/* Which gap the pointer is in. Measured against the slots the OTHER cards occupy, which never move
+ * during the drag - so the answer is a pure function of pointer position and cannot oscillate.
+ * Hit-testing the live, already-shifted cards is what makes lesser implementations flicker between
+ * two indices when you hold still on a boundary. */
+function indexFromPoint(px, py) {
+  const b = $('board').getBoundingClientRect();
+  const x = px - b.left - DRAG.geo.padL;
+  const y = py - b.top - DRAG.geo.padT + $('board').scrollTop;
+  let idx = 0;
+  DRAG.slots.forEach(p => {
+    if (y > p.y + p.h) idx++;                                   // a whole row above the pointer
+    else if (y >= p.y && x > p.x + p.w / 2) idx++;              // same row, and left of the pointer
+  });
+  return clamp(idx, 0, DRAG.rest.length);
+}
+
+// Show what dropping here would look like. Only transforms change: no DOM writes beyond a style
+// string, no layout, no repaint.
+function preview(idx) {
+  if (idx === DRAG.idx) return;
+  DRAG.idx = idx;
+  const order = DRAG.rest.slice();
+  order.splice(idx, 0, DRAG.id);
+  DRAG.order = order;
+  const next = project(order, DRAG.geo);
+  DRAG.base.forEach((p, id) => {
+    const q = next.get(id), el = CARDS.get(id);
+    if (!q || !el) return;
+    const dx = Math.round(q.x - p.x), dy = Math.round(q.y - p.y);
+    const t = (dx || dy) ? 'translate3d(' + dx + 'px,' + dy + 'px,0)' : '';
+    if (el.style.transform !== t) el.style.transform = t;
+  });
+  renumber(order);
+}
+
+// The slot numbers have to keep up, but they are the only thing that may touch a card mid-drag —
+// a full repaint here would recompute every warning for every card on every pointer move.
+function renumber(order) {
+  let n = 1;
+  order.forEach(id => {
+    const sl = DRAG.byId.get(id), el = CARDS.get(id);
+    if (!sl || !el) return;
+    const c = slideCount(sl);
+    const no = el.querySelector('.hd .no');
+    const label = c > 1 ? n + '–' + (n + c - 1) : String(n);
+    if (no && no.textContent !== label) no.textContent = label;
+    el.classList.toggle('cover', n === 1);
+    n += c;
+  });
+}
+
 $('board').addEventListener('pointerdown', e => {
   const card = e.target.closest('.slide'); if (!card) return;
   if (e.target.closest('button, textarea, input')) return;
@@ -1107,93 +1215,109 @@ $('board').addEventListener('pointerdown', e => {
     id: card.dataset.id, x0:e.clientX, y0:e.clientY, on:false, target:null, tkey:null, hoverAt:0,
     // grabbing one half of a stack means you want that frame, not the pair
     panel: (SLIDES[i].kind === 'stack' && pane) ? Number(pane.dataset.panel || 0) : -1,
+    raf: 0, last: null,
   };
   try { $('board').setPointerCapture(e.pointerId); } catch (err) { /* a synthetic pointer has no id to capture */ }
 });
 
+// The pointer fires far more often than the screen refreshes, so the work is done once per frame
+// against the newest position rather than once per event.
 $('board').addEventListener('pointermove', e => {
   if (!DRAG) return;
+  DRAG.last = { x:e.clientX, y:e.clientY, t:e.timeStamp };
+  if (!DRAG.raf) DRAG.raf = requestAnimationFrame(step);
+});
+
+function step() {
+  DRAG && (DRAG.raf = 0);
+  if (!DRAG || !DRAG.last) return;
+  const { x, y, t } = DRAG.last;
+
   if (!DRAG.on) {
-    if (Math.hypot(e.clientX - DRAG.x0, e.clientY - DRAG.y0) < 5) return;   // a click, not a drag
+    if (Math.hypot(x - DRAG.x0, y - DRAG.y0) < 5) return;      // a click, not a drag
     DRAG.on = true;
     snapshot();
     if (DRAG.panel >= 0) pullPanel();
-    const el = CARDS.get(DRAG.id);
-    if (!el) { DRAG = null; return; }
-    ghostFrom(el, e.clientX, e.clientY);
-    el.classList.add('placeholder');
-    document.body.classList.add('dragging');
+    if (!CARDS.get(DRAG.id)) { DRAG = null; return; }
+    beginDrag(x, y);
   }
-  moveGhost(e.clientX, e.clientY);
 
-  const from = SLIDES.findIndex(s => s.id === DRAG.id);
-  const el = CARDS.get(DRAG.id);
-  if (from < 0 || !el) return;
+  DRAG.ghost.style.transform = 'translate3d(' + (x - DRAG.ox) + 'px,' + (y - DRAG.oy) + 'px,0)';
 
   // The ghost is pointer-events:none, so what is under the cursor is the real board.
-  const under = document.elementFromPoint(e.clientX, e.clientY);
+  const under = document.elementFromPoint(x, y);
   const overCard = under && under.closest ? under.closest('.slide') : null;
   const overPane = under && under.closest ? under.closest('.pane') : null;
-  const overIdx = overCard ? SLIDES.findIndex(s => s.id === overCard.dataset.id) : -1;
+  const tgt = overCard && overCard !== CARDS.get(DRAG.id) ? DRAG.byId.get(overCard.dataset.id) : null;
 
-  if (overIdx >= 0 && overIdx !== from) {
-    const tgt = SLIDES[overIdx];
+  if (tgt) {
     const r = overCard.getBoundingClientRect();
-    const inner = (e.clientX - r.left) / r.width;
+    const inner = (x - r.left) / r.width;
     // Dropping onto the MIDDLE of a solo makes a stack; onto one half of an existing stack takes
     // that frame's place. Both arm on a short hold, so passing over a card on the way somewhere
     // else can't grab it, and both say what they are about to do before you let go.
-    const wantStack = inner > 0.27 && inner < 0.73 && stackable(SLIDES[from], tgt);
-    const wantSwap = overPane && tgt.kind === 'stack' && SLIDES[from].kind === 'solo';
+    const wantStack = inner > 0.27 && inner < 0.73 && stackable(DRAG.byId.get(DRAG.id), tgt);
+    const wantSwap = overPane && tgt.kind === 'stack' && DRAG.byId.get(DRAG.id).kind === 'solo';
     if (wantStack || wantSwap) {
       const pane = wantSwap ? Number(overPane.dataset.panel || 0) : -1;
       const key = tgt.id + ':' + pane;
-      if (DRAG.tkey !== key) { DRAG.tkey = key; DRAG.hoverAt = e.timeStamp; DRAG.target = null; clearTargets(); }
-      if (!DRAG.target && e.timeStamp - DRAG.hoverAt > 240) {
+      if (DRAG.tkey !== key) { DRAG.tkey = key; DRAG.hoverAt = t; DRAG.target = null; clearTargets(); }
+      if (!DRAG.target && t - DRAG.hoverAt > 240) {
         DRAG.target = { id:tgt.id, mode: wantSwap ? 'swap' : 'stack', pane };
         (wantSwap ? overPane : overCard).classList.add(wantSwap ? 'swapTarget' : 'stackTarget');
+        // dropping INTO a card is not a reorder, so the board closes the gap it was offering
+        preview(DRAG.home);
       }
-      return;
-    }
-    if (DRAG.tkey) { DRAG.tkey = null; DRAG.target = null; clearTargets(); }
-    const before = e.clientX < r.left + r.width / 2;
-    let to = overIdx + (before ? 0 : 1);
-    if (from < to) to--;
-    if (to !== from) {
-      reflow(() => { const [sl] = SLIDES.splice(from, 1); SLIDES.splice(to, 0, sl); sl.moved = true; CUR = to; });
-    }
-  } else if (overIdx < 0 && DRAG.tkey) { DRAG.tkey = null; DRAG.target = null; clearTargets(); }
+      if (DRAG.target) return;
+    } else if (DRAG.tkey) { DRAG.tkey = null; DRAG.target = null; clearTargets(); }
+  } else if (DRAG.tkey) { DRAG.tkey = null; DRAG.target = null; clearTargets(); }
+
+  preview(indexFromPoint(x, y));
 
   // edge autoscroll, so a drag can reach a slide that is off-screen
   const bb = $('board').getBoundingClientRect();
-  if (e.clientY < bb.top + 70) $('board').scrollTop -= 16;
-  else if (e.clientY > bb.bottom - 70) $('board').scrollTop += 16;
-});
+  if (y < bb.top + 70) $('board').scrollTop -= 16;
+  else if (y > bb.bottom - 70) $('board').scrollTop += 16;
+}
 
 function endDrag() {
   if (!DRAG) return;
   const d = DRAG; DRAG = null;
+  if (d.raf) cancelAnimationFrame(d.raf);
   clearTargets();
   document.body.classList.remove('dragging');
   const el = CARDS.get(d.id);
   if (el) el.classList.remove('placeholder');
   if (!d.on) return;                                   // it was a click
 
-  // Settle the ghost into the slot it is landing in, then hand back to the real card. Letting it
+  // Settle the ghost onto the slot it is landing in, then hand back to the real card. Letting it
   // vanish mid-air loses the thread of where the thing you were holding actually went.
-  if (d.ghost) {
-    const land = el && el.getBoundingClientRect();
-    const g = d.ghost;
+  const land = el && el.getBoundingClientRect();
+  const g = d.ghost;
+  if (g) {
     if (land) {
       g.style.transition = 'transform .2s var(--ease-out), opacity .2s var(--ease-io)';
-      g.style.transform = 'translate(' + land.left + 'px,' + land.top + 'px)';
+      g.style.transform = 'translate3d(' + land.left + 'px,' + land.top + 'px,0)';
       g.style.opacity = '0';
       setTimeout(() => g.remove(), 230);
     } else g.remove();
   }
 
+  // Commit the order the preview was already showing, then drop the transforms. The cards do not
+  // move: they were standing in their new positions the whole time, which is why there is no jump.
+  const commit = () => {
+    const order = d.order || d.ids;
+    CARDS.forEach(c => { c.style.transition = 'none'; c.style.transform = ''; });
+    SLIDES = order.map(id => d.byId.get(id)).filter(Boolean);
+    const moved = d.byId.get(d.id); if (moved && d.idx !== d.home) moved.moved = true;
+    CUR = Math.max(0, SLIDES.findIndex(s => s.id === d.id));
+    layout(); repaint(); chrome();
+    requestAnimationFrame(() => CARDS.forEach(c => { c.style.transition = ''; }));
+  };
+
   const t = d.target;
   if (t) {
+    commit();                                          // no reorder was previewed; put things back
     const i = SLIDES.findIndex(s => s.id === d.id);
     const j = SLIDES.findIndex(s => s.id === t.id);
     if (i >= 0 && j >= 0) {
@@ -1204,18 +1328,19 @@ function endDrag() {
         return;
       }
       // swap: your frame takes that half of the stack, and the one it displaces takes your slot
-      const tgt = SLIDES[j], solo = SLIDES[i];
-      const displaced = tgt.sources[t.pane];
-      reflow(() => {
-        tgt.sources[t.pane] = solo.sources[0];
-        solo.sources[0] = displaced;
-        tgt.ruled = true;
-      });
-      renderPanel(); saveState();
+      const stack = SLIDES[j], solo = SLIDES[i];
+      const displaced = stack.sources[t.pane];
+      stack.sources[t.pane] = solo.sources[0];
+      solo.sources[0] = displaced;
+      stack.ruled = true;
+      paintCard(CARDS.get(stack.id), stack, j);
+      paintCard(CARDS.get(solo.id), solo, i);
+      chrome(); renderPanel(); saveState();
       toast('into the stack — ' + (SRC[displaced] || {}).name + ' takes its place');
       return;
     }
   }
+  commit();
   renderPanel(); saveState();
 }
 $('board').addEventListener('pointerup', endDrag);

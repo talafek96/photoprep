@@ -161,3 +161,24 @@ el.style.width = (tiles * TILE_W + 2) + 'px';   /* +2: box-sizing:border-box eat
 something else constrains the box, and `min-width:auto` on a flex child means nothing does. So the
 layout looks *almost* right, which is worse than looking broken: the seams between adjacent tiles
 open by a few pixels and the failure gets blamed on the gap or the border.
+
+## A finished CSS animation with `fill-mode: both` overrides every inline `transform` you write
+
+**Animations sit above inline styles in the cascade, and `both` keeps the final keyframe applied
+forever — so a one-off entrance animation silently disables transform-based drag and FLIP.**
+
+```css
+/* Wrong - after .34s this card's transform is pinned to `none`, permanently */
+.card { animation: cardIn .34s var(--ease-out) both; }
+@keyframes cardIn { from { opacity:0; transform:translateY(8px) } to { opacity:1; transform:none } }
+
+/* Right - `translate` is an independent property, so it composes with `transform` instead of
+   competing with it, and the entrance can keep its fill mode */
+@keyframes cardIn { from { opacity:0; translate:0 8px } to { opacity:1; translate:none } }
+```
+
+Nothing errors, `el.style.transform` reads back exactly what you set, and `getComputedStyle` reports
+the animation's value — so the element is provably "supposed to" be at the new position while sitting
+visibly at the old one. It looks like broken drag maths, and you will rewrite the geometry twice
+before suspecting a decorative fade. The same trap hits FLIP, spring animations, and anything else
+that positions by writing `transform` to an element that once animated in.
