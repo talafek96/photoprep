@@ -901,7 +901,7 @@ kbd {
 
 <div id="gnoteWrap" hidden>
   <div id="gnote">
-    <label for="gnoteText">Comment on <b id="gnoteCount"></b> <span class="hint">one note about them together, not copied onto each</span></label>
+    <label for="gnoteText">Comment on <b id="gnoteCount"></b> <span class="hint" id="gnoteHint">one note about them together, not copied onto each</span></label>
     <div id="gnoteThumbs"></div>
     <textarea id="gnoteText" rows="3" placeholder="e.g. these three are the same moment - keep whichever reads best at a glance"></textarea>
     <div class="row" style="margin-top:9px">
@@ -1588,12 +1588,22 @@ function makeGroup() {
   render(); renderPanel();
 }
 
+// Two comments on the identical set of frames is never what you meant - the second one is a revision
+// of the first. Same ids, whatever order they were picked in, means same comment.
+const sameSet = (a, b) => a.length === b.length && a.every(id => b.indexOf(id) >= 0);
+const noteForExactly = ids => SETNOTES.find(n => sameSet(n.ids, ids));
+
 function openSetNote(entry) {
   const ids = entry ? entry.ids : [...MULTI];
   if (!ids.length) { toast('select some frames first'); return; }
-  NOTE_EDIT = entry || { id: 'sn' + Date.now(), ids, text: '' };
-  const frames = ids.map(id => IMGS.find(i => i.id === id)).filter(Boolean);
+  const existing = entry || noteForExactly(ids);
+  NOTE_EDIT = existing || { id: 'sn' + Date.now(), ids, text: '' };
+  const frames = NOTE_EDIT.ids.map(id => IMGS.find(i => i.id === id)).filter(Boolean);
   $('gnoteCount').textContent = frames.length + ' frames';
+  $('gnoteHint').textContent = existing && !entry
+    ? 'editing what you already said about exactly these - clear it to remove'
+    : 'one note about them together, not copied onto each';
+  $('gnoteSave').textContent = existing ? 'Save changes' : 'Save comment';
   $('gnoteThumbs').innerHTML = frames.slice(0, 12).map(f => '<img src="' + f.url + '" alt="" title="' + esc(f.name) + '">').join('')
     + (frames.length > 12 ? '<span class="more">+' + (frames.length - 12) + ' more</span>' : '');
   $('gnoteText').value = NOTE_EDIT.text || '';
