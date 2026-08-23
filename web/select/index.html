@@ -1112,10 +1112,17 @@ function noteDir(path) { if (path) KNOWN_DIRS.add(path.slice(0, path.lastIndexOf
 // Is this dropped file already on disk somewhere we know about? The browser never hands over a path,
 // but name + byte length across the folders we have listed is a reliable enough match, and re-saving
 // a photo the person already owns is the thing to avoid.
-async function findOnDisk(f) {
+async function findOnDisk(f, extraDir) {
+  // If the environment ever hands us a real path (Electron and some wrappers set File.path), take it.
+  // A browser never will: exposing it would leak the user's username and folder layout from one drag,
+  // which is why Chrome withholds it and why the bytes have to be saved instead.
+  if (f.path && typeof f.path === 'string') return f.path;
+
   const onSheet = IMGS.find(i => i.path && i.name === f.name && i.bytes === f.size);
   if (onSheet) return onSheet.path;
-  for (const dir of KNOWN_DIRS) {
+  const dirs = new Set(KNOWN_DIRS);
+  if (extraDir) dirs.add(extraDir);            // check where we are about to write, before writing
+  for (const dir of dirs) {
     const j = await fetch('/list?dir=' + encodeURIComponent(dir)).then(r => r.json()).catch(() => null);
     const hit = j && j.ok && j.files.find(x => x.name === f.name && x.size === f.size);
     if (hit) return dir + '/' + hit.name;
@@ -1140,11 +1147,17 @@ async function dropIn(files) {
         if (!pick || !pick.ok) { toast('nothing saved — no folder chosen'); return; }
         dest = pick.path;
       }
-      const r = await fetch('/save?name=' + encodeURIComponent(f.name) +
-                            '&dir=' + encodeURIComponent(dest) + '&onExist=rename',
-                            { method:'POST', body:f }).then(x => x.json()).catch(() => ({ ok:false }));
-      if (!r.ok) { failed++; continue; }
-      pathOut = r.path; nameOut = r.name; saved++;
+      // Now that a destination is known, look there too - dropping the same file into the same
+      // folder twice should reuse it rather than leaving name_1.jpg behind.
+      const inDest = await findOnDisk(f, dest);
+      if (inDest) { pathOut = inDest; nameOut = inDest.split('/').pop(); reused++; }
+      else {
+        const r = await fetch('/save?name=' + encodeURIComponent(f.name) +
+                              '&dir=' + encodeURIComponent(dest) + '&onExist=rename',
+                              { method:'POST', body:f }).then(x => x.json()).catch(() => ({ ok:false }));
+        if (!r.ok) { failed++; continue; }
+        pathOut = r.path; nameOut = r.name; saved++;
+      }
     } else { reused++; }
 
     noteDir(pathOut);
