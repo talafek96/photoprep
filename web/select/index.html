@@ -34,7 +34,10 @@ body { grid-template-columns:1fr 366px; }
 
 /* --- filter bar -------------------------------------------------------------------------------- */
 #bar {
-  display:flex; align-items:center; gap:6px; padding:10px 14px; overflow-x:auto; scrollbar-width:none;
+  /* Wrap rather than scroll. It used to scroll with a hidden scrollbar, so anything past the right
+     edge was not merely off-screen but invisible and unreachable - and the bar grows a chip whenever
+     the set does (a group, a comment count). A second row is honest; a silent clip is not. */
+  display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:10px 14px; scrollbar-width:none;
   background:color-mix(in oklch, var(--bg) 72%, transparent);
   backdrop-filter:blur(18px) saturate(1.4); -webkit-backdrop-filter:blur(18px) saturate(1.4);
   border-bottom:1px solid var(--border); position:relative; z-index:10;
@@ -63,6 +66,7 @@ body { grid-template-columns:1fr 366px; }
 .fbtn[data-f=rejected]  .dot { background:var(--st-rej); }
 .fbtn[data-f=untouched] .dot { background:var(--st-unt); }
 #bar .sp { flex:1 1 auto; min-width:8px; }
+#bar .sortWrap { flex:0 0 auto; }
 
 /* --- sort + groups ------------------------------------------------------------------------------ */
 .sortWrap { display:inline-flex; align-items:center; gap:6px; flex:0 0 auto; }
