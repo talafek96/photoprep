@@ -545,6 +545,7 @@ body.locked .locknote { display:flex; }
   padding:3px 8px; border-radius:100px; box-shadow:none;
 }
 #inputTag:hover { border-color:var(--border-strong); color:var(--fg); }
+#inputTag kbd { margin:0 0 0 5px; font-size:8.5px; padding:0 4px; }
 kbd {
   font-family:var(--mono); font-size:9px; background:var(--surface-2); color:var(--mut);
   border:1px solid var(--border); border-radius:3px; padding:1px 5px; margin-right:4px;
@@ -1468,9 +1469,9 @@ let INPUT_GUESS = 'trackpad';
 function updateInputTag() {
   const el = $('inputTag'); if (!el) return;
   const dev = INPUT === 'auto' ? INPUT_GUESS : INPUT;
-  el.textContent = 'scroll: ' + (dev === 'mouse' ? 'zoom' : 'pan');
+  el.innerHTML = 'scroll: ' + (dev === 'mouse' ? 'zoom' : 'pan') + ' <kbd>S</kbd>';
   el.title = 'Scrolling currently ' + (dev === 'mouse' ? 'zooms' : 'pans') +
-             '. Click to switch. Pinch and ⌘/ctrl+scroll always zoom either way.';
+             '. Click or press S to switch. Pinch and ⌘/ctrl+scroll always zoom either way.';
 }
 
 function openLoupe() {
@@ -1569,9 +1570,17 @@ function zoomAt(cx, cy, factor, animate) {
   st.addEventListener('wheel', e => {
     e.preventDefault();
     const dev = sniff(e);
-    // exp() keeps the zoom perceptually even regardless of how big a delta the device reports
+    // exp() keeps the zoom perceptually even regardless of how big a delta the device reports.
+    //
+    // The SIGN has to come from the hardware, not the mode. Two fingers up on a trackpad reports
+    // deltaY POSITIVE (natural scrolling) and should zoom IN; a mouse wheel rolled forward reports
+    // deltaY NEGATIVE and should also zoom in. One formula cannot serve both, so the sniffed device
+    // picks the direction while the pill picks zoom-vs-pan.
     if (e.ctrlKey || dev === 'mouse') {
-      zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * (e.ctrlKey ? 0.012 : 0.003)));
+      const k = e.ctrlKey ? 0.012 : 0.003;
+      // a real pinch (ctrl+wheel) always follows the mouse convention
+      const dir = (!e.ctrlKey && INPUT_GUESS === 'trackpad') ? 1 : -1;
+      zoomAt(e.clientX, e.clientY, Math.exp(dir * e.deltaY * k));
     } else {
       LZ.x -= e.deltaX;
       LZ.y -= e.deltaY;
@@ -1669,6 +1678,7 @@ addEventListener('keydown', e => {
   if (e.key === ' ') { e.preventDefault(); open ? closeLoupe() : openLoupe(); return; }
 
   if (open) {
+    if (k === 's') { toggleScrollMode(); return; }   // what a plain scroll does
     if (k === 'z') {                       // Lightroom's zoom toggle
       const r = $('lstage').getBoundingClientRect();
       if (Math.abs(LZ.scale - LZ.fit) < 0.001) zoomAt(r.left + r.width / 2, r.top + r.height / 2, 1 / LZ.scale, true);
@@ -1771,14 +1781,15 @@ $('mScore').onclick = () => {
 };
 $('mClear').onclick = () => { MULTI.clear(); render(); };
 
-$('inputTag').onclick = () => {
+function toggleScrollMode() {
   // A plain two-way switch. The old three-state auto/mouse/trackpad cycle made you press it twice
   // to get back to where you were and never showed which state was which.
   const nowMouse = (INPUT === 'auto' ? INPUT_GUESS : INPUT) === 'mouse';
   INPUT = nowMouse ? 'trackpad' : 'mouse';
   updateInputTag();
   toast('scroll now ' + (INPUT === 'mouse' ? 'zooms' : 'pans'));
-};
+}
+$('inputTag').onclick = toggleScrollMode;
 updateInputTag();
 $('btnLoupe').onclick = openLoupe;
 $('btnCommit').onclick = commit;
