@@ -491,7 +491,9 @@ body.locked .locknote { display:flex; }
 
 /* --- loupe ------------------------------------------------------------------------------------- */
 #loupe {
-  position:fixed; inset:0; z-index:50; background:oklch(0.11 0.004 70 / 96%);
+  /* Not opaque. At 80% the sheet stays faintly visible behind, so the loupe reads as a layer over
+     your work rather than a different screen you navigated to - and the way out stays obvious. */
+  position:fixed; inset:0; z-index:50; background:oklch(0.11 0.004 70 / 80%);
   display:none; grid-template-rows:auto 1fr auto; backdrop-filter:blur(8px);
   animation:lfade .22s var(--ease-out) both;
 }
@@ -710,6 +712,7 @@ kbd {
     <span><kbd>X</kbd>cut</span>
     <span><kbd>U</kbd>unpick</span>
     <span><kbd>esc</kbd>back</span>
+    <span><kbd>click outside</kbd>back</span>
   </div>
 </div>
 
@@ -1556,21 +1559,30 @@ function zoomAt(cx, cy, factor, animate) {
   // -webkit-user-drag is not honoured everywhere (Firefox), so cancel the drag outright as well.
   st.addEventListener('dragstart', e => e.preventDefault());
 
-  let drag = null;
+  let drag = null, moved = 0;
   st.addEventListener('pointerdown', e => {
     e.preventDefault();
     drag = { x:e.clientX, y:e.clientY, ox:LZ.x, oy:LZ.y };
+    moved = 0;
     st.setPointerCapture(e.pointerId); st.classList.add('drag');
   });
   st.addEventListener('pointermove', e => {
     if (!drag) return;
+    moved = Math.max(moved, Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y));
     LZ.x = drag.ox + (e.clientX - drag.x);
     LZ.y = drag.oy + (e.clientY - drag.y);
     applyLoupe();
   });
-  const end = () => { drag = null; st.classList.remove('drag'); };
+  const end = e => {
+    // Click the empty space around the photo to leave. The distance guard is what stops a drag that
+    // happens to finish off the image from being read as "done looking"; e.target is the stage only
+    // when the press did NOT land on the photo itself.
+    const wasClick = moved < 5;
+    if (wasClick && e && e.target === st) { drag = null; st.classList.remove('drag'); closeLoupe(); return; }
+    drag = null; st.classList.remove('drag');
+  };
   st.addEventListener('pointerup', end);
-  st.addEventListener('pointercancel', end);
+  st.addEventListener('pointercancel', () => { drag = null; st.classList.remove('drag'); });
   // Safari emits gesturestart/change instead of ctrl+wheel
   let gScale = 1;
   st.addEventListener('gesturestart', e => { e.preventDefault(); gScale = e.scale; }, { passive:false });
