@@ -707,13 +707,14 @@ kbd {
     <span id="lwhy"></span>
     <span class="sp"></span>
     <span id="lzoom">fit</span>
-    <button id="inputTag" title="input device">trackpad</button>
+    <button id="inputTag">scroll: pan</button>
     <span id="lpos"></span>
   </div>
   <div id="lstage"><img id="limg" alt=""></div>
   <div id="lfoot">
     <span><kbd>drag</kbd>pan</span>
     <span><kbd>pinch</kbd>zoom</span>
+    <span><kbd>⌘/ctrl+scroll</kbd>zoom</span>
     <span><kbd>Z</kbd>fit / 100%</span>
     <span><kbd>dbl-click</kbd>fit / 100%</span>
     <span><kbd>←</kbd><kbd>→</kbd>frame</span>
@@ -1461,15 +1462,15 @@ let LZ = { scale:1, x:0, y:0, fit:1, natural:[0,0] };
 let INPUT = 'auto';          // 'auto' | 'mouse' | 'trackpad' — an explicit pin overrides the sniff
 let INPUT_GUESS = 'trackpad';
 
+// The pill says what your WHEEL DOES, not what hardware it thinks you have. 'trackpad' told you
+// nothing about the tool's behaviour and gave no hint it was even a control; a mouse user has no
+// reason to care what it detected, only whether scrolling will zoom or pan.
 function updateInputTag() {
   const el = $('inputTag'); if (!el) return;
   const dev = INPUT === 'auto' ? INPUT_GUESS : INPUT;
-  el.textContent = (INPUT === 'auto' ? '' : 'pinned ') + dev;
-  // The footer stays device-neutral - naming the reader's trackpad at them is noise. What their
-  // wheel does lives on this one pill, which is also the override.
-  el.title = dev === 'mouse'
-    ? 'Detected a mouse: the wheel zooms. Click to pin or re-detect.'
-    : 'Detected a trackpad: pinch zooms, two-finger scroll pans. Click to pin or re-detect.';
+  el.textContent = 'scroll: ' + (dev === 'mouse' ? 'zoom' : 'pan');
+  el.title = 'Scrolling currently ' + (dev === 'mouse' ? 'zooms' : 'pans') +
+             '. Click to switch. Pinch and ⌘/ctrl+scroll always zoom either way.';
 }
 
 function openLoupe() {
@@ -1771,9 +1772,12 @@ $('mScore').onclick = () => {
 $('mClear').onclick = () => { MULTI.clear(); render(); };
 
 $('inputTag').onclick = () => {
-  INPUT = INPUT === 'auto' ? 'mouse' : INPUT === 'mouse' ? 'trackpad' : 'auto';
+  // A plain two-way switch. The old three-state auto/mouse/trackpad cycle made you press it twice
+  // to get back to where you were and never showed which state was which.
+  const nowMouse = (INPUT === 'auto' ? INPUT_GUESS : INPUT) === 'mouse';
+  INPUT = nowMouse ? 'trackpad' : 'mouse';
   updateInputTag();
-  toast(INPUT === 'auto' ? 'input: auto-detect' : 'input pinned to ' + INPUT);
+  toast('scroll now ' + (INPUT === 'mouse' ? 'zooms' : 'pans'));
 };
 updateInputTag();
 $('btnLoupe').onclick = openLoupe;
