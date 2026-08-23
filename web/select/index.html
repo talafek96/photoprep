@@ -150,8 +150,8 @@ body { grid-template-columns:1fr 366px; }
   --edge:var(--st-unt);
   transition:transform .15s var(--ease-io), border-color .15s var(--ease-io),
              box-shadow .25s var(--ease-io);
-  animation:tileIn .55s var(--ease-out) both;
 }
+.tile.fresh { animation:tileIn .55s var(--ease-out) both; }
 @keyframes tileIn {
   from { opacity:0; transform:translateY(16px) scale(.97); filter:blur(6px); }
   to   { opacity:1; transform:none;                        filter:blur(0); }
@@ -318,6 +318,7 @@ body { grid-template-columns:1fr 366px; }
 }
 .tile:hover .nm, .tile.cur .nm { color:var(--fg); }
 /* the assistant's reason: ONE line, ellipsised, and only rendered when it earns its place */
+.tile .why[hidden] { display:none; }
 .tile .why {
   font-size:10.5px; color:var(--faint); margin-top:2px; line-height:1.35;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
@@ -375,9 +376,10 @@ body { grid-template-columns:1fr 366px; }
    highlighted" never gets read as "these are keeps" */
 .tile.multi { border-color:var(--accent); }
 .tile.multi .ph { outline:2px solid var(--accent); outline-offset:-2px; }
-.mcheck {
-  position:absolute; top:8px; right:8px; z-index:5; width:20px; height:20px; border-radius:100px;
-  display:grid; place-items:center; font-size:11px; font-weight:700;
+.mcheck { display:none; }
+.tile.multi .mcheck {
+  display:grid; position:absolute; top:8px; right:8px; z-index:5; width:20px; height:20px; border-radius:100px;
+  place-items:center; font-size:11px; font-weight:700;
   background:var(--accent); color:var(--accent-ink); box-shadow:0 1px 5px oklch(0 0 0 / 45%);
 }
 
@@ -847,13 +849,16 @@ function setVerdict(it, v) {
 }
 
 /* --- render ------------------------------------------------------------------------------------ */
-function render() {
-  // A group filter can outlive its group - ungroup the frames you were filtered to and the filter
-  // now points at nothing, stranding you on an empty sheet. Fall back rather than showing a dead
-  // end. This covers every route to an empty group, not just the Ungroup button.
-  if (FILTER.startsWith('group:') && !IMGS.some(i => inGroup(i, FILTER.slice(6)))) FILTER = 'all';
+// Tiles are keyed by id and REUSED across renders. Rebuilding the sheet's innerHTML on every
+// click re-attached all 46 images and replayed the entrance animation, which reads as the page
+// reloading - the opposite of a tool you click through quickly. Now a render moves and patches
+// existing nodes; only genuinely new frames are constructed, and only they animate in.
+const TILES = new Map();      // id -> element
 
+function wireSheet() {
   const sheet = $('sheet');
+  if (sheet._wired) return;   // listeners belong to the sheet, not to a render pass
+  sheet._wired = true;
   // Ctrl-click is a secondary click on macOS, so without this the context menu opens on top of the
   // multi-selection it just made. Ctrl is the Windows modifier and has to work on both.
   sheet.oncontextmenu = e => { if (e.ctrlKey) e.preventDefault(); };
@@ -864,98 +869,161 @@ function render() {
     const files = [...(e.dataTransfer.files || [])].filter(f => /^image\//.test(f.type));
     if (files.length) await dropIn(files);
   };
+}
+
+function marksHTML(it) {
+  const marks = [];
+  if (it.addedByYou) marks.push('<span class="mk added" title="' +
+    (it.pathless ? 'You dropped this in and it has no file path, so I cannot use it downstream.'
+                 : 'You added this - it was not in what I showed you.') + '">+ yours' + (it.pathless ? ' ⚠' : '') + '</span>');
+  if (it.locked) marks.push('<span class="mk lock" title="You set this verdict by hand, so tags no longer move it. Press U to hand it back.">🔒 set by you</span>');
+  if (it.alternates && it.alternates.length) marks.push('<span class="mk" title="' + (it.alternates.length) + ' other frame(s) from this same moment. Press [ or ] to swap one in.">⇄ ' + (it.altIdx + 1) + ' of ' + (it.alternates.length + 1) + '</span>');
+  if (it.tags.length || it.text) marks.push('<span class="mk" title="You left feedback on this frame">💬</span>');
+  const sg = scoringGroup(it), sv = scoreOf(it, sg);
+  if (sv) {
+    const r = rankIn(it, sg);
+    const others = Object.keys(it.scores).filter(k => k !== sg && it.scores[k]);
+    const tip = sv + '/10 in ' + gLabel(sg) + (r ? ' — rank ' + r.pos + ' of ' + r.of + ' scored' : '') +
+      (others.length ? '. Also scored in ' + others.map(k => gLabel(k) + ' ' + it.scores[k]).join(', ') : '');
+    marks.push('<span class="mk sc' + (r && r.pos === 1 && r.of > 1 ? ' top' : '') + '" title="' + esc(tip) + '">' +
+               sv + (r && r.of > 1 ? '<i>#' + r.pos + '</i>' : '') +
+               (others.length ? '<i>+' + others.length + '</i>' : '') + '</span>');
+  }
+  return marks.length ? '<div class="marks">' + marks.join('') + '</div>' : '';
+}
+
+function buildTile(it) {
+  const d = document.createElement('div');
+  d.className = 'tile fresh';                       // .fresh is what animates; patching never re-adds it
+  d.innerHTML =
+    '<span class="trailGlow"></span><span class="trail"></span>' +
+    '<span class="mcheck">✓</span>' +
+    '<span class="ph">' +
+      '<img loading="lazy" alt="">' +
+      '<span class="vb"><span class="g"></span><span class="vt"></span></span>' +
+    '</span>' +
+    '<div class="foot" style="position:relative">' +
+      '<div class="nm"></div><div class="why"></div><div class="yourbox"></div>' +
+    '</div>';
+  const im = d.querySelector('img');
+  // Give each tile its own photo's shape (within limits). A uniform 4:5 box letterboxes every
+  // landscape into a strip between two black bars - the opposite of what a judging sheet needs.
+  const shape = () => {
+    if (!im.naturalWidth) return;
+    const w = d.clientWidth || 200;
+    d.style.setProperty('--ph', clamp(Math.round(w * im.naturalHeight / im.naturalWidth), 132, 300) + 'px');
+  };
+  im.onload = shape;
+  d._shape = shape;
+  d.onclick = ev => onTileClick(it.id, ev);
+  d.ondblclick = () => openLoupe();
+  d.addEventListener('animationend', () => d.classList.remove('fresh'));
+  return d;
+}
+
+function patchTile(d, it) {
+  const idx = IMGS.indexOf(it);
+  const meta = ST[it.state];
+  d.dataset.s = it.state;
+  d.classList.toggle('cur', idx === CUR);
+  d.classList.toggle('multi', MULTI.has(it.id));
+  if (it._flash) { it._flash = false; d.classList.remove('flash'); void d.offsetWidth; d.classList.add('flash'); }
+  const im = d.querySelector('img');
+  if (im.getAttribute('src') !== it.url) { im.setAttribute('src', it.url); }   // only on a real swap
+  else if (im.complete) d._shape();
+  d.querySelector('.vb').title = VERDICT_HELP[it.state];
+  d.querySelector('.vb .g').textContent = meta.g;
+  d.querySelector('.vb .vt').textContent = meta.t;
+  const foot = d.querySelector('.foot');
+  const oldMarks = foot.querySelector('.marks');
+  const mh = marksHTML(it);
+  if (oldMarks) oldMarks.remove();
+  if (mh) foot.insertAdjacentHTML('afterbegin', mh);
+  const nm = d.querySelector('.nm'); if (nm.textContent !== it.name) nm.textContent = it.name;
+  const why = d.querySelector('.why');
+  why.hidden = !it.why; why.title = it.why || ''; if (why.textContent !== (it.why || '')) why.textContent = it.why || '';
+  const yb = d.querySelector('.yourbox');
+  const yh = yoursHTML(it);
+  if (yb.innerHTML !== yh) yb.innerHTML = yh;
+}
+
+function onTileClick(id, ev) {
+  const it = IMGS.find(x => x.id === id); if (!it) return;
+  const idx = IMGS.indexOf(it);
   const list = vis();
-  sheet.innerHTML = '';
-  list.forEach((it, n) => {
-    const idx = IMGS.indexOf(it);
-    const d = document.createElement('div');
-    d.className = 'tile' + (idx === CUR ? ' cur' : '') + (it._flash ? ' flash' : '')
-                + (MULTI.has(it.id) ? ' multi' : '');
-    if (it._flash) { it._flash = false; }
-    d.dataset.s = it.state;
-    d.style.animationDelay = Math.min(n * 0.012, 0.3) + 's';
-    const meta = ST[it.state];
-    const marks = [];
-    if (it.addedByYou) marks.push('<span class="mk added" title="' +
-      (it.pathless ? 'You dropped this in. It has no file path, so I cannot use it downstream - re-add it with “+ add photos” if you want it in the post.'
-                   : 'You added this - it was not in what I showed you.') + '">+ yours' + (it.pathless ? ' ⚠' : '') + '</span>');
-    if (it.locked) marks.push('<span class="mk lock" title="You set this verdict by hand, so tags no longer move it. Press U to hand it back.">🔒 set by you</span>');
-    if (it.alternates && it.alternates.length) marks.push('<span class="mk" title="' + (it.alternates.length) + ' other frame(s) from this same moment. Press [ or ] to swap one in.">⇄ ' + (it.altIdx + 1) + ' of ' + (it.alternates.length + 1) + '</span>');
-    if (it.tags.length || it.text) marks.push('<span class="mk" title="You left feedback on this frame">💬</span>');
-    const sg = scoringGroup(it), sv = scoreOf(it, sg);
-    if (sv) {
-      const r = rankIn(it, sg);
-      const others = Object.keys(it.scores).filter(k => k !== sg && it.scores[k]);
-      const tip = sv + '/10 in ' + gLabel(sg) + (r ? ' — rank ' + r.pos + ' of ' + r.of + ' scored' : '') +
-        (others.length ? '. Also scored in ' + others.map(k => gLabel(k) + ' ' + it.scores[k]).join(', ') : '');
-      marks.push('<span class="mk sc' + (r && r.pos === 1 && r.of > 1 ? ' top' : '') + '" title="' + esc(tip) + '">' +
-                 sv + (r && r.of > 1 ? '<i>#' + r.pos + '</i>' : '') +
-                 (others.length ? '<i>+' + others.length + '</i>' : '') + '</span>');
+  if (ev.shiftKey && ANCHOR >= 0) {
+    // range across what is CURRENTLY VISIBLE, so it respects the active sort and filter
+    const a = list.findIndex(x => x === IMGS[ANCHOR]);
+    const b = list.indexOf(it);
+    if (a >= 0 && b >= 0) {
+      const [lo, hi] = a < b ? [a, b] : [b, a];
+      for (let k = lo; k <= hi; k++) MULTI.add(list[k].id);
     }
-    d.innerHTML =
-      '<span class="trailGlow"></span><span class="trail"></span>' +
-      (MULTI.has(it.id) ? '<span class="mcheck">✓</span>' : '') +
-      '<span class="ph">' +
-        '<img loading="lazy" src="' + it.url + '" alt="">' +
-        '<span class="vb" title="' + VERDICT_HELP[it.state] + '">' +
-          '<span class="g">' + meta.g + '</span>' + meta.t + '</span>' +
-      '</span>' +
-      '<div class="foot" style="position:relative">' +
-        (marks.length ? '<div class="marks">' + marks.join('') + '</div>' : '') +
-        '<div class="nm">' + esc(it.name) + '</div>' +
-        (it.why ? '<div class="why" title="' + esc(it.why) + '">' + esc(it.why) + '</div>' : '') +
-        yoursHTML(it) +
-      '</div>';
-    // Give each tile its own photo's shape (within limits) once the image reports its size.
-    // A uniform 4:5 box letterboxes every landscape into a strip between two black bars, which is
-    // the opposite of what a sheet for JUDGING photographs should do.
-    const im = d.querySelector('img');
-    const shape = () => {
-      if (!im.naturalWidth) return;
-      const w = d.clientWidth || 200;
-      d.style.setProperty('--ph', clamp(Math.round(w * im.naturalHeight / im.naturalWidth), 132, 300) + 'px');
-    };
-    if (im.complete) shape(); else im.onload = shape;
-    d.onclick = ev => {
-      const list = vis();
-      if (ev.shiftKey && ANCHOR >= 0) {
-        // range across what is CURRENTLY VISIBLE, so a range respects the active sort and filter
-        const a = list.findIndex(x => x === IMGS[ANCHOR]);
-        const b = list.indexOf(it);
-        if (a >= 0 && b >= 0) {
-          const [lo, hi] = a < b ? [a, b] : [b, a];
-          for (let k = lo; k <= hi; k++) MULTI.add(list[k].id);
-        }
-        if (IMGS[ANCHOR]) MULTI.add(IMGS[ANCHOR].id);
-      } else if (ev.metaKey || ev.ctrlKey) {
-        // seed with the frame already focused, so ⌘-clicking a second one gives you two, not one
-        if (!MULTI.size && IMGS[CUR]) MULTI.add(IMGS[CUR].id);
-        MULTI.has(it.id) ? MULTI.delete(it.id) : MULTI.add(it.id);
-        ANCHOR = idx;
-      } else {
-        MULTI.clear();
-        ANCHOR = idx;
-      }
-      CUR = idx;
-      render(); renderPanel();
-    };
-    d.ondblclick = () => openLoupe();
-    sheet.appendChild(d);
-  });
+    if (IMGS[ANCHOR]) MULTI.add(IMGS[ANCHOR].id);
+  } else if (ev.metaKey || ev.ctrlKey) {
+    if (!MULTI.size && IMGS[CUR]) MULTI.add(IMGS[CUR].id);
+    MULTI.has(it.id) ? MULTI.delete(it.id) : MULTI.add(it.id);
+    ANCHOR = idx;
+  } else {
+    // Clicking the card you are already on opens the loupe. A second click on the same thing is
+    // "let me look closer" - it was doing nothing at all before.
+    const wasFocused = (idx === CUR) && !MULTI.size;
+    MULTI.clear();
+    ANCHOR = idx;
+    if (wasFocused) { CUR = idx; render(); renderPanel(); openLoupe(); return; }
+  }
+  CUR = idx;
+  render(); renderPanel();
+}
+
+function render() {
+  // A group filter can outlive its group - ungroup the frames you were filtered to and the filter
+  // now points at nothing, stranding you on an empty sheet. Fall back rather than showing a dead end.
+  if (FILTER.startsWith('group:') && !IMGS.some(i => inGroup(i, FILTER.slice(6)))) FILTER = 'all';
+
+  wireSheet();
+  const sheet = $('sheet');
+  const list = vis();
+  const wanted = new Set(list.map(i => i.id));
+
+  // drop tiles that fell out of the filter
+  TILES.forEach((el, id) => { if (!wanted.has(id)) { el.remove(); TILES.delete(id); } });
+
+  const empty = sheet.querySelector('.empty');
+  if (empty) empty.remove();
+
+  let prev = null, n = 0;
+  for (const it of list) {
+    let d = TILES.get(it.id);
+    if (!d) {
+      d = buildTile(it);
+      d.style.animationDelay = Math.min(n * 0.012, 0.3) + 's';
+      TILES.set(it.id, d);
+    }
+    patchTile(d, it);
+    // place it after the previous one only if it is not already there - appendChild on a node that
+    // is already in position still counts as a move and would restart CSS transitions
+    const target = prev ? prev.nextSibling : sheet.firstChild;
+    if (d !== target) sheet.insertBefore(d, target);
+    prev = d; n++;
+  }
+
   if (!list.length) {
-    sheet.innerHTML = '<p class="empty" style="grid-column:1/-1">Nothing matches this filter. ' +
-      '<button id="clearFilter" style="margin-left:6px">Show all ' + IMGS.length + '</button></p>';
+    sheet.insertAdjacentHTML('beforeend',
+      '<p class="empty" style="grid-column:1/-1">Nothing matches this filter. ' +
+      '<button id="clearFilter" style="margin-left:6px">Show all ' + IMGS.length + '</button></p>');
     const cf = $('clearFilter');
     if (cf) cf.onclick = () => { FILTER = 'all'; render(); };
   }
+
   renderBar();
   renderStatus();
   renderMulti();
 }
 
-// "out of these N, pick 3" — a target the assistant sets per group, or you set here. The tool never
-// enforces it; it just says where you are, because a hard cap that blocks the export is a dialog in
-// the way of a judgement call.
+// "out of these N, pick 3" - a target the assistant sets per group, or the person sets here. The
+// tool never enforces it; it just says where you are, because a hard cap that blocks the export is a
+// dialog in the way of a judgement call.
 function groupState(name) {
   const g = GROUPS[name] || {};
   const members = IMGS.filter(i => inGroup(i, name));
