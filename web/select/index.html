@@ -489,6 +489,35 @@ body.locked .locknote { display:flex; }
 
 .empty { color:var(--faint); font-size:11.5px; line-height:1.6; }
 
+/* --- comment on several frames at once ----------------------------------------------------------- */
+#gnoteWrap {
+  position:fixed; inset:0; z-index:70; display:grid; place-items:center;
+  background:oklch(0.11 0.004 70 / 62%); backdrop-filter:blur(6px);
+  animation:lfade .18s var(--ease-out) both;
+}
+#gnote {
+  width:min(560px, calc(100% - 32px)); padding:16px 18px 18px;
+  background:var(--surface); border:1px solid var(--border-strong); border-radius:var(--radius-lg);
+  box-shadow:0 26px 60px -20px oklch(0 0 0 / 75%), var(--highlight);
+  animation:noteIn .24s var(--ease-out) both;
+}
+#gnote label { margin:0 0 10px; }
+#gnote b { color:var(--accent); font-family:var(--mono); text-transform:none; letter-spacing:0; }
+#gnoteThumbs { display:flex; gap:5px; flex-wrap:wrap; margin-bottom:10px; }
+#gnoteThumbs img {
+  width:52px; height:52px; object-fit:cover; border-radius:var(--radius-sm);
+  border:1px solid var(--border); background:#000;
+}
+#gnoteThumbs .more { align-self:center; color:var(--faint); font-size:11px; }
+.mk.setnote { color:var(--accent); }
+#setNotes .sn { border-top:1px solid var(--border); padding:8px 0 2px; }
+#setNotes .sn:first-child { border-top:0; padding-top:2px; }
+.snHead { display:flex; align-items:center; gap:6px; margin-bottom:4px; }
+.snHead b { font-family:var(--mono); font-size:9.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--accent); flex:1; }
+.snHead button { padding:2px 7px; font-size:10px; box-shadow:none; }
+.snText { font-size:11.5px; color:var(--fg); line-height:1.5; }
+.snText::before { content:'“'; color:var(--faint); } .snText::after { content:'”'; color:var(--faint); }
+
 /* --- context menu ------------------------------------------------------------------------------- */
 #ctx {
   position:fixed; z-index:80; min-width:210px; padding:5px;
@@ -708,6 +737,7 @@ kbd {
       <button id="mKeep">✓ Keep all</button>
       <button id="mMaybe">? Maybe all</button>
       <button id="mCut">✕ Cut all</button>
+      <button id="mComment">💬 Comment on these</button>
       <button id="mScore">Score all…</button>
       <button id="mClear">Clear</button>
     </span>
@@ -732,6 +762,12 @@ kbd {
       <legend>The set</legend>
       <label for="setComment">Comment on the whole set <span class="hint">(not any one frame)</span></label>
       <textarea id="setComment" rows="3" placeholder="e.g. too food-heavy — and stop preferring the wide over the vertical"></textarea>
+    </fieldset>
+
+    <fieldset id="setNotesBox">
+      <legend>Comments on several frames</legend>
+      <div id="setNotes" hidden></div>
+      <p class="hint">Select frames and press <kbd>C</kbd> to say something about them <em>together</em>.</p>
     </fieldset>
 
     <fieldset id="fsFrame">
@@ -782,6 +818,18 @@ kbd {
 </div>
 
 <div id="ctx" hidden role="menu"></div>
+
+<div id="gnoteWrap" hidden>
+  <div id="gnote">
+    <label for="gnoteText">Comment on <b id="gnoteCount"></b> <span class="hint">one note about them together, not copied onto each</span></label>
+    <div id="gnoteThumbs"></div>
+    <textarea id="gnoteText" rows="3" placeholder="e.g. these three are the same moment - keep whichever reads best at a glance"></textarea>
+    <div class="row" style="margin-top:9px">
+      <button id="gnoteCancel">Cancel</button>
+      <button id="gnoteSave" class="primary">Save comment</button>
+    </div>
+  </div>
+</div>
 
 <div id="loupe" aria-modal="true" role="dialog">
   <div id="lhead">
@@ -876,6 +924,10 @@ let SET_PROMPT = '';
 let GROUPS = {};      // name -> { target, mode:'upto'|'exactly', label }
 let DROP_DIR = '';    // where dropped files are written; blank = photoprep's out folder
 let MULTI = new Set();// ids in the current multi-selection
+// Comments about SEVERAL frames at once - "these three are the same shot" is a statement about the
+// set, not something to repeat onto each frame. A third scope, between a frame note and the set.
+let SETNOTES = [];    // [{ id, ids:[frameId], text }]
+let NOTE_EDIT = null; // the SETNOTES entry being written, if any
 let ANCHOR = -1;      // for shift-click ranges
 
 // Verdict order for sorting: the things wanting attention first.
@@ -991,6 +1043,10 @@ function marksHTML(it) {
   if (it.locked) marks.push('<span class="mk lock" title="You set this verdict by hand, so tags no longer move it. Press U to hand it back.">🔒 set by you</span>');
   if (it.alternates && it.alternates.length) marks.push('<span class="mk" title="' + (it.alternates.length) + ' other frame(s) from this same moment. Press [ or ] to swap one in.">⇄ ' + (it.altIdx + 1) + ' of ' + (it.alternates.length + 1) + '</span>');
   if (it.tags.length || it.text) marks.push('<span class="mk" title="You left feedback on this frame">💬</span>');
+  const sn = setNotesFor(it);
+  if (sn.length) marks.push('<span class="mk setnote" title="' +
+    esc(sn.map(n => '“' + n.text + '” (said about ' + n.ids.length + ' frames together)').join('\n\n')) +
+    '">🗒 ' + sn.length + '</span>');
   const sg = scoringGroup(it), sv = scoreOf(it, sg);
   if (sv) {
     const r = rankIn(it, sg);
@@ -1131,6 +1187,7 @@ function render() {
   renderBar();
   renderStatus();
   renderMulti();
+  renderSetNotes();
   saveState();
 }
 
@@ -1435,6 +1492,48 @@ function makeGroup() {
   toast(mine.length + (existed ? ' added to ' : ' frames → ') + gLabel(key) +
         (!existed && target != null ? ' (' + $('mMode').value + ' ' + target + ')' : ''));
   render(); renderPanel();
+}
+
+function openSetNote(entry) {
+  const ids = entry ? entry.ids : [...MULTI];
+  if (!ids.length) { toast('select some frames first'); return; }
+  NOTE_EDIT = entry || { id: 'sn' + Date.now(), ids, text: '' };
+  const frames = ids.map(id => IMGS.find(i => i.id === id)).filter(Boolean);
+  $('gnoteCount').textContent = frames.length + ' frames';
+  $('gnoteThumbs').innerHTML = frames.slice(0, 12).map(f => '<img src="' + f.url + '" alt="" title="' + esc(f.name) + '">').join('')
+    + (frames.length > 12 ? '<span class="more">+' + (frames.length - 12) + ' more</span>' : '');
+  $('gnoteText').value = NOTE_EDIT.text || '';
+  $('gnoteWrap').hidden = false;
+  $('gnoteText').focus();
+}
+
+function closeSetNote() { $('gnoteWrap').hidden = true; NOTE_EDIT = null; }
+
+function saveSetNote() {
+  if (!NOTE_EDIT) return closeSetNote();
+  const t = $('gnoteText').value.trim();
+  SETNOTES = SETNOTES.filter(n => n.id !== NOTE_EDIT.id);
+  if (t) { NOTE_EDIT.text = t; SETNOTES.push(NOTE_EDIT); }
+  const n = NOTE_EDIT.ids.length;
+  closeSetNote(); render(); renderPanel();
+  toast(t ? 'comment saved on ' + n + ' frames together' : 'comment removed');
+}
+
+const setNotesFor = it => SETNOTES.filter(n => n.ids.indexOf(it.id) >= 0);
+
+function renderSetNotes() {
+  const box = $('setNotes'); if (!box) return;
+  box.hidden = !SETNOTES.length;
+  if (!SETNOTES.length) return;
+  box.innerHTML = SETNOTES.map((n, i) =>
+    '<div class="sn"><div class="snHead"><b>' + n.ids.length + ' frames</b>' +
+      '<button class="snPick" data-i="' + i + '">select</button>' +
+      '<button class="snEdit" data-i="' + i + '">edit</button>' +
+      '<button class="snDel" data-i="' + i + '">✕</button></div>' +
+      '<div class="snText">' + esc(n.text) + '</div></div>').join('');
+  box.querySelectorAll('.snPick').forEach(b => b.onclick = () => { MULTI = new Set(SETNOTES[+b.dataset.i].ids); render(); });
+  box.querySelectorAll('.snEdit').forEach(b => b.onclick = () => openSetNote(SETNOTES[+b.dataset.i]));
+  box.querySelectorAll('.snDel').forEach(b => b.onclick = () => { SETNOTES.splice(+b.dataset.i, 1); render(); renderPanel(); });
 }
 
 function closeCtx() { const m = $('ctx'); m.hidden = true; m.innerHTML = ''; }
@@ -1893,8 +1992,11 @@ addEventListener('keydown', e => {
   if (tag === 'textarea' || tag === 'input') {
     if (e.key === 'Escape') {
       e.preventDefault();
-      if (e.target.id === 'lnoteText') toggleLoupeNote(false); else e.target.blur();
+      if (e.target.id === 'lnoteText') toggleLoupeNote(false);
+      else if (e.target.id === 'gnoteText') closeSetNote();
+      else e.target.blur();
     }
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && e.target.id === 'gnoteText') { e.preventDefault(); saveSetNote(); }
     return;
   }
   const it = C();
@@ -1952,7 +2054,11 @@ addEventListener('keydown', e => {
   // its own key.
   else if (k === 'u') { setVerdict(it, 'untouched'); toast('unpicked'); }
   else if (k === 'r') { it.locked = false; reconcile(it); render(); renderPanel(); toast('reverted to my proposal'); }
-  else if (k === 'c') { e.preventDefault(); $('frameText').focus(); }
+  else if (k === 'c') {
+    e.preventDefault();
+    // With a selection live, C is about the selection - one comment on all of them.
+    if (MULTI.size > 1) openSetNote(null); else $('frameText').focus();
+  }
   // digits score the focused frame; 0 is ten, backtick clears. Not bound inside the loupe, where
   // 0 and 1 are the zoom presets.
   else if (!open && /^[0-9`]$/.test(e.key)) {
@@ -2038,6 +2144,10 @@ $('mScore').onclick = () => {
   applyToSelection(i => setScore(i, n, g || scoringGroup(i)));
 };
 $('mClear').onclick = () => { MULTI.clear(); render(); };
+$('mComment').onclick = () => openSetNote(null);
+$('gnoteSave').onclick = saveSetNote;
+$('gnoteCancel').onclick = closeSetNote;
+$('gnoteWrap').onpointerdown = e => { if (e.target === $('gnoteWrap')) closeSetNote(); };
 
 function toggleScrollMode() {
   // A plain two-way switch. The old three-state auto/mouse/trackpad cycle made you press it twice
@@ -2101,6 +2211,9 @@ function buildResult() {
       state:i.state, groups:i.groups.slice(),
     })),
     setComment: $('setComment').value.trim(),
+    // comments about several frames at once - one statement over a list of frames rather than
+    // duplicated onto each, because that is what was actually said
+    setNotes: SETNOTES.map(n => ({ text:n.text, frames:n.ids })),
     // Rankings ride WITH their group - that is the only form in which a score is actionable
     // ("of these eight, he ranked these three top") rather than a floating number.
     groups: activeGroups().map(n => {
@@ -2145,7 +2258,7 @@ function saveState() {
   SAVE_T = setTimeout(() => {
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify({
-        ts: Date.now(), spec: SPEC, groups: GROUPS, filter: FILTER, sort: SORT,
+        ts: Date.now(), spec: SPEC, groups: GROUPS, filter: FILTER, sort: SORT, setNotes: SETNOTES,
         setComment: $('setComment').value,
         frames: IMGS.reduce((a, i) => {
           a[i.id] = { state:i.state, tags:i.tags, text:i.text, scores:i.scores, groups:i.groups,
@@ -2176,6 +2289,7 @@ function restoreState() {
     if (f.altIdx) { const all = [i.original].concat(i.alternates); if (all[f.altIdx]) { i.altIdx = f.altIdx; i.url = all[f.altIdx].url; i.name = all[f.altIdx].name; } }
   });
   GROUPS = d.groups || {};
+  SETNOTES = d.setNotes || [];
   FILTER = d.filter || 'all'; SORT = SORTS[d.sort] ? d.sort : 'given';
   $('setComment').value = d.setComment || '';
   render(); renderPanel();

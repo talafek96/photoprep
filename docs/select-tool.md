@@ -125,6 +125,19 @@ So each tile carries:
 
 ### Comment scope
 
+Three scopes, because feedback is genuinely made at three sizes:
+
+- **This frame** — the note in the side panel or the loupe.
+- **These frames** — select several and press `C`. One comment about them *together*, stored once
+  over a list of frame ids rather than copied onto each. "These three are the same overlook, keep
+  whichever reads best" is a statement about the relationship between them; duplicating it onto each
+  frame would misrepresent it as three separate observations, and would lose which frames it spanned.
+  Tiles in such a comment carry a `🗒` badge, and the panel lists every one with a *select* button
+  that re-picks its frames.
+- **The whole set** — the box at the top of the panel.
+
+The report keeps them apart: `frames[].text`, `setNotes[]`, and `setComment`.
+
 One comment box with a **scope toggle**: *this frame* / *the whole set*, defaulting to frame. Copied
 from Frame.io's timestamp toggle, which solves exactly this with one switch rather than two UIs. The
 report records `scope` so "too food-heavy" never gets misread as a note about whichever frame happened
