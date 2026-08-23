@@ -60,6 +60,18 @@ All three tools expose automation hooks on `window`, so an assistant can set a j
 browser to a person for the judgement calls:
 
 ```js
+// select
+await window.__loadSelection({
+  setPrompt: 'Day 3 — 46 frames from four locations, 20 picked.',
+  candidates: [
+    { id: 'a.jpg', name: 'a', url: '/file?path=...', group: 'angel-road', date: 1701504444000,
+      verdict: 'selected',                 // selected | rejected | untouched
+      why: 'the lagoon and the sandbar',   // ONE line. Shown under the frame. Say why, not what.
+      alternates: [{ id: 'b.jpg', url: '…' }] },   // frames you compared it against
+  ],
+  groups: { 'angel-road': { label: 'Angel Road', target: 3, mode: 'upto' } },
+});
+window.__result;   // null until they commit — see "Reading a selection back"
 // layout
 await window.__loadCandidates([
   { name: 'hero', mode: 'stack', panels: { 0: '/work/a.jpg', 1: '/work/b.jpg' } },
@@ -94,6 +106,46 @@ never a location — so those fall back to the destination folder.
 The subfolder is named after the tool on purpose, so it can never collide with a `Watermarked`
 folder you keep your own exports in. It's one path segment — separators are stripped, so the name
 can't escape the source folder.
+
+### Reading a selection back
+
+When the person commits, `window.__result` is populated (and `--review` writes the same JSON to
+`feedback/`). **Read the diff, not the final list** — the list tells you what to build, the diff
+tells you what you got wrong:
+
+```jsonc
+{
+  "final":  { "selected": [...], "maybe": [...], "rejected": [...], "untouched": [...] },
+  "diff": {
+    "added":    ["c.jpg"],                       // they kept something you cut
+    "removed":  ["d.jpg"],                       // they cut something you picked
+    "demoted":  [{ "id": "a.jpg", "to": "maybe", "cause": "tag:near-dup" }],
+    "promoted": [], "swapped": []                // swapped = they preferred an alternate
+  },
+  "frames":     { "a.jpg": { "state": "maybe", "tags": ["near-dup"], "text": "…", "scores": {…} } },
+  "setNotes":   [{ "text": "all three are the same overlook", "frames": ["a.jpg","b.jpg","c.jpg"] }],
+  "setComment": "I picked 24, which is probably too many",
+  "groups":     [{ "name": "angel-road", "chosen": 3, "target": 3, "status": "met", "ranked": [...] }]
+}
+```
+
+Four rules the tool assumes you are following. Break them and the feedback stops being useful:
+
+1. **Send the whole set, not your shortlist.** Every frame you looked at, including the ones you
+   cut. A person cannot overrule a decision they cannot see, and a group labelled "Angel Road" that
+   holds 2 of the location's 8 frames is a decision dressed up as a choice. Assert before sending:
+   every candidate is in a group, and each group's count matches reality.
+2. **`maybe` is a message, not a verdict.** It means *reconsider this* — it comes back to you as a
+   question. Never send frames as `maybe` yourself; it is theirs to set. Anything returned as
+   `maybe` needs an answer from you, not a silent decision either way.
+3. **`why` is one line, and it is a reason.** "≈ 100736, weaker light" — not a description of the
+   photo, which they can see.
+4. **Targets are advisory.** `target` says what you'd suggest; the tool never enforces it and
+   neither should you. A commit that goes over is an answer, not an error.
+
+`setNotes` — comments about several frames *together* — is where the most useful feedback lives,
+because selection critiques are usually about relationships ("too many like this", "these three are
+the same moment"). Handle them as a group, not by applying the note to each frame.
 
 ### Review mode
 
