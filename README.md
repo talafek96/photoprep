@@ -56,6 +56,21 @@ Your marks and settings live outside the install, so upgrading never touches the
 
 ## Driving it from a script or an AI assistant
 
+### Claude Code plugin
+
+If you use Claude Code, install the plugin and Claude gets skills for all three tools — when to reach
+for each, the automation hooks, and the judgement calls worth handing back to you rather than
+guessing at:
+
+```
+/plugin marketplace add talafek96/photoprep
+/plugin install photoprep@photoprep
+```
+
+The skills are generic — they carry good practice for these tools, not anyone's personal taste. They
+live in `skills/` and are readable on their own if you'd rather adapt them than install them.
+
+
 All three tools expose automation hooks on `window`, so an assistant can set a job up and hand the
 browser to a person for the judgement calls:
 

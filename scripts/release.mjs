@@ -46,6 +46,7 @@ const root = (() => {
 })();
 
 const pkgPath = join(root, 'package.json');
+const pluginPath = join(root, '.claude-plugin', 'plugin.json');
 const readPkg = () => JSON.parse(readFileSync(pkgPath, 'utf8'));
 
 const parse = text => {
@@ -160,6 +161,14 @@ function main(argv) {
   pkg.version = show(next);
   writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
   git('add', 'package.json');
+  // The plugin manifest carries the same version, and a test asserts they agree — so bump it in the
+  // same commit rather than leaving a manifest that quietly claims an older release.
+  try {
+    const manifest = JSON.parse(readFileSync(pluginPath, 'utf8'));
+    manifest.version = show(next);
+    writeFileSync(pluginPath, JSON.stringify(manifest, null, 2) + '\n');
+    git('add', '.claude-plugin/plugin.json');
+  } catch { /* no plugin manifest in this checkout; nothing to keep in step */ }
   git('commit', '--message', `release: photoprep ${tag}`);
   git('tag', '--annotate', tag, '--message', `photoprep ${show(next)}`);
 

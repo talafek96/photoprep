@@ -40,7 +40,7 @@
   },
   "scripts": {
     "start": "node bin/cli.js",
-    "test": "node test/smoke.js && node test/cli.js && node test/pages.js"
+    "test": "node test/smoke.js && node test/cli.js && node test/pages.js && node test/plugin.js"
   },
   "dependencies": {}
 }

@@ -8,6 +8,16 @@ changing either. They record *why* the four verdict states exist, why Maybe is a
 than a decision, and which features were deliberately rejected, so those don't get re-litigated or
 quietly re-added.
 
+## The plugin
+
+`skills/` plus `.claude-plugin/plugin.json` ship this repo as a Claude Code plugin. Those skills are
+**generic on purpose** — good practice for these tools, never one person's preferences — because they
+are installed by strangers whose taste you don't know. `test/plugin.js` checks the manifest and every
+skill's front matter, since a malformed skill fails silently: it simply never triggers.
+
+Keep a skill in step with the tool it drives. A skill describing an option that no longer exists is
+worse than no skill, because it is followed confidently.
+
 ## Pitfalls
 
 @PITFALLS.md
