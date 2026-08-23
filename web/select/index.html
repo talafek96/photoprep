@@ -588,6 +588,21 @@ body.locked .locknote { display:flex; }
 }
 #cWarn[hidden] { display:none; }
 
+/* --- loupe scoped to one shared comment ------------------------------------------------------------
+ * Walking a comment's frames means the arrows must stop at that group's edges, and the reason you are
+ * in there has to stay on screen - otherwise it is just the loupe again and you lose your place.
+ */
+#lscope {
+  display:flex; align-items:center; gap:9px; padding:7px 14px;
+  border-bottom:1px solid var(--border); background:oklch(0.19 0.006 95 / 70%);
+  font-size:11.5px; color:var(--fg); line-height:1.45;
+}
+#lscope[hidden] { display:none; }
+#lscope .sq { color:var(--accent); }
+#lscopeText { flex:1; }
+#lscopeText::before { content:'“'; color:var(--faint); } #lscopeText::after { content:'”'; color:var(--faint); }
+#lscopeOut { flex:none; padding:3px 9px; font-size:10.5px; }
+
 /* --- context menu ------------------------------------------------------------------------------- */
 #ctx {
   position:fixed; z-index:80; min-width:210px; padding:5px;
@@ -617,12 +632,14 @@ body.locked .locknote { display:flex; }
   /* Not opaque. At 80% the sheet stays faintly visible behind, so the loupe reads as a layer over
      your work rather than a different screen you navigated to - and the way out stays obvious. */
   position:fixed; inset:0; z-index:50; background:oklch(0.11 0.004 70 / 80%);
-  display:none; grid-template-rows:auto 1fr auto; backdrop-filter:blur(8px);
+  /* column flex, not fixed grid rows: the scoped-comment banner is an optional row, and a template
+     of fixed tracks silently hands the 1fr to the wrong child the moment one appears or disappears. */
+  display:none; flex-direction:column; backdrop-filter:blur(8px);
   animation:lfade .22s var(--ease-out) both;
 }
-#loupe.on { display:grid; }
+#loupe.on { display:flex; }
 @keyframes lfade { from { opacity:0 } to { opacity:1 } }
-#lstage { overflow:hidden; display:grid; place-items:center; min-height:0; cursor:grab; position:relative; }
+#lstage { flex:1; overflow:hidden; display:grid; place-items:center; min-height:0; cursor:grab; position:relative; }
 #lstage.drag { cursor:grabbing; }
 #lstage img {
   max-width:none; transform-origin:0 0; will-change:transform;
@@ -847,7 +864,8 @@ kbd {
     <fieldset id="setNotesBox">
       <legend>Comments on several frames</legend>
       <div id="setNotes" hidden></div>
-      <p class="hint">Select frames and press <kbd>C</kbd> to say something about them <em>together</em>.</p>
+      <p class="hint">Select frames and press <kbd>C</kbd> to say something about them <em>together</em>.
+       <em>Walk</em> (or a thumbnail) opens the loupe on just those frames - <kbd>←</kbd> <kbd>→</kbd> loops through them.</p>
     </fieldset>
 
     <fieldset id="fsFrame">
@@ -933,6 +951,11 @@ kbd {
     <span id="lzoom">fit</span>
     <button id="inputTag">scroll: pan</button>
     <span id="lpos"></span>
+  </div>
+  <div id="lscope" hidden>
+    <span class="sq">💬</span>
+    <span id="lscopeText"></span>
+    <button id="lscopeOut">see every frame</button>
   </div>
   <div id="lstage"><img id="limg" alt=""></div>
   <div id="lnote" hidden>
@@ -1634,25 +1657,21 @@ function renderSetNotes() {
   box.innerHTML = SETNOTES.map((n, i) => {
     const frames = n.ids.map(id => IMGS.find(x => x.id === id)).filter(Boolean);
     return '<div class="sn"><div class="snHead"><b>' + frames.length + ' frames</b>' +
+      '<button class="snView" data-i="' + i + '">▶ walk</button>' +
       '<button class="snPick" data-i="' + i + '">select</button>' +
       '<button class="snEdit" data-i="' + i + '">edit</button>' +
       '<button class="snDel" data-i="' + i + '">✕</button></div>' +
       '<div class="snText">' + esc(n.text) + '</div>' +
       '<div class="snThumbs">' + frames.map(f =>
-        '<img src="' + f.url + '" alt="" data-id="' + f.id + '" data-s="' + f.state + '" ' +
-        'title="' + esc(f.name) + ' — ' + ST[f.state].t.toLowerCase() + '">').join('') +
+        '<img src="' + f.url + '" alt="" data-id="' + f.id + '" data-n="' + i + '" data-s="' + f.state + '" ' +
+        'title="' + esc(f.name) + ' - ' + ST[f.state].t.toLowerCase() + ' - click to open it in the loupe">').join('') +
       '</div></div>';
   }).join('');
-  // Clicking a thumb goes to that frame, which is the natural follow-up to spotting it in the list.
-  box.querySelectorAll('.snThumbs img').forEach(t => t.onclick = () => {
-    const j = IMGS.findIndex(x => x.id === t.dataset.id);
-    if (j < 0) return;
-    CUR = j;
-    if (FILTER !== 'all' && vis().indexOf(IMGS[j]) < 0) FILTER = 'all';   // don't hide what was clicked
-    render(); renderPanel();
-    const el = TILES.get(IMGS[j].id);
-    if (el && el.scrollIntoView) el.scrollIntoView({ block:'nearest', behavior:'smooth' });
-  });
+  // Clicking a thumb opens the loupe on that frame, scoped to the comment - which is what you want
+  // one of these for: to look at the frames properly and decide between them, arrows walking only them.
+  box.querySelectorAll('.snThumbs img').forEach(t => t.onclick = () =>
+    openScopedLoupe(SETNOTES[+t.dataset.n], t.dataset.id));
+  box.querySelectorAll('.snView').forEach(b => b.onclick = () => openScopedLoupe(SETNOTES[+b.dataset.i]));
   box.querySelectorAll('.snPick').forEach(b => b.onclick = () => { MULTI = new Set(SETNOTES[+b.dataset.i].ids); render(); });
   box.querySelectorAll('.snEdit').forEach(b => b.onclick = () => openSetNote(SETNOTES[+b.dataset.i]));
   box.querySelectorAll('.snDel').forEach(b => b.onclick = () => { SETNOTES.splice(+b.dataset.i, 1); render(); renderPanel(); });
@@ -1869,7 +1888,28 @@ function updateInputTag() {
              '. Click or press S to switch. Pinch and ⌘/ctrl+scroll always zoom either way.';
 }
 
-function openLoupe() {
+// Enter the loupe on one shared comment: its frames, in the order you picked them, with the comment
+// pinned above the photo.
+function openScopedLoupe(note, startId) {
+  const items = note.ids.map(id => IMGS.find(x => x.id === id)).filter(Boolean);
+  if (!items.length) { toast('those frames are gone'); return; }
+  LSCOPE = { text: note.text, items };
+  CUR = IMGS.indexOf(items.find(x => x.id === startId) || items[0]);
+  $('lscopeText').textContent = note.text || '(no comment written yet)';
+  $('lscope').hidden = false;
+  render(); renderPanel();
+  openLoupe(true);
+}
+
+function clearScope() {
+  if (!LSCOPE) return;
+  LSCOPE = null;
+  $('lscope').hidden = true;
+  if ($('loupe').classList.contains('on')) loadLoupe();
+}
+
+function openLoupe(keepScope) {
+  if (!keepScope) clearScope();
   if (!C()) return;
   const L = $('loupe');
   L.classList.remove('closing');
@@ -1886,7 +1926,7 @@ function closeLoupe() {
   if (!L.classList.contains('on') || L.classList.contains('closing')) return;
   clearTimeout(NOTE_T); NOTE_T = null;
   $('lnote').hidden = true; $('lnote').classList.remove('closing');
-  const done = () => { L.classList.remove('on', 'closing'); CLOSE_T = null; $('sheet').focus(); };
+  const done = () => { L.classList.remove('on', 'closing'); CLOSE_T = null; clearScope(); $('sheet').focus(); };
   if (matchMedia('(prefers-reduced-motion: reduce)').matches) return done();
   L.classList.add('closing');
   clearTimeout(CLOSE_T);
@@ -1955,7 +1995,7 @@ function loadLoupe() {
   $('lvb').dataset.s = it.state;
   $('lvb').querySelector('.g').textContent = meta.g;
   $('lvbT').textContent = meta.t;
-  const list = vis();
+  const list = navList();
   $('lpos').textContent = (list.indexOf(it) + 1) + ' / ' + list.length;
   if (!$('lnote').hidden) {                 // moving to another frame re-points the open note
     $('lnoteName').textContent = it.name;
@@ -2093,16 +2133,24 @@ function zoomAt(cx, cy, factor, animate) {
 })();
 
 /* --- navigation + keys -------------------------------------------------------------------------- */
+// While the loupe is walking one shared comment's frames, that group IS the list - the sheet's filter
+// and sort do not apply, and the ends wrap, because a handful of frames you are comparing is a loop
+// you go round rather than a strip you run off.
+let LSCOPE = null;                        // { text, items } or null
+const navList = () => (LSCOPE && LSCOPE.items.length) ? LSCOPE.items : vis();
+
 function move(dir) {
-  const list = vis(); if (!list.length) return;
+  const list = navList(); if (!list.length) return;
   const cur = C();
   let i = list.indexOf(cur);
-  i = i < 0 ? 0 : clamp(i + dir, 0, list.length - 1);
+  i = i < 0 ? 0
+      : LSCOPE ? (i + dir + list.length) % list.length
+      : clamp(i + dir, 0, list.length - 1);
   CUR = IMGS.indexOf(list[i]);
   render(); renderPanel();
   if ($('loupe').classList.contains('on')) loadLoupe();
   else {
-    const el = $('sheet').children[i];
+    const el = TILES.get(list[i].id);
     if (el && el.scrollIntoView) el.scrollIntoView({ block:'nearest', behavior:'smooth' });
   }
   // Photo Mechanic's speed is preloading, not clever UI — keep the neighbours warm.
@@ -2310,6 +2358,7 @@ updateInputTag();
 $('setComment').oninput = saveState;
 $('btnLoupe').onclick = openLoupe;
 $('btnCommit').onclick = askCommit;
+$('lscopeOut').onclick = clearScope;
 $('cCancel').onclick = closeConfirm;
 $('cGo').onclick = commit;
 $('confirmWrap').onpointerdown = e => { if (e.target === $('confirmWrap')) closeConfirm(); };
