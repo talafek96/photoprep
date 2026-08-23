@@ -542,6 +542,40 @@ body.locked .locknote { display:flex; }
 .snText { font-size:11.5px; color:var(--fg); line-height:1.5; }
 .snText::before { content:'“'; color:var(--faint); } .snText::after { content:'”'; color:var(--faint); }
 
+/* --- commit confirmation -------------------------------------------------------------------------
+ * Committing ends the review and sends it back to me, and Enter is far too easy to hit by accident
+ * (it has happened). So it asks - and the ask doubles as the last look at what is actually going out.
+ */
+#confirmWrap {
+  position:fixed; inset:0; z-index:75; display:grid; place-items:center;
+  background:oklch(0.11 0.004 70 / 62%); backdrop-filter:blur(6px);
+  animation:lfade .18s var(--ease-out) both;
+}
+#confirm {
+  width:min(460px, calc(100% - 32px)); padding:16px 18px 18px;
+  background:var(--surface); border:1px solid var(--border-strong); border-radius:var(--radius-lg);
+  box-shadow:0 26px 60px -20px oklch(0 0 0 / 75%), var(--highlight);
+  animation:noteIn .24s var(--ease-out) both;
+}
+#confirm h4 { margin:0 0 3px; font-size:14px; color:var(--fg); font-weight:600; }
+#confirm .sub { margin:0 0 12px; font-size:11.5px; color:var(--mut); line-height:1.6; }
+#cTally { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:11px; }
+#cTally .t {
+  display:flex; align-items:center; gap:5px; padding:4px 9px; border-radius:999px;
+  border:1px solid var(--border); font-size:11px; color:var(--mut);
+}
+#cTally .t b { color:var(--fg); font-family:var(--mono); font-size:12px; }
+#cTally .t .d { width:7px; height:7px; border-radius:50%; }
+#cTally .t[data-s=selected]  .d { background:var(--st-sel); }
+#cTally .t[data-s=maybe]     .d { background:var(--st-may); }
+#cTally .t[data-s=rejected]  .d { background:var(--st-rej); }
+#cTally .t[data-s=untouched] .d { background:var(--st-unt); }
+#cWarn {
+  font-size:11.5px; line-height:1.55; color:var(--st-may); margin:0 0 12px;
+  border-left:2px solid var(--st-may); padding-left:9px;
+}
+#cWarn[hidden] { display:none; }
+
 /* --- context menu ------------------------------------------------------------------------------- */
 #ctx {
   position:fixed; z-index:80; min-width:210px; padding:5px;
@@ -861,6 +895,19 @@ kbd {
     <div class="row" style="margin-top:9px">
       <button id="gnoteCancel">Cancel</button>
       <button id="gnoteSave" class="primary">Save comment</button>
+    </div>
+  </div>
+</div>
+
+<div id="confirmWrap" hidden>
+  <div id="confirm" role="dialog" aria-modal="true" aria-labelledby="cTitle">
+    <h4 id="cTitle">Send this review back?</h4>
+    <p class="sub">This ends the pass and hands the whole thing over - every verdict, note, score and group.</p>
+    <div id="cTally"></div>
+    <p id="cWarn" hidden></p>
+    <div class="row">
+      <button id="cCancel">Keep reviewing <kbd>esc</kbd></button>
+      <button id="cGo" class="primary">Send it <kbd>⏎</kbd></button>
     </div>
   </div>
 </div>
@@ -2034,6 +2081,14 @@ addEventListener('keydown', e => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && e.target.id === 'gnoteText') { e.preventDefault(); saveSetNote(); }
     return;
   }
+  // While the confirm is up it is the only thing listening - otherwise Enter would re-ask and the
+  // shortcuts underneath would keep editing a review you have already decided to send.
+  if (!$('confirmWrap').hidden) {
+    if (e.key === 'Escape') { e.preventDefault(); closeConfirm(); }
+    else if (e.key === 'Enter') { e.preventDefault(); commit(); }
+    return;
+  }
+
   const it = C();
   const k = e.key.toLowerCase();
   const open = $('loupe').classList.contains('on');
@@ -2052,7 +2107,7 @@ addEventListener('keydown', e => {
   }
   if (e.key === 'ArrowRight') { e.preventDefault(); move(1); return; }
   if (e.key === 'ArrowLeft')  { e.preventDefault(); move(-1); return; }
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commit(); return; }
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); askCommit(); return; }
   if (e.key === ' ') { e.preventDefault(); open ? closeLoupe() : openLoupe(); return; }
 
   if (open) {
@@ -2214,7 +2269,10 @@ $('inputTag').onclick = toggleScrollMode;
 updateInputTag();
 $('setComment').oninput = saveState;
 $('btnLoupe').onclick = openLoupe;
-$('btnCommit').onclick = commit;
+$('btnCommit').onclick = askCommit;
+$('cCancel').onclick = closeConfirm;
+$('cGo').onclick = commit;
+$('confirmWrap').onpointerdown = e => { if (e.target === $('confirmWrap')) closeConfirm(); };
 
 /* --- the report -------------------------------------------------------------------------------
  * The diff IS the product. An override is feedback; it should never need explaining in prose too. */
@@ -2281,7 +2339,34 @@ function buildResult() {
   };
 }
 
+// Enter used to commit outright. Now it asks, and the ask shows the tally so the last thing you see
+// before sending is what you are actually sending.
+function askCommit() {
+  if (!IMGS.length) { toast('nothing to commit yet'); return; }
+  const tally = { selected:0, maybe:0, rejected:0, untouched:0 };
+  IMGS.forEach(i => tally[i.state]++);
+  $('cTally').innerHTML = ['selected','maybe','rejected','untouched']
+    .filter(k => tally[k])
+    .map(k => '<span class="t" data-s="' + k + '"><span class="d"></span><b>' + tally[k] + '</b> ' +
+              ST[k].t.toLowerCase() + '</span>').join('');
+
+  // The two things worth a second look: frames you never ruled on, and frames I am still waiting on.
+  const bits = [];
+  if (tally.untouched) bits.push(tally.untouched + ' frame' + (tally.untouched > 1 ? 's' : '') +
+    ' you never ruled on - they go back as not picked');
+  if (tally.maybe) bits.push(tally.maybe + ' marked maybe - I will come back to you on ' +
+    (tally.maybe > 1 ? 'those' : 'that'));
+  $('cWarn').hidden = !bits.length;
+  $('cWarn').textContent = bits.join('. ') + (bits.length ? '.' : '');
+
+  $('confirmWrap').hidden = false;
+  $('cGo').focus();
+}
+
+function closeConfirm() { $('confirmWrap').hidden = true; }
+
 function commit() {
+  closeConfirm();
   const r = buildResult();
   window.__result = r;
   const b = $('btnCommit');
