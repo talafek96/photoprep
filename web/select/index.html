@@ -651,6 +651,14 @@ body.locked .locknote { display:flex; }
 }
 #inputTag:hover { border-color:var(--border-strong); color:var(--fg); }
 #inputTag kbd { margin:0 0 0 5px; font-size:8.5px; padding:0 4px; }
+/* Every control that has a shortcut shows it on itself. A key that only exists in a legend behind a
+   button is a key nobody knows about. */
+button kbd {
+  margin:0 0 0 6px; font-size:8.5px; padding:1px 4px; opacity:.72;
+  background:oklch(0 0 0 / 22%); border-color:oklch(1 0 0 / 14%); color:inherit;
+}
+.seg4 button kbd { margin:0; }
+label kbd { margin-left:5px; font-size:8.5px; padding:0 4px; }
 kbd {
   font-family:var(--mono); font-size:9px; background:var(--surface-2); color:var(--mut);
   border:1px solid var(--border); border-radius:3px; padding:1px 5px; margin-right:4px;
@@ -714,7 +722,8 @@ kbd {
       <p>A score is <em>relative to its group</em>, never absolute — a 7 at Kasaneiwa and a 7 at Angel Road are not the same claim. Focus a frame and press a digit (<kbd>0</kbd> is ten, <kbd>`</kbd> clears); the panel shows where it now ranks among the scored frames of that group, and the tile shows <b class="pl">8 #1</b>. Sorting by <em>Score in group</em> keeps groups together and ranks inside each. So the useful move is: filter to a group, score its frames against each other, and tell me to take the top few.</p>
 
       <h3>Keys</h3>
-      <p>The flag keys follow Lightroom: <kbd>P</kbd> pick / keep · <kbd>X</kbd> reject / cut · <kbd>U</kbd> unpick · plus <kbd>M</kbd> for maybe, which Lightroom has no equivalent of.</p>
+      <p>The flag keys follow Lightroom: <kbd>P</kbd> pick / keep · <kbd>X</kbd> reject / cut · <kbd>U</kbd> unpick · plus <kbd>M</kbd> for maybe, which Lightroom has no equivalent of. With several frames selected they apply to all of them.</p>
+      <p><kbd>C</kbd> comments: on the focused frame, or — with several selected — one comment about them <em>together</em>. Every button that has a key shows it, so you should not need this list.</p>
       <p><kbd>Space</kbd> loupe · <kbd>Z</kbd> zoom fit ↔ 100% · <kbd>←</kbd><kbd>→</kbd> move · <kbd>F</kbd> filter · <kbd>⏎</kbd> commit</p>
       <p>Inside the loupe: <kbd>T</kbd> opens everything you can say about the frame you are looking at — score, tags and a note — without going back to the sheet. Digits are the zoom presets in there, so the score is a slider. <kbd>S</kbd> switches whether scrolling zooms or pans.</p>
       <p><kbd>R</kbd> reverts a frame to <em>my</em> proposal and clears the 🔒. Pressing a verdict the frame is already in also sends it back to <b data-s="untouched">○ Not picked</b>.</p>
@@ -734,12 +743,12 @@ kbd {
     </span>
     <span class="sp"></span>
     <span class="mact">
-      <button id="mKeep">✓ Keep all</button>
-      <button id="mMaybe">? Maybe all</button>
-      <button id="mCut">✕ Cut all</button>
-      <button id="mComment">💬 Comment on these</button>
+      <button id="mKeep">✓ Keep all <kbd>P</kbd></button>
+      <button id="mMaybe">? Maybe all <kbd>M</kbd></button>
+      <button id="mCut">✕ Cut all <kbd>X</kbd></button>
+      <button id="mComment">💬 Comment on these <kbd>C</kbd></button>
       <button id="mScore">Score all…</button>
-      <button id="mClear">Clear</button>
+      <button id="mClear">Clear <kbd>esc</kbd></button>
     </span>
   </div>
   <div id="status">
@@ -777,10 +786,10 @@ kbd {
       <div id="frameCtl" hidden>
         <label>Verdict</label>
         <div class="seg4" id="verdict">
-          <button data-v="selected"><span class="g">✓</span>Keep</button>
-          <button data-v="maybe"><span class="g">?</span>Maybe</button>
-          <button data-v="rejected"><span class="g">✕</span>Cut</button>
-          <button data-v="untouched" title="U — unpick, as in Lightroom"><span class="g">○</span>Not picked</button>
+          <button data-v="selected"><span class="g">✓</span>Keep <kbd>P</kbd></button>
+          <button data-v="maybe"><span class="g">?</span>Maybe <kbd>M</kbd></button>
+          <button data-v="rejected"><span class="g">✕</span>Cut <kbd>X</kbd></button>
+          <button data-v="untouched" title="unpick, as in Lightroom"><span class="g">○</span>Not picked <kbd>U</kbd></button>
         </div>
         <div class="locknote"><span>🔒</span><span>You set this one by hand, so tags no longer move it. Press <kbd>U</kbd> then re-tag to hand it back.</span></div>
 
@@ -797,7 +806,7 @@ kbd {
           <div class="hint" id="scoreRank"></div>
         </div>
 
-        <label for="frameText">Note on this frame</label>
+        <label for="frameText">Note on this frame <kbd>C</kbd></label>
         <textarea id="frameText" rows="2" placeholder="one line is plenty"></textarea>
 
         <div id="altWrap" hidden>
@@ -810,7 +819,7 @@ kbd {
 
   <div class="foot">
     <div class="row">
-      <button id="btnLoupe">⛶ Loupe</button>
+      <button id="btnLoupe">⛶ Loupe <kbd>space</kbd></button>
       <button id="btnCommit" class="primary"><span class="lbl">Commit ⏎</span><span class="tick">✓</span></button>
     </div>
     <p class="hint" id="commitHint">Maybe frames come back to me as questions, not decisions.</p>
