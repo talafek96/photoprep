@@ -3,6 +3,7 @@
 // photoprep — start the local app.
 //
 //   photoprep                     open the home screen
+//   photoprep select <folder>     go straight to choosing which frames make the cut
 //   photoprep layout              go straight to the framing tool
 //   photoprep watermark <folder>  go straight to watermarking, staged from a folder
 //
@@ -18,7 +19,7 @@ const { createServer } = require('../src/server');
 const { openBrowser } = require('../src/open-browser');
 const P = require('../src/paths');
 
-const TOOLS = ['layout', 'watermark', 'settings'];
+const TOOLS = ['select', 'layout', 'watermark', 'settings'];
 
 function parse(argv) {
   const o = { tool: '', folder: '', open: true };
@@ -41,7 +42,7 @@ function parse(argv) {
 async function main() {
   const o = parse(process.argv.slice(2));
   if (o.help) {
-    console.log(require('fs').readFileSync(__filename, 'utf8').split('\n').slice(2, 16).map(l => l.replace(/^\/\/ ?/, '')).join('\n'));
+    console.log(require('fs').readFileSync(__filename, 'utf8').split('\n').slice(2, 17).map(l => l.replace(/^\/\/ ?/, '')).join('\n'));
     return;
   }
   const app = createServer(o);

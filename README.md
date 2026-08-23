@@ -56,7 +56,7 @@ Your marks and settings live outside the install, so upgrading never touches the
 
 ## Driving it from a script or an AI assistant
 
-Both tools expose automation hooks on `window`, so an assistant can set a job up and hand the
+All three tools expose automation hooks on `window`, so an assistant can set a job up and hand the
 browser to a person for the judgement calls:
 
 ```js

@@ -2714,5 +2714,23 @@ if (window.__runtime) window.__runtime.ready.then(() => { window.__ready = true;
 else window.__ready = true;
 
 render(); renderPanel();
-restoreState();      // a reload picks up exactly where the review was left
+const RESTORED = restoreState();   // a reload picks up exactly where the review was left
+
+// `photoprep select <folder>` opens straight onto a folder, with no assistant involved: every photo
+// in it arrives as "not picked", for you to keep or cut. It never overwrites a review in progress -
+// a restored session wins, since losing that to a stray command line would be the worse mistake.
+(async function fromCommandLine() {
+  const dir = new URLSearchParams(location.search).get('folder');
+  if (!dir || RESTORED) return;
+  const j = await fetch('/list?dir=' + encodeURIComponent(dir)).then(r => r.json()).catch(() => null);
+  if (!j || !j.ok || !j.files.length) { toast('no photos in ' + dir); return; }
+  const label = dir.split('/').filter(Boolean).pop();
+  noteDir(dir + '/x');
+  addCandidates(j.files.map(f => ({
+    id: dir + '/' + f.name, name: f.name, path: dir + '/' + f.name, bytes: f.size || 0,
+    url: '/file?path=' + encodeURIComponent(dir + '/' + f.name), date: f.mtime || 0,
+  })), 'folder-' + label.toLowerCase().replace(/[^a-z0-9]+/g, '-'), label);
+  $('setPrompt').textContent = j.files.length + ' photos from ' + label + '. Nothing is picked yet.';
+  render(); renderPanel();
+})();
 </script>
