@@ -1,6 +1,6 @@
 {
   "name": "photoprep",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Local, GUI-first workshop for prepping photos to post: frame landscapes (stack / pano-split) and watermark them. Runs as an app in your browser; scriptable for automation.",
   "keywords": [
     "photo",

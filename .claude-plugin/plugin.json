@@ -1,9 +1,18 @@
 {
   "name": "photoprep",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Drive photoprep's browser tools - choose which photos make the cut, frame landscapes for a portrait-first feed, and batch-watermark - handing the judgement calls back to a person instead of guessing at them.",
-  "author": { "name": "Tal Afek", "url": "https://github.com/talafek96/photoprep" },
+  "author": {
+    "name": "Tal Afek",
+    "url": "https://github.com/talafek96/photoprep"
+  },
   "homepage": "https://github.com/talafek96/photoprep",
   "license": "Apache-2.0",
-  "keywords": ["photos", "instagram", "curation", "watermark", "panorama"]
+  "keywords": [
+    "photos",
+    "instagram",
+    "curation",
+    "watermark",
+    "panorama"
+  ]
 }
