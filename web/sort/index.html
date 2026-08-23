@@ -115,6 +115,9 @@ body.dragging .slide { will-change:transform; }
   animation:none; box-shadow:none;
 }
 .slide.placeholder .hd, .slide.placeholder .media, .slide.placeholder .ft { opacity:.14; }
+/* while a stack is armed the gap is still there but is no longer the destination, so it stops
+   advertising itself - a layout-free way to say "not here" */
+.slide.placeholder.muted { border-color:var(--border); background:transparent; }
 body.dragging, body.dragging .slide { cursor:grabbing; }
 body.dragging .slide:hover { border-color:var(--border); }
 
@@ -1135,29 +1138,90 @@ function ghostFrom(el, x, y) {
   DRAG.ghost = g;
 }
 
-/* Where you are over a card decides WHAT the drop means, and it is answered by geometry alone -
- * no timers deciding your intent, no hidden mode. The card is read as three zones:
+/* Where the DRAGGED CARD is decides what the drop means - not where the cursor is.
  *
- *      ┌───────────────┐        left  edge  →  reorder, land before this card
- *      │ ↑  goes on top│        centre-top  →  stack, your frame ON TOP
- *      ├ ─ ─ ─ ─ ─ ─ ─ ┤        centre-low  →  stack, your frame UNDERNEATH
- *      │ ↓ goes under  │        right edge  →  reorder, land after this card
+ * That distinction is the whole difference between this feeling clunky and feeling like it reads
+ * your intent, and it is react-beautiful-dnd's stated first principle: "a dragging item's impact is
+ * based on its centre of gravity - regardless of where a user grabs an item from". Grab a card by
+ * its bottom-right corner and a pointer-driven board decides against a point ~140px away from the
+ * card you are watching. Framer Motion's Reorder does the same thing (dragged rect centre + offset).
+ * The libraries that do use the raw pointer - SortableJS, Pragmatic drag and drop - only get away
+ * with it because the browser's own hit-testing already chose the element for them; we have no such
+ * step, so we are in rbd's situation, and we use the rect.
+ *   https://github.com/atlassian/react-beautiful-dnd/blob/master/docs/about/design-principles.md
+ *
+ * The card then reads as three bands along its width:
+ *
+ *      ┌───────────────┐        left  quarter  →  reorder, land before this card
+ *      │ ↑  goes on top│        middle half    →  stack; high = on top, low = underneath
+ *      ├ ─ ─ ─ ─ ─ ─ ─ ┤        right quarter  →  reorder, land after this card
+ *      │ ↓ goes under  │
  *      └───────────────┘
  *
- * So which of the two frames ends up on top is just where your cursor is - move it up, it goes on
- * top; move it down, it goes under. On a card that is already a stack the same halves mean "replace
- * this half", which is the same idea and needs no second explanation.
+ * A quarter at each end is not a guess: rbd computes `childSize / combineThresholdDivisor` with
+ * that divisor set to 4, and Atlassian's successor library reaches for `borderBox[axis.size] / 4`
+ * again. Same number, same author, six years apart, in two independent codebases.
+ *   https://github.com/atlassian/pragmatic-drag-and-drop/blob/main/packages/hitbox/src/attach-instruction-2.ts
+ *
+ * There is NO dwell timer here, and that is deliberate: no shipped library gates the combine-vs-
+ * reorder decision on time. It is geometry, made sticky by hysteresis instead - the band you have
+ * to leave is smaller than the band you had to enter, which is rbd's trick of measuring a different
+ * edge on the way out than on the way in.
  */
+const ENTER = 0.25;      // rbd's combineThresholdDivisor: 4, and pdnd's quarterOfSize
+const EXIT  = 0.15;      // leaving costs less ground than entering, so the decision holds
+const FLIP  = 0.08;      // and the top/bottom line has its own dead band, or the preview strobes
+
 const canStack = (a, b) => a && b && a !== b && a.kind === 'solo' && b.kind === 'solo';
 
-function zoneFor(el, tgt, x, y) {
+// Zero anywhere INSIDE the box, growing with distance outside it. Distance-to-CENTRE would punish a
+// wide card for being wide - a 5-tile split's centre is far away even when you are standing in the
+// middle of it - which is the direct cause of dnd-kit's open "variable size elements jitter" bugs.
+// Framer Motion uses this instead, and it is the right metric for cards that differ 1-5x in width.
+//   https://github.com/motiondivision/motion/blob/main/packages/framer-motion/src/components/Reorder/utils/check-reorder.ts
+function distanceToBox(p, r) {
+  const dx = Math.max(r.x - p.x, 0, p.x - (r.x + r.w));
+  const dy = Math.max(r.y - p.y, 0, p.y - (r.y + r.h));
+  return dx * dx + dy * dy;
+}
+
+/* The card the dragged frame is standing on. Its centre has to be INSIDE one, not merely nearest to
+ * one - "nearest" means every position on the board is aiming at something, which is how a board
+ * combines things you were only travelling past.
+ *
+ * Note WHICH layout this reads. Reordering is measured against the frozen drag-start slots, because
+ * those never move and so cannot feed back into themselves. But combining has to be measured against
+ * where the cards are ACTUALLY STANDING right now, gap and all - otherwise the centre is tested
+ * against a position the card you are looking at has already vacated. rbd resolves the same tension
+ * the same way: it tests the displaced layout, computed arithmetically from the original rects, and
+ * leans on asymmetric thresholds to keep the loop from closing. Ours are ENTER/EXIT plus the travel
+ * lock, and while a target is armed the board is held still, so nothing moves under the decision.
+ *   https://github.com/atlassian/react-beautiful-dnd/blob/master/src/state/get-drag-impact/index.js
+ */
+function cardUnder(c) {
+  let best = null, bd = Infinity;
+  DRAG.rest.forEach(id => {
+    const r = DRAG.shown.get(id); if (!r) return;
+    const d = distanceToBox(c, r);
+    if (d < bd) { bd = d; best = Object.assign({ id }, r); }
+  });
+  return bd === 0 ? best : null;
+}
+
+function zoneFor(slot, tgt, c) {
   const me = DRAG.byId.get(DRAG.id);
-  const r = el.getBoundingClientRect();
-  const fx = (x - r.left) / r.width;
-  if (fx <= 0.24 || fx >= 0.76) return null;                       // the edges are for reordering
-  const media = el.querySelector('.media');
-  const m = media ? media.getBoundingClientRect() : r;
-  const upper = y < m.top + m.height / 2;
+  const armed = DRAG.target && DRAG.target.id === tgt.id;
+  const edge = armed ? EXIT : ENTER;
+  const fx = (c.x - slot.x) / slot.w;
+  // `<=` and `>=`, so the exact line falls to REORDER - Atlassian's deliberate tie-break, on the
+  // grounds that reordering is the commoner intent and the cheaper mistake
+  if (fx <= edge || fx >= 1 - edge) return null;
+
+  const mid = slot.y + slot.h / 2;
+  const bias = armed ? slot.h * FLIP : 0;
+  const wasUpper = armed && (DRAG.target.mode === 'swap' ? DRAG.target.pane === 0 : DRAG.target.top);
+  const upper = c.y < mid + (wasUpper ? bias : -bias);
+
   if (tgt.kind === 'stack' && me.kind === 'solo') return { mode:'swap', pane: upper ? 0 : 1 };
   if (canStack(me, tgt)) return { mode:'stack', top: upper };
   return null;
@@ -1266,27 +1330,55 @@ function beginDrag(x, y) {
   DRAG.home = DRAG.ids.indexOf(DRAG.id);
   DRAG.rest = DRAG.ids.filter(id => id !== DRAG.id);
   DRAG.base = project(DRAG.ids, geo);            // where everything sits right now
-  DRAG.slots = project(DRAG.rest, geo);          // the gaps the pointer is measured against
+  DRAG.slots = project(DRAG.rest, geo);          // the frozen layout every decision is measured against
+  DRAG.slotArr = DRAG.rest.map(id => Object.assign({ id }, DRAG.slots.get(id)));
+  DRAG.lines = linesOf(DRAG.slotArr);
   DRAG.idx = DRAG.home;
+  DRAG.shown = DRAG.base;                // nothing has shifted yet
+  DRAG.lockX = x; DRAG.lockY = y;
   const el = CARDS.get(DRAG.id);
   ghostFrom(el, x, y);
   el.classList.add('placeholder');
   document.body.classList.add('dragging');
 }
 
-/* Which gap the pointer is in. Measured against the slots the OTHER cards occupy, which never move
- * during the drag - so the answer is a pure function of pointer position and cannot oscillate.
- * Hit-testing the live, already-shifted cards is what makes lesser implementations flicker between
- * two indices when you hold still on a boundary. */
-function indexFromPoint(px, py) {
-  const b = $('board').getBoundingClientRect();
-  const x = px - b.left - DRAG.geo.padL;
-  const y = py - b.top - DRAG.geo.padT + $('board').scrollTop;
-  let idx = 0;
-  DRAG.slots.forEach(p => {
-    if (y > p.y + p.h) idx++;                                   // a whole row above the pointer
-    else if (y >= p.y && x > p.x + p.w / 2) idx++;              // same row, and left of the pointer
+/* Which gap the dragged card is in, measured against the slots the OTHER cards occupied at drag
+ * start. Those never move, which matters more than it sounds: the decision closes or opens a gap,
+ * which moves the board, and a board that hit-tests what it just moved oscillates. SortableJS names
+ * that bug "swap glitching" and spends three mechanisms defending against it; rbd's source calls the
+ * same loop "goto 1 (boom)". Projecting arithmetically and never re-measuring avoids the class.
+ *   https://github.com/SortableJS/Sortable/wiki/Swap-Thresholds-and-Direction
+ *
+ * Rows are found from actual vertical overlap rather than "how many fit per row", because a stack is
+ * taller than a solo and splits are 1-5 cards wide, so there is no cell size to divide by. Framer
+ * Motion's grid reorder does the same, and its own postmortem of the version that used modular
+ * arithmetic says it "collapsed with wrapped flex layouts, uneven last rows, or mixed sizes".
+ *   https://github.com/motiondivision/motion/blob/main/plans/018-reorder-multidimensional.md
+ */
+function linesOf(slots) {
+  const lines = [];
+  slots.forEach(sl => {
+    const line = lines[lines.length - 1];
+    if (!line || sl.y >= line.max || sl.y + sl.h <= line.min) {
+      lines.push({ items:[sl], min:sl.y, max:sl.y + sl.h });
+    } else {
+      line.items.push(sl);
+      line.min = Math.min(line.min, sl.y);
+      line.max = Math.max(line.max, sl.y + sl.h);
+    }
   });
+  return lines;
+}
+const distToLine = (y, l) => (y < l.min ? l.min - y : y > l.max ? y - l.max : 0);
+
+function indexFromCentre(c) {
+  const lines = DRAG.lines;
+  if (!lines.length) return 0;
+  let row = lines[0];
+  lines.forEach(l => { if (distToLine(c.y, l) < distToLine(c.y, row)) row = l; });
+  const before = row.items.find(sl => c.x < sl.x + sl.w / 2);
+  const idx = before ? DRAG.rest.indexOf(before.id)
+                     : DRAG.rest.indexOf(row.items[row.items.length - 1].id) + 1;
   return clamp(idx, 0, DRAG.rest.length);
 }
 
@@ -1299,6 +1391,7 @@ function preview(idx) {
   order.splice(idx, 0, DRAG.id);
   DRAG.order = order;
   const next = project(order, DRAG.geo);
+  DRAG.shown = next;                     // what the board is now showing, for the combine hit-test
   DRAG.base.forEach((p, id) => {
     const q = next.get(id), el = CARDS.get(id);
     if (!q || !el) return;
@@ -1333,7 +1426,7 @@ $('board').addEventListener('pointerdown', e => {
   setCur(i);
   const pane = e.target.closest('.pane');
   DRAG = {
-    id: card.dataset.id, x0:e.clientX, y0:e.clientY, on:false, target:null, tkey:null, hoverAt:0,
+    id: card.dataset.id, x0:e.clientX, y0:e.clientY, on:false, target:null,
     // grabbing one half of a stack means you want that frame, not the pair
     panel: (SLIDES[i].kind === 'stack' && pane) ? Number(pane.dataset.panel || 0) : -1,
     raf: 0, last: null,
@@ -1360,43 +1453,55 @@ function step() {
     snapshot();
     if (DRAG.panel >= 0) pullPanel();
     if (!CARDS.get(DRAG.id)) { DRAG = null; return; }
-    beginDrag(x, y);
+    // measured from where the press actually landed, so the card stays under the exact spot it was
+    // grabbed by - not from wherever the pointer had reached by the first animation frame
+    beginDrag(DRAG.x0, DRAG.y0);
   }
 
   DRAG.ghost.style.transform = 'translate3d(' + (x - DRAG.ox) + 'px,' + (y - DRAG.oy) + 'px,0)';
 
-  // The ghost is pointer-events:none, so what is under the cursor is the real board.
-  const under = document.elementFromPoint(x, y);
-  const overCard = under && under.closest ? under.closest('.slide') : null;
-  const overPane = under && under.closest ? under.closest('.pane') : null;
-  const tgt = overCard && overCard !== CARDS.get(DRAG.id) ? DRAG.byId.get(overCard.dataset.id) : null;
+  // Where the dragged CARD is, in the board's own coordinates - the pointer offset by wherever it
+  // was grabbed. Every decision below is made from this, never from the cursor.
+  const b = $('board').getBoundingClientRect();
+  const me = DRAG.geo.byId.get(DRAG.id);
+  const c = {
+    x: x - DRAG.ox - b.left - DRAG.geo.padL + me.w / 2,
+    y: y - DRAG.oy - b.top - DRAG.geo.padT + $('board').scrollTop + me.h / 2,
+  };
 
-  if (tgt) {
-    const zone = zoneFor(overCard, tgt, x, y);
-    if (zone) {
-      // A short dwell, not a long hold: sweeping across a row to reorder passes through the middle
-      // of every card on the way, and 150ms separates "on my way past" from "here". It has to be a
-      // TIMER rather than a check on the next pointer event - hold perfectly still over the target,
-      // which is exactly what someone deciding does, and no further events arrive to arm it.
-      const key = tgt.id + ':' + zone.mode + ':' + (zone.pane != null ? zone.pane : zone.top);
-      overCard.classList.add('zoneHint');
-      if (DRAG.tkey !== key) {
-        DRAG.tkey = key;
-        clearTimeout(DRAG.armT);
-        if (DRAG.target) { DRAG.target = null; clearTargets(); DRAG.tkey = key; }
-        DRAG.armT = setTimeout(() => {
-          if (!DRAG || DRAG.tkey !== key) return;
-          DRAG.target = Object.assign({ id:tgt.id }, zone);
-          armDrop(overCard, tgt, zone);
-          preview(DRAG.home);          // dropping ONTO a card is not a reorder: close the gap
-        }, 150);
-      }
-      return;
-    }
-    if (DRAG.tkey) { DRAG.tkey = null; clearTimeout(DRAG.armT); DRAG.target = null; clearTargets(); }
-  } else if (DRAG.tkey) { DRAG.tkey = null; clearTimeout(DRAG.armT); DRAG.target = null; clearTargets(); }
+  const ph = CARDS.get(DRAG.id);
+  const slot = cardUnder(c);
+  const tgt = slot ? DRAG.byId.get(slot.id) : null;
+  let want = (slot && tgt) ? zoneFor(slot, tgt, c) : null;
+  want = want ? Object.assign({ id:tgt.id }, want) : null;
 
-  preview(indexFromPoint(x, y));
+  // A travel lock, from dnd-kit's own fix for this: having committed to a target, refuse to leave it
+  // until the hand has actually gone somewhere - 10px, measured to turn 20 jitter-flips into 2. It
+  // is imperceptible against deliberate motion and decisive against a trembling hand.
+  //   https://github.com/clauderic/dnd-kit/pull/2101
+  if (DRAG.target && (!want || want.id !== DRAG.target.id)) {
+    if (Math.hypot(x - DRAG.lockX, y - DRAG.lockY) < 10) want = DRAG.target;
+  }
+
+  const same = want && DRAG.target && want.id === DRAG.target.id && want.mode === DRAG.target.mode &&
+               want.top === DRAG.target.top && want.pane === DRAG.target.pane;
+  if (want) {
+    if (!same) { DRAG.lockX = x; DRAG.lockY = y; }
+    DRAG.target = want;
+    const el = CARDS.get(want.id);
+    el.classList.add('zoneHint');
+    armDrop(el, DRAG.byId.get(want.id), want);   // no-ops when the instruction has not changed
+    // The gap deliberately STAYS OPEN. Closing it was the last feedback loop left in here: arming
+    // moved every card after the gap by a whole slot, and the next frame read the board it had just
+    // moved - so entering combine could hand you a different card than the one you aimed at. rbd
+    // keeps its displacement across combine for exactly this reason. The gap stops *claiming* to be
+    // the destination instead, which costs no layout.
+    ph.classList.add('muted');
+    return;
+  }
+  if (DRAG.target) { DRAG.target = null; clearTargets(); DRAG.lockX = x; DRAG.lockY = y; }
+  ph.classList.remove('muted');
+  preview(indexFromCentre(c));
 
   // edge autoscroll, so a drag can reach a slide that is off-screen
   const bb = $('board').getBoundingClientRect();
@@ -1408,11 +1513,10 @@ function endDrag() {
   if (!DRAG) return;
   const d = DRAG; DRAG = null;
   if (d.raf) cancelAnimationFrame(d.raf);
-  clearTimeout(d.armT);
   clearTargets();
   document.body.classList.remove('dragging');
   const el = CARDS.get(d.id);
-  if (el) el.classList.remove('placeholder');
+  if (el) el.classList.remove('placeholder', 'muted');
   if (!d.on) return;                                   // it was a click
 
   // Settle the ghost onto the slot it is landing in, then hand back to the real card. Letting it

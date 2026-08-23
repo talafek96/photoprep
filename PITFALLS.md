@@ -182,3 +182,34 @@ the animation's value — so the element is provably "supposed to" be at the new
 visibly at the old one. It looks like broken drag maths, and you will rewrite the geometry twice
 before suspecting a decorative fade. The same trap hits FLIP, spring animations, and anything else
 that positions by writing `transform` to an element that once animated in.
+
+## A drag decision that moves the layout it reads will oscillate
+
+**Hit-testing the board you just rearranged is a limit cycle, and it is the single most common bug in
+drag-and-drop reordering.** SortableJS names it *swap glitching*; react-beautiful-dnd's source calls
+the same loop `goto 1 (boom)`; dnd-kit has open issues for it years on.
+
+The shape: the pointer enters a zone → the code opens a gap → the gap moves the cards → the pointer
+is now in a different card's zone → it opens a different gap → repeat, forever, without the hand
+moving at all.
+
+Three defences, all of which this repo's Sort board needs:
+
+```js
+// 1. hit-test a FROZEN layout, projected arithmetically - never re-measure the live DOM
+DRAG.slots = project(idsWithoutTheDraggedOne, geo);   // computed once, at drag start
+
+// 2. asymmetric thresholds: leaving costs less ground than entering
+const edge = alreadyArmed ? 0.15 : 0.25;
+
+// 3. a travel lock: having committed to a target, require the HAND to move before switching
+if (Math.hypot(x - lockX, y - lockY) < 10) want = current;
+```
+
+And the structural one: **do not reflow the board when arming a drop-into target.** Closing the gap
+to say "this is not a reorder" moves every card after it by a full slot, which is far larger than any
+jitter threshold can absorb. Say it without moving anything — dim the gap instead.
+
+The libraries that project layouts arithmetically (react-beautiful-dnd, Framer Motion) do not have
+this bug class. The ones that re-measure the mutated DOM (SortableJS, dnd-kit) ship three or four
+mitigations each and still have open reports.
