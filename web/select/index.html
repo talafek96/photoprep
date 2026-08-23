@@ -617,6 +617,14 @@ body.locked .locknote { display:flex; }
 }
 #cWarn[hidden] { display:none; }
 
+/* The note box needs a visible way out. Escape alone is a shortcut you have to already know, and
+   the box covers the photo you opened it to look at. */
+#lnote > label { display:flex; align-items:center; gap:7px; }
+#lnoteClose {
+  margin-left:auto; flex:none; padding:3px 8px; font-size:10px;
+  font-family:var(--mono); letter-spacing:.06em; text-transform:none;
+}
+
 /* --- loupe scoped to one shared comment ------------------------------------------------------------
  * Walking a comment's frames means the arrows must stop at that group's edges, and the reason you are
  * in there has to stay on screen - otherwise it is just the loupe again and you lose your place.
@@ -1000,7 +1008,7 @@ kbd {
   </div>
   <div id="lstage"><img id="limg" alt=""></div>
   <div id="lnote" hidden>
-    <label for="lnoteText">Note on <b id="lnoteName"></b> <span class="hint">esc to close · saves as you type</span></label>
+    <label for="lnoteText">Note on <b id="lnoteName"></b> <span class="hint">saves as you type</span><button id="lnoteClose" title="Close this box - the note is already saved">✕ Close <kbd>esc</kbd></button></label>
     <div id="lscoreBlock">
       <label for="lscoreRange">Score <span class="hint" id="lscoreScope"></span></label>
       <select id="lscoreGroupSel" hidden></select>
@@ -1975,6 +1983,16 @@ function clearScope() {
   if ($('loupe').classList.contains('on')) loadLoupe();
 }
 
+// Anywhere outside the box counts as "I'm done with this" - the photo, the header, the footer. It is
+// capture phase so it lands before the stage's own click handling and can tell it to stand down.
+$('loupe').addEventListener('pointerdown', e => {
+  const box = $('lnote');
+  if (box.hidden || box.classList.contains('closing')) return;
+  if (e.target.closest && e.target.closest('#lnote')) return;
+  toggleLoupeNote(false);
+  NOTE_DISMISSED = true;
+}, true);
+
 function openLoupe(keepScope) {
   if (!keepScope) clearScope();
   if (!C()) return;
@@ -2003,6 +2021,8 @@ function closeLoupe() {
 // The note box, opened with T from inside the loupe. Same field as the side panel's note - there is
 // one note per frame, not a separate loupe one.
 let NOTE_T = null;
+let NOTE_DISMISSED = false;      // set when a click outside the box closed it, read by the stage
+
 function toggleLoupeNote(force) {
   const box = $('lnote'), it = C();
   if (!it) return;
@@ -2183,7 +2203,10 @@ function zoomAt(cx, cy, factor, animate) {
     // on the photo, and it must not have moved (or a pan that ended off the edge would dump you out).
     const wasClick = moved < 5 && !downOnPhoto;
     drag = null; st.classList.remove('drag');
-    if (wasClick) closeLoupe();
+    // A click that dismissed the note has already done its job - it must not ALSO drop you out of
+    // the loupe, or closing the box would cost you the frame you were looking at.
+    if (wasClick && !NOTE_DISMISSED) closeLoupe();
+    NOTE_DISMISSED = false;
   };
   st.addEventListener('pointerup', end);
   st.addEventListener('pointercancel', () => { drag = null; st.classList.remove('drag'); });
@@ -2428,6 +2451,7 @@ $('btnLoupe').onclick = openLoupe;
 $('btnCommit').onclick = askCommit;
 $('lscopeOut').onclick = clearScope;
 $('allNotesClose').onclick = closeAllNotes;
+$('lnoteClose').onclick = () => toggleLoupeNote(false);
 $('allNotesWrap').onpointerdown = e => { if (e.target === $('allNotesWrap')) closeAllNotes(); };
 $('cCancel').onclick = closeConfirm;
 $('cGo').onclick = commit;
