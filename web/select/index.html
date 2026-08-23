@@ -580,6 +580,9 @@ kbd {
       <p>What I show you is a proposal, not the whole world. <b class="pl">+ add photos</b> opens a folder and puts everything in it on the sheet as <b data-s="untouched">○ Not picked</b>, in its own group — so you can bring in a reference frame, a shot from another day, anything I never saw. You can also drag files straight onto the sheet.</p>
       <p>Added frames are marked <b class="pl">+ yours</b>. A dragged-in file has no path of its own, so it is <em>written to disk</em> as it lands — after that it is as real as anything from the shoot folder and I can build with it. A file already on the sheet is recognised and not duplicated.</p>
 
+      <h3>Changing groups</h3>
+      <p>Select frames and type a group name: an <em>existing</em> name adds them to it (the button says <b class="pl">Add to …</b>), a new one makes a new group. <b class="pl">Remove from group</b> takes them out of whichever group you are filtered to. A frame can sit in as many groups as you like, and dropping a photo in while a group is on screen adds it to that group.</p>
+
       <h3>Group targets</h3>
       <p><b class="pl">≤5</b> is <em>my</em> suggestion — how many I proposed from that group. <b class="pl">you ≤1</b>, outlined in amber, is a target <em>you</em> set, which I read as an instruction rather than a guess. <b class="pl">✓≤1</b> means the count currently matches.</p>
       <p>Either way it is <em>only</em> a suggestion: nothing is capped, going over is not an error, and you can commit any number you like.</p>
@@ -597,10 +600,12 @@ kbd {
   <div id="multibar" hidden>
     <span class="mlead"><b id="mcount">0</b> selected</span>
     <span class="mgrp">
-      <input type="text" id="mgroupName" placeholder="group name" spellcheck="false">
+      <input type="text" id="mgroupName" placeholder="group name" spellcheck="false" list="groupList">
+      <datalist id="groupList"></datalist>
       <select id="mMode" title="Only a suggestion - nothing is enforced"><option value="upto">up to</option><option value="exactly">exactly</option></select>
       <input type="number" id="mTarget" min="0" max="20" placeholder="any" title="How many to pick from this group. A suggestion only - never enforced.">
       <button id="mGroup" class="primary">Group these</button>
+      <button id="mRemove" hidden>Remove from group</button>
       <button id="mUngroup" hidden>Ungroup</button>
     </span>
     <span class="sp"></span>
@@ -651,13 +656,15 @@ kbd {
         <label>Tags <span class="hint">(a negative tag on a frame I picked drops it to Maybe)</span></label>
         <div class="chips" id="chips"></div>
 
-        <label for="scoreRange">Score <span class="hint" id="scoreScope"></span></label>
-        <select id="scoreGroupSel" hidden></select>
-        <div class="scoreRow">
-          <input type="range" id="scoreRange" min="0" max="10" step="1" value="0">
-          <b id="scoreVal">–</b>
+        <div id="scoreBlock">
+          <label for="scoreRange">Score <span class="hint" id="scoreScope"></span></label>
+          <select id="scoreGroupSel" hidden></select>
+          <div class="scoreRow">
+            <input type="range" id="scoreRange" min="0" max="10" step="1" value="0">
+            <b id="scoreVal">–</b>
+          </div>
+          <div class="hint" id="scoreRank"></div>
         </div>
-        <div class="hint" id="scoreRank"></div>
 
         <label for="frameText">Note on this frame</label>
         <textarea id="frameText" rows="2" placeholder="one line is plenty"></textarea>
@@ -1046,10 +1053,12 @@ const filterGroup = () => FILTER.startsWith('group:') ? FILTER.slice(6) : null;
 // group, else whichever the panel picked.
 function scoringGroup(it) {
   if (!it) return null;
+  // Whatever group you are filtered to wins outright. Anything else would mean a digit press
+  // sometimes scored a group you were not looking at.
   const f = filterGroup();
   if (f && inGroup(it, f)) return f;
   if (it._sg && inGroup(it, it._sg)) return it._sg;
-  return it.groups.length === 1 ? it.groups[0] : (it.groups[0] || null);
+  return it.groups.length === 1 ? it.groups[0] : null;
 }
 
 // Where a frame stands among the SCORED frames of one group.
@@ -1079,6 +1088,7 @@ function addCandidates(specs, groupKey, groupLabel) {
       date: sp.date || 0, _i: IMGS.length, bytes: sp.bytes || 0,
       addedByYou: true, path: sp.path || null, pathless: !sp.path,
     });
+    noteDir(sp.path);
     added++;
   });
   render(); renderPanel();
@@ -1091,31 +1101,65 @@ function addCandidates(specs, groupKey, groupLabel) {
 //
 // A file already sitting in a folder the sheet knows about is NOT re-saved - matching on name and
 // byte length is enough to spot it, and duplicating a photo the person already has would be rude.
-async function dropIn(files) {
-  const dir = DROP_DIR;
-  let saved = 0, reused = 0, failed = 0;
-  for (const f of files) {
-    const already = IMGS.find(i => i.path && i.name === f.name && i.bytes === f.size);
-    if (already) {
-      reused++;
-      continue;
-    }
-    const r = await fetch('/save?name=' + encodeURIComponent(f.name) +
-                          (dir ? '&dir=' + encodeURIComponent(dir) : '') + '&onExist=rename',
-                          { method:'POST', body:f }).then(x => x.json()).catch(() => ({ ok:false }));
-    if (!r.ok) { failed++; continue; }
-    const folder = r.path.slice(0, r.path.lastIndexOf('/'));
-    await fetch('/list?dir=' + encodeURIComponent(folder));    // make it readable by /file
-    addCandidates([{
-      id: r.path, name: r.name, path: r.path, bytes: f.size,
-      url: '/file?path=' + encodeURIComponent(r.path), date: f.lastModified || 0,
-    }], 'added-dropped', 'Dropped in');
-    saved++;
+// Every folder the sheet has seen, so a dropped file can be recognised as one the person already has.
+const KNOWN_DIRS = new Set();
+function pathFromUrl(u) {
+  const m = /^\/file\?path=(.+)$/.exec(u || '');
+  return m ? decodeURIComponent(m[1]) : null;
+}
+function noteDir(path) { if (path) KNOWN_DIRS.add(path.slice(0, path.lastIndexOf('/'))); }
+
+// Is this dropped file already on disk somewhere we know about? The browser never hands over a path,
+// but name + byte length across the folders we have listed is a reliable enough match, and re-saving
+// a photo the person already owns is the thing to avoid.
+async function findOnDisk(f) {
+  const onSheet = IMGS.find(i => i.path && i.name === f.name && i.bytes === f.size);
+  if (onSheet) return onSheet.path;
+  for (const dir of KNOWN_DIRS) {
+    const j = await fetch('/list?dir=' + encodeURIComponent(dir)).then(r => r.json()).catch(() => null);
+    const hit = j && j.ok && j.files.find(x => x.name === f.name && x.size === f.size);
+    if (hit) return dir + '/' + hit.name;
   }
-  if (saved) FILTER = 'group:added-dropped';
+  return null;
+}
+
+async function dropIn(files) {
+  // Where a dropped file lands is never a surprise: it is asked for, once, starting at the folder
+  // the caller suggested. Files already on disk skip this entirely.
+  const target = filterGroup();                       // drop into the group you are looking at
+  let dest = null, saved = 0, reused = 0, failed = 0;
+
+  for (const f of files) {
+    const existing = await findOnDisk(f);
+    let pathOut = existing, nameOut = f.name;
+
+    if (!existing) {
+      if (!dest) {
+        const pick = await fetch('/pickdir?start=' + encodeURIComponent(DROP_DIR || '~/Pictures'))
+          .then(r => r.json()).catch(() => null);
+        if (!pick || !pick.ok) { toast('nothing saved — no folder chosen'); return; }
+        dest = pick.path;
+      }
+      const r = await fetch('/save?name=' + encodeURIComponent(f.name) +
+                            '&dir=' + encodeURIComponent(dest) + '&onExist=rename',
+                            { method:'POST', body:f }).then(x => x.json()).catch(() => ({ ok:false }));
+      if (!r.ok) { failed++; continue; }
+      pathOut = r.path; nameOut = r.name; saved++;
+    } else { reused++; }
+
+    noteDir(pathOut);
+    await fetch('/list?dir=' + encodeURIComponent(pathOut.slice(0, pathOut.lastIndexOf('/'))));
+    const gkey = target || 'added-dropped';
+    addCandidates([{
+      id: pathOut, name: nameOut, path: pathOut, bytes: f.size,
+      url: '/file?path=' + encodeURIComponent(pathOut), date: f.lastModified || 0,
+    }], gkey, target ? gLabel(target) : 'Dropped in');
+  }
   render();
-  toast([saved && ('saved ' + saved + ' to disk'), reused && (reused + ' already here'),
-         failed && (failed + ' failed')].filter(Boolean).join(', '));
+  toast([saved && ('saved ' + saved + ' to ' + dest.split('/').pop()),
+         reused && (reused + ' already on disk — reused'),
+         failed && (failed + ' failed'),
+         target && ('added to ' + gLabel(target))].filter(Boolean).join(' · '));
 }
 
 // The native folder dialog, because it yields a real absolute path - the only form the assistant can
@@ -1127,6 +1171,7 @@ async function addFromFolder() {
   const j = await fetch('/list?dir=' + encodeURIComponent(dir)).then(r => r.json()).catch(() => null);
   if (!j || !j.ok || !j.files.length) { toast('no photos in that folder'); return; }
   const key = 'added-' + dir.split('/').filter(Boolean).pop().toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  noteDir(dir + '/x');
   const n = addCandidates(j.files.map(f => ({
     id: dir + '/' + f.name, name: f.name, path: dir + '/' + f.name, bytes: f.size || 0,
     url: '/file?path=' + encodeURIComponent(dir + '/' + f.name), date: f.mtime || 0,
@@ -1148,12 +1193,28 @@ function renderMulti() {
   const shared = f && mine.every(i => inGroup(i, f)) ? f : '';
   $('mcount').textContent = n;
   if (shared) $('mgroupName').value = gLabel(shared);
+  // Typing a name that already exists ADDS to that group rather than making a second one with the
+  // same label, so the field doubles as "add to existing".
+  $('groupList').innerHTML = Object.keys(GROUPS)
+    .map(k => '<option value="' + esc(gLabel(k)) + '">').join('');
+  const typed = groupKeyFor($('mgroupName').value);
+  $('mGroup').textContent = typed && GROUPS[typed] ? 'Add to ' + gLabel(typed) : 'Group these';
+  $('mRemove').hidden = !mine.some(i => i.groups.length);
   $('mUngroup').hidden = !shared;
 }
 
 function applyToSelection(fn) {
   selected().forEach(fn);
   render(); renderPanel();
+}
+
+// A typed label resolves to an EXISTING group when one matches, so the same name never creates a
+// duplicate group.
+function groupKeyFor(name) {
+  const t = (name || '').trim();
+  if (!t) return null;
+  const hit = Object.keys(GROUPS).find(k => gLabel(k).toLowerCase() === t.toLowerCase() || k === t);
+  return hit || t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || null;
 }
 
 function makeGroup() {
@@ -1165,11 +1226,18 @@ function makeGroup() {
     name = 'group-' + n;
     $('mgroupName').value = name;
   }
-  const key = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'group';
+  const key = groupKeyFor(name) || 'group';
+  const existed = !!GROUPS[key];
   const target = $('mTarget').value === '' ? null : Math.max(0, +$('mTarget').value);
-  GROUPS[key] = { label:name, target, mode:$('mMode').value, by:'you' };
+  if (existed) {
+    // joining an existing group must not silently rewrite its target
+    if (target != null) GROUPS[key] = Object.assign({}, GROUPS[key], { target, mode:$('mMode').value, by:'you' });
+  } else {
+    GROUPS[key] = { label:name, target, mode:$('mMode').value, by:'you' };
+  }
   mine.forEach(i => { if (!inGroup(i, key)) i.groups.push(key); });   // add, never replace
-  toast(mine.length + ' frames → ' + name + (target != null ? ' (' + $('mMode').value + ' ' + target + ')' : ''));
+  toast(mine.length + (existed ? ' added to ' : ' frames → ') + gLabel(key) +
+        (!existed && target != null ? ' (' + $('mMode').value + ' ' + target + ')' : ''));
   render(); renderPanel();
 }
 
@@ -1220,6 +1288,8 @@ function renderPanel() {
 
   $('frameText').value = it.text || '';
   const sg = scoringGroup(it);
+  // A score with no group is a number about nothing, so the control is not offered at all.
+  $('scoreBlock').hidden = !sg && it.groups.length < 2;
   $('scoreRange').value = scoreOf(it, sg);
   $('scoreVal').textContent = scoreOf(it, sg) || '–';
 
@@ -1232,9 +1302,9 @@ function renderPanel() {
       (it.scores[g] ? ' — ' + it.scores[g] : '') + '</option>').join('');
   }
   $('scoreScope').textContent = !sg
-    ? '— this frame is in no group, so a score is not relative to anything'
-    : it.groups.length > 1 ? '— pick which group you are ranking it in'
-    : '— within ' + gLabel(sg) + ', press a digit (0 = ten, ` clears)';
+    ? '— pick which group you are ranking it in'
+    : (filterGroup() === sg ? '— within ' + gLabel(sg) + ' (the group in view), press a digit (0 = ten, ` clears)'
+                            : '— within ' + gLabel(sg) + ', press a digit (0 = ten, ` clears)');
 
   const r = rankIn(it, sg);
   const scored = sg ? IMGS.filter(i => inGroup(i, sg) && scoreOf(i, sg)).length : 0;
@@ -1544,6 +1614,16 @@ function setScore(it, n, g) {
   render(); renderPanel();
 }
 $('mGroup').onclick = makeGroup;
+$('mRemove').onclick = () => {
+  // Remove from the group in view, else from whichever one is named in the field.
+  const g = filterGroup() || groupKeyFor($('mgroupName').value);
+  if (!g || !GROUPS[g]) { toast('name a group to remove them from'); return; }
+  let n = 0;
+  applyToSelection(i => {
+    if (inGroup(i, g)) { i.groups = i.groups.filter(x => x !== g); delete i.scores[g]; n++; }
+  });
+  toast(n + ' removed from ' + gLabel(g));
+};
 $('mUngroup').onclick = () => {
   // Remove only the group you are looking at; with several, a blanket wipe would be a surprise.
   const g = filterGroup();
@@ -1686,10 +1766,15 @@ window.__loadSelection = function (spec) {
       _sg: null,                                  // which group the panel is scoring against
       date: c.date ? (typeof c.date === 'number' ? c.date : Date.parse(c.date) || 0) : 0,
       _i: i,
+      // Recover the real path from a /file?path= url. Without this the loaded frames have no path,
+      // so a dropped copy of one of them could not be recognised as already-on-disk and would be
+      // saved a second time.
+      path: pathFromUrl(c.url),
     };
     // an assistant-supplied class shows as a pre-lit chip only if it's in the frame's own palette
     return it;
   });
+  IMGS.forEach(i => noteDir(i.path));
   CUR = IMGS.length ? 0 : -1;
   render(); renderPanel();
   return IMGS.length;

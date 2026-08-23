@@ -204,7 +204,9 @@ Consequences that follow, and that the UI has to honour:
   about that set and means nothing outside it.
 
 **A score** is 1–10 per frame — a slider in the panel, or just press a digit (`0` is ten, `` ` ``
-clears). It is deliberately *not* a global star rating: the evidence against those (scale-region bias,
+clears). **The control does not appear for a frame in no group**, because a score with nothing to be
+relative to is a number about nothing. The group being scored is **whichever one is filtered**, always
+— anything else would mean a digit press sometimes wrote to a group the person was not looking at. It is deliberately *not* a global star rating: the evidence against those (scale-region bias,
 annotator drift between sessions) is about absolute quality judgements made in isolation. A score
 inside a small group is a different question — "these five are from the same moment, rank them" has a
 real answer — and combined with a target it lets the person hand the choice back: *score these six,
@@ -225,14 +227,23 @@ recreation, something from a different day, a photo from another shoot entirely.
 `added[]` array with their absolute paths, which is what makes them usable downstream.
 
 Files can also be **dragged straight onto the sheet**. A dropped file gives the page bytes and a name
-but never a path, so it is **written to disk as it lands** — the server returns the absolute path it
-wrote to, and from that moment the frame is as real as anything from the shoot folder. Without this a
-dropped photo could be looked at and never used, which is a trap rather than a feature.
+but never a path, so it cannot be referenced later — which makes it a trap rather than a feature
+unless something is done about it. Two things are:
 
-The destination is `dropDir` from the caller (the shoot folder, normally), falling back to photoprep's
-own out folder. A file that is **already on the sheet with a path** is recognised by name and byte
-length and reused rather than written again — duplicating a photo the person already has would be
-rude, and it is the common case when someone drags the same reference in twice.
+1. **It might already be on disk.** Every folder the sheet has seen is remembered, and a dropped file
+   is matched against them on name and byte length. A hit means the existing path is adopted and
+   **nothing is written** — re-saving a photo the person already owns is exactly the wrong move, and
+   it is the common case when someone drags the same reference in twice.
+2. **Otherwise, ask.** A native folder dialog opens at `dropDir` (the caller's suggestion, usually the
+   shoot folder), and the file is written where the person chose. Asked once per drop, not per file.
+   **Where a file lands is never a surprise.**
+
+Dropping while a group is filtered adds the frame to *that* group, so "put this reference alongside
+these" is one gesture.
+
+Recovering the path matters more than it looks: candidates arrive as `/file?path=…` urls, so the real
+path is parsed back out of the url on load. Without it the sheet knows no folders, and step 1 above
+silently never matches.
 
 ## Multi-selection
 
