@@ -533,6 +533,11 @@ body.locked .locknote { display:flex; }
   from { opacity:0; transform:translate(-50%, 10px) scale(.98); }
   to   { opacity:1; transform:translate(-50%, 0) scale(1); }
 }
+#lnote.closing { animation:noteOut .2s var(--ease-io) both; pointer-events:none; }
+@keyframes noteOut {
+  from { opacity:1; transform:translate(-50%, 0) scale(1); }
+  to   { opacity:0; transform:translate(-50%, 8px) scale(.98); }
+}
 #lnote label { margin:0 0 8px; }
 #lnote b { color:var(--fg); font-family:var(--mono); text-transform:none; letter-spacing:0; }
 #lnote .chips { margin-bottom:9px; }
@@ -563,6 +568,11 @@ body.locked .locknote { display:flex; }
 @keyframes noteIn {
   from { opacity:0; transform:translate(-50%, 10px) scale(.98); }
   to   { opacity:1; transform:translate(-50%, 0) scale(1); }
+}
+#lnote.closing { animation:noteOut .2s var(--ease-io) both; pointer-events:none; }
+@keyframes noteOut {
+  from { opacity:1; transform:translate(-50%, 0) scale(1); }
+  to   { opacity:0; transform:translate(-50%, 8px) scale(.98); }
 }
 #lnote label { margin:0 0 8px; }
 #lnote b { color:var(--fg); font-family:var(--mono); text-transform:none; letter-spacing:0; }
@@ -1536,7 +1546,8 @@ let CLOSE_T = null;
 function closeLoupe() {
   const L = $('loupe');
   if (!L.classList.contains('on') || L.classList.contains('closing')) return;
-  $('lnote').hidden = true;
+  clearTimeout(NOTE_T); NOTE_T = null;
+  $('lnote').hidden = true; $('lnote').classList.remove('closing');
   const done = () => { L.classList.remove('on', 'closing'); CLOSE_T = null; $('sheet').focus(); };
   if (matchMedia('(prefers-reduced-motion: reduce)').matches) return done();
   L.classList.add('closing');
@@ -1546,12 +1557,28 @@ function closeLoupe() {
 
 // The note box, opened with T from inside the loupe. Same field as the side panel's note - there is
 // one note per frame, not a separate loupe one.
+let NOTE_T = null;
 function toggleLoupeNote(force) {
   const box = $('lnote'), it = C();
   if (!it) return;
-  const show = force != null ? force : box.hidden;
-  box.hidden = !show;
-  if (!show) { $('lstage').focus && $('lstage').focus(); return; }
+  const visible = !box.hidden && !box.classList.contains('closing');
+  const show = force != null ? force : !visible;
+
+  if (!show) {
+    if (box.hidden) return;
+    // Drop out the way it came in. A panel that simply blinks off feels like a glitch, and the
+    // reverse motion also points the eye back at the photo underneath.
+    clearTimeout(NOTE_T);
+    $('lnoteText').blur();
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { box.hidden = true; return; }
+    box.classList.add('closing');
+    NOTE_T = setTimeout(() => { box.hidden = true; box.classList.remove('closing'); NOTE_T = null; }, 200);
+    return;
+  }
+
+  clearTimeout(NOTE_T); NOTE_T = null;
+  box.classList.remove('closing');
+  box.hidden = false;
   $('lnoteName').textContent = it.name;
   const ta = $('lnoteText');
   ta.value = it.text || '';
