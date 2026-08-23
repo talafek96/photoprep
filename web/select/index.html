@@ -674,6 +674,9 @@ kbd {
       <h3>Changing groups</h3>
       <p>Select frames and type a group name: an <em>existing</em> name adds them to it (the button says <b class="pl">Add to …</b>), a new one makes a new group. <b class="pl">Remove from group</b> takes them out of whichever group you are filtered to. A frame can sit in as many groups as you like, and dropping a photo in while a group is on screen adds it to that group.</p>
 
+      <h3>If you reload</h3>
+      <p>Everything is saved in this browser as you go — verdicts, notes, scores, groups, frames you added — and comes back automatically after a refresh, a crash, or the server restarting. Run <code>__clearSaved()</code> in the console to throw it away and start clean.</p>
+
       <h3>Group targets</h3>
       <p><b class="pl">≤5</b> is <em>my</em> suggestion — how many I proposed from that group. <b class="pl">you ≤1</b>, outlined in amber, is a target <em>you</em> set, which I read as an instruction rather than a guess. <b class="pl">✓≤1</b> means the count currently matches.</p>
       <p>Either way it is <em>only</em> a suggestion: nothing is capped, going over is not an error, and you can commit any number you like.</p>
@@ -1128,6 +1131,7 @@ function render() {
   renderBar();
   renderStatus();
   renderMulti();
+  saveState();
 }
 
 // "out of these N, pick 3" - a target the assistant sets per group, or the person sets here. The
@@ -2045,6 +2049,7 @@ function toggleScrollMode() {
 }
 $('inputTag').onclick = toggleScrollMode;
 updateInputTag();
+$('setComment').oninput = saveState;
 $('btnLoupe').onclick = openLoupe;
 $('btnCommit').onclick = commit;
 
@@ -2125,7 +2130,63 @@ function commit() {
 }
 
 /* --- automation surface ------------------------------------------------------------------------ */
-window.__loadSelection = function (spec) {
+/* --- surviving a refresh -----------------------------------------------------------------------
+ * A review is a long sitting. Losing it to a reload, a crash, or the server restarting is not an
+ * acceptable failure - and all three have happened. The whole thing is mirrored to localStorage on
+ * every change and restored on boot: the spec that was loaded, plus every verdict, tag, note, score,
+ * group, lock and swap made since.
+ */
+const SAVE_KEY = 'photoprep.select.v1';
+let SPEC = null, SAVE_T = null;
+
+function saveState() {
+  if (!SPEC || !IMGS.length) return;
+  clearTimeout(SAVE_T);
+  SAVE_T = setTimeout(() => {
+    try {
+      localStorage.setItem(SAVE_KEY, JSON.stringify({
+        ts: Date.now(), spec: SPEC, groups: GROUPS, filter: FILTER, sort: SORT,
+        setComment: $('setComment').value,
+        frames: IMGS.reduce((a, i) => {
+          a[i.id] = { state:i.state, tags:i.tags, text:i.text, scores:i.scores, groups:i.groups,
+                      locked:i.locked, altIdx:i.altIdx, added:i.addedByYou ? { name:i.name, url:i.url, path:i.path } : 0 };
+          return a;
+        }, {}),
+      }));
+    } catch (e) { /* quota or private mode - not worth interrupting the review over */ }
+  }, 400);
+}
+
+function restoreState() {
+  let d;
+  try { d = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); } catch (e) { return false; }
+  if (!d || !d.spec) return false;
+  loadSelection(d.spec, true);
+  // frames the person added themselves are not in the spec, so put them back first
+  Object.keys(d.frames).forEach(id => {
+    const f = d.frames[id];
+    if (f.added && !IMGS.some(i => i.id === id)) {
+      addCandidates([{ id, name:f.added.name, url:f.added.url, path:f.added.path }], null, null);
+    }
+  });
+  IMGS.forEach(i => {
+    const f = d.frames[i.id]; if (!f) return;
+    i.state = f.state; i.tags = f.tags || []; i.text = f.text || '';
+    i.scores = f.scores || {}; i.groups = f.groups || []; i.locked = !!f.locked;
+    if (f.altIdx) { const all = [i.original].concat(i.alternates); if (all[f.altIdx]) { i.altIdx = f.altIdx; i.url = all[f.altIdx].url; i.name = all[f.altIdx].name; } }
+  });
+  GROUPS = d.groups || {};
+  FILTER = d.filter || 'all'; SORT = SORTS[d.sort] ? d.sort : 'given';
+  $('setComment').value = d.setComment || '';
+  render(); renderPanel();
+  const mins = Math.round((Date.now() - d.ts) / 60000);
+  toast('restored your review' + (mins > 1 ? ' from ' + mins + ' min ago' : ''));
+  return true;
+}
+
+window.__clearSaved = () => { localStorage.removeItem(SAVE_KEY); toast('saved review discarded'); };
+
+function loadSelection(spec, quiet) {
   const cands = (spec && spec.candidates) || [];
   SET_PROMPT = (spec && spec.setPrompt) || '';
   GROUPS = (spec && spec.groups) || {};
@@ -2168,7 +2229,9 @@ window.__loadSelection = function (spec) {
     // an assistant-supplied class shows as a pre-lit chip only if it's in the frame's own palette
     return it;
   });
+  SPEC = spec;
   IMGS.forEach(i => noteDir(i.path));
+  TILES.forEach(el => el.remove()); TILES.clear();     // a new set must not reuse the old tiles
   CUR = IMGS.length ? 0 : -1;
   render(); renderPanel();
   return IMGS.length;
@@ -2185,6 +2248,13 @@ window.__loadFolder = function (dir) {
       })),
       setPrompt: dir,
     }));
+};
+
+window.__loadSelection = function (spec) {
+  SPEC = spec;
+  const n = loadSelection(spec);
+  saveState();
+  return n;
 };
 
 window.__setFilter = f => { FILTER = f; render(); };
@@ -2209,4 +2279,5 @@ if (window.__runtime) window.__runtime.ready.then(() => { window.__ready = true;
 else window.__ready = true;
 
 render(); renderPanel();
+restoreState();      // a reload picks up exactly where the review was left
 </script>

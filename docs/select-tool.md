@@ -338,6 +338,18 @@ window.__loadSelection({
 window.__result  // → see below
 ```
 
+## Surviving a reload
+
+A review is a long sitting, and losing it to a refresh, a crash or the local server restarting is not
+an acceptable failure — all three happen. The whole session is mirrored to `localStorage` on every
+change and restored on boot: the spec that was loaded, plus every verdict, tag, note, score, group,
+lock and alternate swap made since, along with the active filter and sort.
+
+The page restores **on its own**, without the assistant re-sending anything — which matters, because
+the assistant may not be around when the person hits reload.
+
+`__clearSaved()` throws the saved review away.
+
 ## The report
 
 ```jsonc
