@@ -749,7 +749,7 @@ kbd {
       <p>The flag keys follow Lightroom: <kbd>P</kbd> pick / keep · <kbd>X</kbd> reject / cut · <kbd>U</kbd> unpick · plus <kbd>M</kbd> for maybe, which Lightroom has no equivalent of. With several frames selected they apply to all of them.</p>
       <p><kbd>C</kbd> comments: on the focused frame, or — with several selected — one comment about them <em>together</em>. Every button that has a key shows it, so you should not need this list.</p>
       <p><kbd>Space</kbd> loupe · <kbd>Z</kbd> zoom fit ↔ 100% · <kbd>←</kbd><kbd>→</kbd> move · <kbd>F</kbd> filter · <kbd>⏎</kbd> commit</p>
-      <p>Inside the loupe: <kbd>T</kbd> opens everything you can say about the frame you are looking at — score, tags and a note — without going back to the sheet. Digits are the zoom presets in there, so the score is a slider. <kbd>S</kbd> switches whether scrolling zooms or pans.</p>
+      <p>Inside the loupe: <kbd>T</kbd> (or <kbd>C</kbd>) opens everything you can say about the frame you are looking at — score, tags and a note — without going back to the sheet. Digits are the zoom presets in there, so the score is a slider. <kbd>S</kbd> switches whether scrolling zooms or pans.</p>
       <p><kbd>R</kbd> reverts a frame to <em>my</em> proposal and clears the 🔒. Pressing a verdict the frame is already in also sends it back to <b data-s="untouched">○ Not picked</b>.</p>
     </div>
   </div>
@@ -2038,7 +2038,10 @@ addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   const open = $('loupe').classList.contains('on');
 
-  if (e.key === 'Escape' && open && !$('lnote').hidden) { toggleLoupeNote(false); return; }
+  // A note mid-close is already gone as far as the eye is concerned, so a second Escape must fall
+  // through to the loupe rather than re-closing what is still animating out.
+  const noteUp = !$('lnote').hidden && !$('lnote').classList.contains('closing');
+  if (e.key === 'Escape' && open && noteUp) { toggleLoupeNote(false); return; }
   if (e.key === 'Escape' && open) { closeLoupe(); return; }
   if (e.key === 'Escape' && MULTI.size) { MULTI.clear(); render(); return; }
   if ((e.metaKey || e.ctrlKey) && k === 'a') {
@@ -2100,8 +2103,13 @@ addEventListener('keydown', e => {
   }
   else if (k === 'c') {
     e.preventDefault();
-    // With a selection live, C is about the selection - one comment on all of them.
-    if (MULTI.size > 1) openSetNote(null); else $('frameText').focus();
+    // With a selection live, C is about the selection - one comment on all of them. Its dialog sits
+    // above the loupe, so it works from either place.
+    if (MULTI.size > 1) { openSetNote(null); return; }
+    // Otherwise C writes on the frame you are looking at. Inside the loupe that is the loupe's own
+    // note card (same field as the panel's) - focusing the panel would put the caret under the
+    // overlay, where you cannot see what you are typing.
+    if (open) toggleLoupeNote(true); else $('frameText').focus();
   }
   // digits score the focused frame; 0 is ten, backtick clears. Not bound inside the loupe, where
   // 0 and 1 are the zoom presets.
