@@ -79,7 +79,7 @@ body { grid-template-columns:1fr 352px; }
   position:relative; flex:0 0 auto; border:1px solid var(--border); border-radius:var(--radius);
   background:var(--surface); box-shadow:var(--highlight); cursor:grab; user-select:none;
   transition:border-color .15s var(--ease-io), box-shadow .2s var(--ease-io),
-             transform .26s var(--ease-out), opacity .15s var(--ease-io);
+             transform .26s var(--ease-out), scale .2s var(--ease-out), opacity .15s var(--ease-io);
   animation:cardIn .34s var(--ease-out) both;
 }
 /* During a drag the cards are moved by transform alone and nothing else about them changes, so the
@@ -100,10 +100,16 @@ body.dragging .slide { will-change:transform; }
    follows the cursor and holds its own slot cannot show you where it is going. */
 .slide.ghost {
   position:fixed; left:0; top:0; z-index:90; margin:0; pointer-events:none;
-  transition:none; animation:none; transform-origin:top left;
+  animation:none;
+  /* `transform` is rewritten every frame to follow the pointer, so it must never be transitioned.
+     `scale` is an independent property, so tucking can animate without touching the position. */
+  transition:scale .18s var(--ease-out), opacity .18s var(--ease-io);
   border-color:var(--accent); background:var(--surface-2);
   box-shadow:0 30px 64px -22px oklch(0 0 0 / 88%), 0 0 0 1px var(--accent);
 }
+.slide.ghost.tucked { scale:.26; opacity:.62; }
+/* the card being aimed at comes forward - `scale` again, so the reorder transform stays untouched */
+.slide.dropTarget { scale:1.05; }
 .slide.placeholder {
   border-style:dashed; border-color:var(--accent); background:var(--accent-soft);
   animation:none; box-shadow:none;
@@ -199,21 +205,25 @@ body.dragging .slide:hover { border-color:var(--border); }
 .slide.zoneHint { border-color:var(--ok); }
 .slide.dropTarget { border-color:var(--ok); box-shadow:0 0 0 1px var(--ok), 0 10px 30px -14px var(--ok); }
 .stackPrev {
-  position:absolute; inset:0; z-index:3; display:flex; flex-direction:column; gap:4px;
-  background:oklch(0.12 0.004 70 / 78%); backdrop-filter:blur(2px);
+  position:absolute; inset:0; z-index:3;
+  background:oklch(0.12 0.004 70 / 82%); backdrop-filter:blur(3px);
   animation:fade .12s var(--ease-out) both;
 }
 .stackPrev .h {
-  flex:1; min-height:0; background:#000 center/cover no-repeat; border-radius:4px;
-  box-shadow:0 0 0 1px oklch(1 0 0 / 20%); opacity:.55;
+  position:absolute; left:0; right:0; overflow:hidden;
+  background:#000 center/cover no-repeat; border-radius:4px;
+  box-shadow:0 0 0 1px oklch(1 0 0 / 20%);
+  transition:top .24s var(--ease-out), height .24s var(--ease-out), opacity .18s var(--ease-io);
 }
-/* the frame you are holding, in the half it would land in */
-.stackPrev .h.in { opacity:1; box-shadow:0 0 0 2px var(--ok), 0 4px 14px -6px oklch(0 0 0 / 80%); }
+/* the frame you are carrying, in the half it would land in */
+.stackPrev .mine { box-shadow:0 0 0 2px var(--ok), 0 6px 18px -6px oklch(0 0 0 / 85%); z-index:1; }
+.stackPrev .theirs { opacity:.72; }
 .stackPrev .lbl {
-  position:absolute; left:0; right:0; bottom:0; text-align:center;
+  position:absolute; left:0; right:0; bottom:0; z-index:2; text-align:center;
   font-family:var(--mono); font-size:9px; letter-spacing:.09em; text-transform:uppercase;
-  color:var(--ok); background:oklch(0 0 0 / 72%); padding:4px 0;
+  color:var(--ok); background:oklch(0 0 0 / 78%); padding:4px 0;
 }
+
 /* the media box hosts that overlay */
 .media { position:relative; }
 
@@ -1120,6 +1130,8 @@ function ghostFrom(el, x, y) {
   g.style.transform = '';
   document.body.appendChild(g);
   DRAG.ox = x - r.left; DRAG.oy = y - r.top;
+  // tuck toward the cursor, not toward the card's middle, so the chip stays where your hand is
+  g.style.transformOrigin = DRAG.ox + 'px ' + DRAG.oy + 'px';
   DRAG.ghost = g;
 }
 
@@ -1151,43 +1163,68 @@ function zoneFor(el, tgt, x, y) {
   return null;
 }
 
-/* What the drop will produce, drawn inside the card you are dropping onto: the actual two frames,
- * in the actual order, with the incoming one lit. A border colour and the word "stack" told you
- * that SOMETHING would happen; this tells you what you are about to get. */
+/* What the drop will produce, ANIMATED inside the card you are aiming at: the target's own photo
+ * shrinks into half the frame and the one you are carrying slides into the space it left. That is
+ * the picture of the thing being made, which a border colour and a word never were.
+ *
+ * The ghost has to get out of the way for any of it to be visible. You are hovering the middle of
+ * the target, and the ghost is a full-size card pinned under the cursor - so it covers exactly the
+ * card it is previewing. On arming it tucks down to a small chip at the cursor: still in your hand,
+ * no longer in front of the answer.
+ */
 function armDrop(el, tgt, zone) {
   const me = DRAG.byId.get(DRAG.id);
-  let pair, incoming, label;
+  let theirSrc, mineTop, label;
   if (zone.mode === 'swap') {
-    pair = tgt.sources.slice();
-    pair[zone.pane] = me.sources[0];
-    incoming = zone.pane;
+    theirSrc = tgt.sources[1 - zone.pane];
+    mineTop = zone.pane === 0;
     label = zone.pane === 0 ? 'replaces the top' : 'replaces the bottom';
   } else {
-    pair = zone.top ? [me.sources[0], tgt.sources[0]] : [tgt.sources[0], me.sources[0]];
-    incoming = zone.top ? 0 : 1;
+    theirSrc = tgt.sources[0];
+    mineTop = zone.top;
     label = zone.top ? '↑ goes on top' : '↓ goes underneath';
   }
-  const key = tgt.id + ':' + zone.mode + ':' + pair.join('+');
+  const key = tgt.id + ':' + zone.mode + ':' + mineTop + ':' + theirSrc;
   if (DRAG.pkey === key) return;
   DRAG.pkey = key;
-  clearTargets();
+
   const media = el.querySelector('.media');
-  const box = document.createElement('div');
-  box.className = 'stackPrev';
-  box.innerHTML = pair.map((id, k) => {
-    const src = SRC[id] || {};
-    return '<div class="h' + (k === incoming ? ' in' : '') + '"' +
-           ' style="background-image:url(&quot;' + (src.url || '') + '&quot;)"></div>';
-  }).join('') + '<span class="lbl">' + esc(label) + '</span>';
-  media.appendChild(box);
+  let box = media.querySelector('.stackPrev');
+  const fresh = !box;
+  if (fresh) {
+    document.querySelectorAll('.stackPrev').forEach(x => x.remove());
+    document.querySelectorAll('.dropTarget').forEach(x => x.classList.remove('dropTarget'));
+    box = document.createElement('div');
+    box.className = 'stackPrev';
+    box.innerHTML = '<div class="h theirs"></div><div class="h mine"></div><span class="lbl"></span>';
+    media.appendChild(box);
+  }
+  const mine = box.querySelector('.mine'), theirs = box.querySelector('.theirs');
+  setStyle(mine, 'backgroundImage', 'url("' + ((SRC[me.sources[0]] || {}).url || '') + '")');
+  setStyle(theirs, 'backgroundImage', 'url("' + ((SRC[theirSrc] || {}).url || '') + '")');
+  box.querySelector('.lbl').textContent = label;
+
+  if (fresh) {
+    // Start from what the card looks like right now - their photo filling it, yours not yet in the
+    // frame - so the very first thing you see is the card opening up rather than a finished picture.
+    theirs.style.top = '0'; theirs.style.height = '100%';
+    mine.style.top = mineTop ? '0' : '100%'; mine.style.height = '0'; mine.style.opacity = '0';
+    box.getBoundingClientRect();                       // flush, so that state is the transition's start
+  }
+  const half = t => (t ? '0' : 'calc(50% + 2px)');
+  mine.style.top = half(mineTop);  mine.style.height = 'calc(50% - 2px)'; mine.style.opacity = '1';
+  theirs.style.top = half(!mineTop); theirs.style.height = 'calc(50% - 2px)';
+  // moving the cursor across the middle re-runs this with the halves swapped, and the two frames
+  // trade places on the same transition - which is the answer to "who is on top" being a movement
   el.classList.add('dropTarget');
+  if (DRAG.ghost) DRAG.ghost.classList.add('tucked');
 }
 
 function clearTargets() {
   document.querySelectorAll('.stackPrev').forEach(el => el.remove());
   document.querySelectorAll('.dropTarget').forEach(el => el.classList.remove('dropTarget'));
   document.querySelectorAll('.zoneHint').forEach(el => el.classList.remove('zoneHint'));
-  if (DRAG) DRAG.pkey = null;
+  if (DRAG) { DRAG.pkey = null; if (DRAG.ghost) DRAG.ghost.classList.remove('tucked'); }
 }
 
 // Pulling one frame out of a stack: the stack becomes two solo slides, and the drag carries on with
