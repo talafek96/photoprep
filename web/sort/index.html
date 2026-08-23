@@ -80,8 +80,23 @@ body { grid-template-columns:1fr 352px; }
 @keyframes cardIn { from { opacity:0; transform:translateY(8px) } to { opacity:1; transform:none } }
 .slide:hover { border-color:var(--border-strong); }
 .slide.on { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent), 0 10px 30px -14px var(--accent); }
-.slide.lift { cursor:grabbing; transform:scale(1.035) rotate(-.6deg); z-index:5; opacity:.94;
-              box-shadow:0 24px 50px -18px oklch(0 0 0 / 80%); animation:none; }
+
+/* The card you are holding leaves the board and follows the pointer; the one left behind stops being
+   a card and becomes the gap it will land in. Two elements, two jobs - a single card that both
+   follows the cursor and holds its own slot cannot show you where it is going. */
+.slide.ghost {
+  position:fixed; left:0; top:0; z-index:90; margin:0; pointer-events:none;
+  transition:none; animation:none; transform-origin:top left;
+  border-color:var(--accent); background:var(--surface-2);
+  box-shadow:0 30px 64px -22px oklch(0 0 0 / 88%), 0 0 0 1px var(--accent);
+}
+.slide.placeholder {
+  border-style:dashed; border-color:var(--accent); background:var(--accent-soft);
+  animation:none; box-shadow:none;
+}
+.slide.placeholder .hd, .slide.placeholder .media, .slide.placeholder .ft { opacity:.14; }
+body.dragging, body.dragging .slide { cursor:grabbing; }
+body.dragging .slide:hover { border-color:var(--border); }
 
 /* A composite I proposed but you have not ruled on is DASHED. That is the whole affordance: the
    structural decisions still open are visible at a glance instead of indistinguishable from settled
@@ -113,10 +128,29 @@ body { grid-template-columns:1fr 352px; }
 .pane.contain { background-size:contain; background-position:center; }
 .pane.cover-fit { background-size:cover; background-position:center; }
 
-/* A stack is one slide made of two panels, so it reads as one card with a visible seam. */
-.media.stack { flex-direction:column; gap:0; width:var(--tile-w); }
-.media.stack .pane { width:var(--tile-w); height:calc(var(--card-h) / 2); }
-.media.stack .pane + .pane { border-top:1px solid var(--seam); }
+/* A stack is two photographs held in one slot - so it is drawn as two cards, not one card with a
+   line through it. That is what makes "pull one out" and "drop one in" legible as things you can do
+   at all: each half looks like something you could pick up, because it is. */
+.media.stack { flex-direction:column; gap:5px; width:var(--tile-w); background:transparent; }
+.media.stack .pane {
+  width:var(--tile-w); height:calc((var(--card-h) - 5px) / 2); border-radius:5px;
+  box-shadow:0 0 0 1px oklch(1 0 0 / 16%), 0 3px 10px -5px oklch(0 0 0 / 80%);
+  transition:box-shadow .15s var(--ease-io), transform .18s var(--ease-out);
+}
+.media.stack .pane:hover { box-shadow:0 0 0 1px var(--accent), 0 6px 16px -6px oklch(0 0 0 / 85%); }
+.media.stack .pane .grip {
+  position:absolute; top:3px; right:4px; font-size:11px; line-height:1;
+  color:oklch(1 0 0 / 0); text-shadow:0 1px 3px oklch(0 0 0 / 90%);
+  transition:color .15s var(--ease-io);
+}
+.media.stack .pane:hover .grip { color:oklch(1 0 0 / 78%); }
+/* dropping a frame onto one half of a stack takes that half's place */
+.media.stack .pane.swapTarget { box-shadow:0 0 0 2px var(--ok), 0 6px 16px -6px oklch(0 0 0 / 85%); }
+.media.stack .pane.swapTarget::after {
+  content:'takes this place'; position:absolute; inset:auto 0 0 0; text-align:center;
+  font-family:var(--mono); font-size:8.5px; letter-spacing:.06em; text-transform:uppercase;
+  color:var(--ok); background:oklch(0 0 0 / 62%); padding:3px 0;
+}
 
 /* A split is ONE photograph across N slides. Rendering the actual slices side by side is the only
    way that reads as one image rather than as N unrelated frames that happen to be adjacent. */
@@ -549,30 +583,45 @@ function undo() {
   toast('undone');
 }
 
-/* --- rendering ---------------------------------------------------------------------------------- */
-/* Keyed reconciliation, id -> element. A full rebuild would destroy the card the pointer is
-   currently dragging, and reordering during a drag is the whole interaction. */
+/* --- rendering ----------------------------------------------------------------------------------
+ * Keyed, and surgical. Selecting a card must not repaint the board: repainting rewrites every
+ * background-image, which throws away the browser's decode and reads as a stutter on what was just
+ * a click. So the render layer is split three ways -
+ *
+ *   paintCard   one card's contents      (slot number, shape, flags, footer)
+ *   layout      membership and DOM order (nothing else)
+ *   chrome      meter, status line, warnings, shelf
+ *
+ * - and every structural change goes through reflow(), which FLIPs the cards from where they were to
+ * where they end up. Without that a reorder is a cut between two layouts and you have to work out
+ * what moved; with it, you watch it move.
+ */
 const CARDS = new Map();
 
+// Assigning an identical background-image is not free - it re-resolves the URL and makes the card
+// blink. On a 24-card board that is the difference between fluid and janky, so compare first.
+const setStyle = (el, prop, v) => { if (el.style[prop] !== v) el.style[prop] = v; };
+const setClass = (el, v) => { if (el.className !== v) el.className = v; };
+
 function paneStyle(el, src, mode) {
-  el.style.backgroundImage = src && src.url ? 'url("' + src.url + '")' : 'none';
-  el.className = 'pane ' + (mode || 'contain');
-  el.style.backgroundSize = ''; el.style.backgroundPosition = '';
+  setStyle(el, 'backgroundImage', src && src.url ? 'url("' + src.url + '")' : 'none');
+  setClass(el, 'pane ' + (mode || 'contain'));
+  setStyle(el, 'backgroundSize', ''); setStyle(el, 'backgroundPosition', '');
 }
 
 // A split tile shows the real slice of the real photograph. Anything less (the whole image repeated
 // N times, or a generic bracket) makes it impossible to judge whether the panorama actually reads.
 function sliceStyle(el, src, i, n) {
-  el.className = 'pane';
-  el.style.backgroundImage = src && src.url ? 'url("' + src.url + '")' : 'none';
-  if (!src || !src.w || !src.h) { el.style.backgroundSize = 'cover'; el.style.backgroundPosition = 'center'; return; }
+  setClass(el, 'pane');
+  setStyle(el, 'backgroundImage', src && src.url ? 'url("' + src.url + '")' : 'none');
+  if (!src || !src.w || !src.h) { setStyle(el, 'backgroundSize', 'cover'); setStyle(el, 'backgroundPosition', 'center'); return; }
   // The tallest crop that yields n tiles of 4:5, centred on the source.
   const cropH = Math.min(src.h, src.w / (n * R45));
   const cropW = cropH * R45 * n;
   const x0 = (src.w - cropW) / 2, y0 = (src.h - cropH) / 2;
   const s = CARD_H / cropH;                       // source px -> screen px
-  el.style.backgroundSize = (src.w * s) + 'px ' + (src.h * s) + 'px';
-  el.style.backgroundPosition = (-(x0 + i * cropH * R45) * s) + 'px ' + (-y0 * s) + 'px';
+  setStyle(el, 'backgroundSize', (src.w * s) + 'px ' + (src.h * s) + 'px');
+  setStyle(el, 'backgroundPosition', (-(x0 + i * cropH * R45) * s) + 'px ' + (-y0 * s) + 'px');
 }
 
 function cardFor(sl) {
@@ -587,6 +636,7 @@ function cardFor(sl) {
 }
 
 function paintCard(el, sl, i) {
+  if (!el) return;
   const slots = slotsFor(i);
   const srcs = srcOf(sl);
   const warns = warnsFor(sl, i);
@@ -595,37 +645,44 @@ function paintCard(el, sl, i) {
   el.classList.toggle('proposed', !!sl.proposed && !sl.ruled);
 
   const kindLabel = sl.kind === 'stack' ? '⬍ stack' : sl.kind === 'split' ? '⬌ split ×' + (sl.n || 2) : '▯ solo';
-  el.querySelector('.hd').innerHTML =
+  const hd =
     '<span class="no">' + (slots.count > 1 ? slots.first + '–' + slots.last : slots.first) + '</span>' +
     '<span class="kind">' + kindLabel + '</span>' +
     (slots.first === 1 ? '<span class="kind">cover</span>' : '') +
     '<span class="sp"></span>' +
     (sl.text || (sl.tags && sl.tags.length) ? '<span class="mk" title="You left a comment on this slide">💬</span>' : '') +
     (warns.length ? '<span class="flag" title="' + esc(warns.map(w => w.text).join(' · ')) + '">⚠</span>' : '');
+  const hdEl = el.querySelector('.hd');
+  if (hdEl.innerHTML !== hd) hdEl.innerHTML = hd;
 
   const media = el.querySelector('.media');
-  media.className = 'media ' + sl.kind;
+  setClass(media, 'media ' + sl.kind);
   const want = sl.kind === 'split' ? (sl.n || 2) : sl.kind === 'stack' ? 2 : 1;
   // The card is exactly as wide as the frames it holds. Without this the FOOTER sizes the card -
   // a long filename made a solo card wider than its own photo, so the media sat in a pool of black
   // and a split group no longer read as one continuous image.
-  el.style.width = ((sl.kind === 'split' ? want : 1) * TILE_W + 2) + 'px';
+  setStyle(el, 'width', ((sl.kind === 'split' ? want : 1) * TILE_W + 2) + 'px');
   while (media.children.length > want) media.lastChild.remove();
   while (media.children.length < want) media.appendChild(document.createElement('div'));
   for (let k = 0; k < want; k++) {
     const pane = media.children[k];
+    pane.dataset.panel = k;
     if (sl.kind === 'split') {
       sliceStyle(pane, srcs[0], k, want);
-      pane.innerHTML = '<span class="slot">' + (slots.first + k) + '</span>';
+      const slot = '<span class="slot">' + (slots.first + k) + '</span>';
+      if (pane.innerHTML !== slot) pane.innerHTML = slot;
     } else {
       paneStyle(pane, srcs[k], sl.kind === 'stack' ? 'cover-fit' : 'contain');
-      pane.innerHTML = '';
+      // A stacked frame is still its own photograph, so it says so: grab it and it comes out.
+      const grip = sl.kind === 'stack'
+        ? '<span class="grip" title="Drag this frame out of the stack">⠿</span>' : '';
+      if (pane.innerHTML !== grip) pane.innerHTML = grip;
     }
   }
   el.querySelector('.brk').hidden = sl.kind !== 'split';
 
   const names = srcs.map(s => s.name).join('  ·  ');
-  el.querySelector('.ft').innerHTML =
+  const ft =
     '<div class="nm" title="' + esc(names) + '">' + esc(names || '—') + '</div>' +
     (sl.why ? '<div class="why" title="' + esc(sl.why) + '">' + esc(sl.why) + '</div>' : '') +
     (sl.text || (sl.tags && sl.tags.length)
@@ -633,25 +690,25 @@ function paintCard(el, sl, i) {
         (sl.tags || []).map(t => '<span class="tg">' + esc(tagLabel(t)) + '</span>').join('') +
         esc(sl.text || '') + '</div>'
       : '');
+  const ftEl = el.querySelector('.ft');
+  if (ftEl.innerHTML !== ft) ftEl.innerHTML = ft;
 }
 
 const tagLabel = id => (TAGS.find(t => t.id === id) || { t:id }).t;
 
-function render() {
+// Membership and order only. appendChild MOVES an existing node, so one pass in sequence order both
+// adds the new cards and puts every card in its slot - without ever recreating the one being dragged.
+function layout() {
   const board = $('board');
   $('empty').hidden = SLIDES.length > 0;
-  // drop cards for slides that no longer exist
   const live = new Set(SLIDES.map(s => s.id));
   CARDS.forEach((el, id) => { if (!live.has(id)) { el.remove(); CARDS.delete(id); } });
+  SLIDES.forEach(sl => board.appendChild(cardFor(sl)));
+}
 
-  // appendChild MOVES an existing node, so one pass in sequence order both adds the new cards and
-  // puts every card in its slot - without ever recreating the one the pointer is dragging.
-  SLIDES.forEach((sl, i) => {
-    const el = cardFor(sl);
-    paintCard(el, sl, i);
-    board.appendChild(el);
-  });
+function repaint() { SLIDES.forEach((sl, i) => paintCard(CARDS.get(sl.id), sl, i)); }
 
+function chrome() {
   const n = totalSlides();
   $('mNum').textContent = n;
   $('mFill').style.width = Math.min(100, (n / IG_MAX) * 100) + '%';
@@ -662,6 +719,43 @@ function render() {
   $('stOpen').textContent = SLIDES.filter(s => s.proposed && !s.ruled).length;
   renderWarnings();
   renderShelf();
+}
+
+function render() { layout(); repaint(); chrome(); }
+
+/* FLIP - measure where every card is, let the change happen, measure again, then play the difference.
+ * The cards that had to shift because something landed among them are the whole point: watching them
+ * open a gap is what tells you where the thing you are holding is going to go. */
+function reflow(mutate) {
+  const first = new Map();
+  CARDS.forEach((el, id) => first.set(id, el.getBoundingClientRect()));
+  if (mutate) mutate();
+  layout(); repaint(); chrome();
+  const dur = DRAG && DRAG.on ? 170 : 260;
+  CARDS.forEach((el, id) => {
+    const f = first.get(id); if (!f) return;                 // brand new card: it animates itself in
+    const l = el.getBoundingClientRect();
+    const dx = f.left - l.left, dy = f.top - l.top;
+    if (!dx && !dy) return;
+    el.style.transition = 'none';
+    el.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+    requestAnimationFrame(() => {
+      el.style.transition = 'transform ' + dur + 'ms var(--ease-out)';
+      el.style.transform = '';
+    });
+  });
+}
+
+// Selection touches exactly two cards. It used to repaint all of them, which is what made a plain
+// click feel expensive on a full board.
+function setCur(i) {
+  if (!SLIDES.length) { CUR = 0; renderPanel(); return; }
+  const before = SLIDES[CUR] && CARDS.get(SLIDES[CUR].id);
+  CUR = clamp(i, 0, SLIDES.length - 1);
+  const after = SLIDES[CUR] && CARDS.get(SLIDES[CUR].id);
+  if (before && before !== after) before.classList.remove('on');
+  if (after) after.classList.add('on');
+  renderPanel();
 }
 
 /* --- warnings ----------------------------------------------------------------------------------- */
@@ -715,11 +809,11 @@ $('warnList').onclick = e => {
   const row = e.target.closest('.wrn'); if (!row || !e.target.classList.contains('x')) return;
   const sl = SLIDES.find(s => s.id === row.dataset.id); if (!sl) return;
   sl.mute = (sl.mute || []).concat(row.dataset.k);
-  render(); saveState();
+  paintCard(CARDS.get(sl.id), sl, SLIDES.indexOf(sl)); chrome(); saveState();
 };
 $('warnChip').onclick = () => {
   const first = SLIDES.findIndex((s, i) => warnsFor(s, i).length);
-  if (first >= 0) { CUR = first; render(); renderPanel(); scrollToCur(); }
+  if (first >= 0) { setCur(first); scrollToCur(); }
 };
 
 /* --- the cut shelf ------------------------------------------------------------------------------ */
@@ -734,10 +828,12 @@ function renderShelf() {
 $('shelf').onclick = e => {
   const el = e.target.closest('.cut'); if (!el) return;
   snapshot();
-  const c = CUT.splice(Number(el.dataset.i), 1)[0];
-  SLIDES.push({ id:nid(), kind:'solo', sources:c.srcIds, why:'', tags:[], text:'' });
-  CUR = SLIDES.length - 1;
-  render(); renderPanel(); saveState();
+  reflow(() => {
+    const c = CUT.splice(Number(el.dataset.i), 1)[0];
+    SLIDES.push({ id:nid(), kind:'solo', sources:c.srcIds, why:'', tags:[], text:'', ruled:true });
+    CUR = SLIDES.length - 1;
+  });
+  renderPanel(); scrollToCur(); saveState();
   toast('back in, at the end');
 };
 
@@ -786,7 +882,7 @@ $('insTags').onclick = e => {
   const i = sl.tags.indexOf(b.dataset.t);
   if (i >= 0) sl.tags.splice(i, 1); else sl.tags.push(b.dataset.t);
   sl.ruled = true;
-  render(); renderPanel(); saveState();
+  paintCard(CARDS.get(sl.id), sl, CUR); chrome(); renderPanel(); saveState();
 };
 $('insText').oninput = () => {
   const sl = SLIDES[CUR]; if (!sl) return;
@@ -797,15 +893,19 @@ $('insText').oninput = () => {
 $('setComment').oninput = saveState;
 
 /* --- the verbs ---------------------------------------------------------------------------------- */
+/* Every one of these mutates inside reflow(), so the board animates from the old arrangement to the
+   new one instead of cutting to it. */
 function move(from, to) {
   to = clamp(to, 0, SLIDES.length - 1);
   if (from === to) return;
   snapshot();
-  const [sl] = SLIDES.splice(from, 1);
-  SLIDES.splice(to, 0, sl);
-  sl.moved = true;
-  CUR = to;
-  render(); renderPanel(); scrollToCur(); saveState();
+  reflow(() => {
+    const [sl] = SLIDES.splice(from, 1);
+    SLIDES.splice(to, 0, sl);
+    sl.moved = true;
+    CUR = to;
+  });
+  renderPanel(); scrollToCur(); saveState();
 }
 
 function toCover() { if (CUR > 0) { move(CUR, 0); toast('now the cover'); } }
@@ -819,11 +919,13 @@ function stackWith(i, j) {
   const sources = a.sources.concat(b.sources);
   if (sources.length !== 2) { toast('a stack is exactly two frames'); return; }
   snapshot();
-  const merged = { id:nid(), kind:'stack', sources, why:a.why || b.why || '',
-                   tags:[], text:[a.text, b.text].filter(Boolean).join(' · '), ruled:true };
-  SLIDES.splice(Math.min(i, j), 2, merged);
-  CUR = Math.min(i, j);
-  render(); renderPanel(); saveState();
+  reflow(() => {
+    const merged = { id:nid(), kind:'stack', sources, why:a.why || b.why || '',
+                     tags:[], text:[a.text, b.text].filter(Boolean).join(' · '), ruled:true };
+    SLIDES.splice(Math.min(i, j), 2, merged);
+    CUR = Math.min(i, j);
+  });
+  renderPanel(); saveState();
   toast('stacked — one slide instead of two');
 }
 
@@ -831,9 +933,11 @@ function unstack(i) {
   const sl = SLIDES[i];
   if (!sl || sl.kind !== 'stack') { toast('that is not a stack'); return; }
   snapshot();
-  const parts = sl.sources.map(id => ({ id:nid(), kind:'solo', sources:[id], why:'', tags:[], text:'', ruled:true }));
-  SLIDES.splice(i, 1, ...parts);
-  render(); renderPanel(); saveState();
+  reflow(() => {
+    const parts = sl.sources.map(id => ({ id:nid(), kind:'solo', sources:[id], why:'', tags:[], text:'', ruled:true }));
+    SLIDES.splice(i, 1, ...parts);
+  });
+  renderPanel(); saveState();
   toast('unstacked');
 }
 
@@ -841,16 +945,16 @@ function setSplit(i, n) {
   const sl = SLIDES[i]; if (!sl) return;
   if (sl.sources.length !== 1) { toast('only a single photo can be split'); return; }
   snapshot();
-  sl.kind = 'split'; sl.n = clamp(n || 2, 2, 5); sl.ruled = true;
-  render(); renderPanel(); saveState();
+  reflow(() => { sl.kind = 'split'; sl.n = clamp(n || 2, 2, 5); sl.ruled = true; });
+  renderPanel(); saveState();
   toast('split into ' + sl.n + ' tiles — ' + totalSlides() + ' slides now');
 }
 
 function unsplit(i) {
   const sl = SLIDES[i]; if (!sl || sl.kind !== 'split') return;
   snapshot();
-  sl.kind = 'solo'; delete sl.n; sl.ruled = true;
-  render(); renderPanel(); saveState();
+  reflow(() => { sl.kind = 'solo'; delete sl.n; sl.ruled = true; });
+  renderPanel(); saveState();
 }
 
 function setKind(k) {
@@ -866,7 +970,8 @@ function swapPanels() {
   if (!sl || sl.kind !== 'stack') return;
   snapshot();
   sl.sources.reverse(); sl.ruled = true;
-  render(); renderPanel(); saveState();
+  paintCard(CARDS.get(sl.id), sl, CUR);          // one card changed; the board did not
+  renderPanel(); saveState();
   toast('swapped — ' + (SRC[sl.sources[0]] || {}).name + ' on top');
 }
 
@@ -877,11 +982,13 @@ function cutCurrent() {
   const srcs = srcOf(sl);
   const reason = (sl.text || (sl.tags || []).map(tagLabel).join(', ') || '').slice(0, 40);
   snapshot();
-  CUT.push({ srcIds:sl.sources.slice(), name:srcs.map(s => s.name).join(' + '),
-             url:(srcs[0] || {}).url || '', reason });
-  SLIDES.splice(CUR, 1);
-  CUR = clamp(CUR, 0, SLIDES.length - 1);
-  render(); renderPanel(); saveState();
+  reflow(() => {
+    CUT.push({ srcIds:sl.sources.slice(), name:srcs.map(s => s.name).join(' + '),
+               url:(srcs[0] || {}).url || '', reason });
+    SLIDES.splice(CUR, 1);
+    CUR = clamp(CUR, 0, SLIDES.length - 1);
+  });
+  renderPanel(); saveState();
   toast(reason ? 'out — reason kept' : 'out — add a reason in the shelf comment if you can');
 }
 
@@ -898,7 +1005,9 @@ $('btnUndo').onclick = undo;
    and an un-answered rejection is how a frame ends up in a slot nobody chose. */
 $('ruleOk').onclick = () => {
   const sl = SLIDES[CUR]; if (!sl) return;
-  sl.ruled = true; render(); renderPanel(); saveState(); toast('kept');
+  sl.ruled = true;
+  paintCard(CARDS.get(sl.id), sl, CUR); chrome();
+  renderPanel(); saveState(); toast('kept');
 };
 $('ruleNo').onclick = () => {
   const sl = SLIDES[CUR]; if (!sl) return;
@@ -928,93 +1037,186 @@ function scrollToCur() {
 }
 
 /* --- drag ---------------------------------------------------------------------------------------
- * Dragging is the primary verb. Reordering happens LIVE as you drag — the board rearranges under the
- * pointer rather than showing a placeholder and jumping at the end, so what you see mid-drag is what
- * you get. Dropping onto the MIDDLE of another frame stacks instead of reordering; the target says so
- * before you let go, and it only offers when the pair could actually become one 4:5 frame.
+ * Dragging is the primary verb, so it has to LOOK like dragging. Three things happen at once:
+ *
+ *   1. a GHOST - a clone of the card - leaves the board and follows the pointer, held where you
+ *      grabbed it, so the thing you are moving is in your hand rather than snapping between slots;
+ *   2. the real card stays in the flow as the LANDING PREVIEW, showing the gap it will drop into;
+ *   3. every card it displaces FLIPs out of the way, so the new arrangement assembles itself under
+ *      the pointer and you can read the post before you let go.
+ *
+ * Pulling a frame out of a stack is not a separate mechanism: the stack unstacks and the drag
+ * continues on the frame you grabbed. So stacking and unstacking are the same gesture in both
+ * directions, which is the only way "drag two together, drag one back out" feels like one idea.
  */
 let DRAG = null;
 
-$('board').addEventListener('pointerdown', e => {
-  const card = e.target.closest('.slide'); if (!card) return;
-  if (e.target.closest('button, textarea, input')) return;
-  const i = SLIDES.findIndex(s => s.id === card.dataset.id);
-  if (i < 0) return;
-  CUR = i; render(); renderPanel();
-  DRAG = { id:card.dataset.id, x0:e.clientX, y0:e.clientY, on:false, target:null, hoverAt:0 };
-  try { $('board').setPointerCapture(e.pointerId); } catch (err) { /* a synthetic pointer has no id to capture */ }
-});
-
-$('board').addEventListener('pointermove', e => {
-  if (!DRAG) return;
-  const el = CARDS.get(DRAG.id); if (!el) return;
-  if (!DRAG.on) {
-    if (Math.hypot(e.clientX - DRAG.x0, e.clientY - DRAG.y0) < 5) return;
-    DRAG.on = true; el.classList.add('lift'); snapshot();
-  }
-  const from = SLIDES.findIndex(s => s.id === DRAG.id);
-
-  // which card is under the pointer?
-  let overIdx = -1, r = null;
-  for (let i = 0; i < SLIDES.length; i++) {
-    const c = CARDS.get(SLIDES[i].id); if (!c || c === el) continue;
-    const b = c.getBoundingClientRect();
-    if (e.clientX >= b.left && e.clientX <= b.right && e.clientY >= b.top && e.clientY <= b.bottom) {
-      overIdx = i; r = b; break;
-    }
-  }
-  clearStackTarget();
-  if (overIdx >= 0) {
-    const inner = (e.clientX - r.left) / r.width;
-    const canStack = stackable(SLIDES[from], SLIDES[overIdx]);
-    if (canStack && inner > 0.27 && inner < 0.73) {
-      // hold briefly before offering — otherwise passing over a card on the way somewhere else arms it
-      if (DRAG.target !== SLIDES[overIdx].id) { DRAG.target = SLIDES[overIdx].id; DRAG.hoverAt = e.timeStamp; }
-      if (e.timeStamp - DRAG.hoverAt > 260) CARDS.get(DRAG.target).classList.add('stackTarget');
-      return;
-    }
-    DRAG.target = null;
-    const before = e.clientX < r.left + r.width / 2;
-    let to = overIdx + (before ? 0 : 1);
-    if (from < to) to--;
-    if (to !== from) { const [s] = SLIDES.splice(from, 1); SLIDES.splice(to, 0, s); s.moved = true; CUR = to; render(); renderPanel(); }
-  } else DRAG.target = null;
-
-  // edge autoscroll, so a drag can reach a slide that is off-screen
-  const bb = $('board').getBoundingClientRect();
-  if (e.clientY < bb.top + 60) $('board').scrollTop -= 14;
-  else if (e.clientY > bb.bottom - 60) $('board').scrollTop += 14;
-});
+function ghostFrom(el, x, y) {
+  const r = el.getBoundingClientRect();
+  const g = el.cloneNode(true);
+  g.classList.add('ghost');
+  g.classList.remove('on', 'placeholder');
+  g.style.width = r.width + 'px';
+  g.style.height = r.height + 'px';
+  document.body.appendChild(g);
+  DRAG.ox = x - r.left; DRAG.oy = y - r.top;
+  DRAG.ghost = g;
+  moveGhost(x, y);
+}
+function moveGhost(x, y) {
+  if (!DRAG || !DRAG.ghost) return;
+  DRAG.ghost.style.transform = 'translate(' + (x - DRAG.ox) + 'px,' + (y - DRAG.oy) + 'px)';
+}
 
 function stackable(a, b) {
   if (!a || !b || a === b) return false;
   if (a.kind !== 'solo' || b.kind !== 'solo') return false;
   return isLandscape(SRC[a.sources[0]]) || isLandscape(SRC[b.sources[0]]);
 }
-function clearStackTarget() { CARDS.forEach(c => c.classList.remove('stackTarget')); }
+function clearTargets() {
+  document.querySelectorAll('.stackTarget').forEach(el => el.classList.remove('stackTarget'));
+  document.querySelectorAll('.swapTarget').forEach(el => el.classList.remove('swapTarget'));
+}
+
+// Pulling one frame out of a stack: the stack becomes two solo slides, and the drag carries on with
+// the one you grabbed. From here it is an ordinary card - drop it anywhere, or back onto its old
+// partner to put the stack back.
+function pullPanel() {
+  const i = SLIDES.findIndex(s => s.id === DRAG.id);
+  const sl = SLIDES[i];
+  if (!sl || sl.kind !== 'stack') { DRAG.panel = -1; return; }
+  const pulledSrc = sl.sources[DRAG.panel], otherSrc = sl.sources[1 - DRAG.panel];
+  const pulled = { id:nid(), kind:'solo', sources:[pulledSrc], why:'', tags:[], text:'', ruled:true };
+  const other  = { id:nid(), kind:'solo', sources:[otherSrc], why:sl.why, tags:(sl.tags || []).slice(),
+                   text:sl.text || '', ruled:true };
+  reflow(() => SLIDES.splice(i, 1, ...(DRAG.panel === 0 ? [pulled, other] : [other, pulled])));
+  DRAG.id = pulled.id;
+  DRAG.panel = -1;
+  setCur(SLIDES.findIndex(x => x.id === pulled.id));
+  toast('out of the stack — drop it where it belongs');
+}
+
+$('board').addEventListener('pointerdown', e => {
+  const card = e.target.closest('.slide'); if (!card) return;
+  if (e.target.closest('button, textarea, input')) return;
+  const i = SLIDES.findIndex(s => s.id === card.dataset.id);
+  if (i < 0) return;
+  setCur(i);
+  const pane = e.target.closest('.pane');
+  DRAG = {
+    id: card.dataset.id, x0:e.clientX, y0:e.clientY, on:false, target:null, tkey:null, hoverAt:0,
+    // grabbing one half of a stack means you want that frame, not the pair
+    panel: (SLIDES[i].kind === 'stack' && pane) ? Number(pane.dataset.panel || 0) : -1,
+  };
+  try { $('board').setPointerCapture(e.pointerId); } catch (err) { /* a synthetic pointer has no id to capture */ }
+});
+
+$('board').addEventListener('pointermove', e => {
+  if (!DRAG) return;
+  if (!DRAG.on) {
+    if (Math.hypot(e.clientX - DRAG.x0, e.clientY - DRAG.y0) < 5) return;   // a click, not a drag
+    DRAG.on = true;
+    snapshot();
+    if (DRAG.panel >= 0) pullPanel();
+    const el = CARDS.get(DRAG.id);
+    if (!el) { DRAG = null; return; }
+    ghostFrom(el, e.clientX, e.clientY);
+    el.classList.add('placeholder');
+    document.body.classList.add('dragging');
+  }
+  moveGhost(e.clientX, e.clientY);
+
+  const from = SLIDES.findIndex(s => s.id === DRAG.id);
+  const el = CARDS.get(DRAG.id);
+  if (from < 0 || !el) return;
+
+  // The ghost is pointer-events:none, so what is under the cursor is the real board.
+  const under = document.elementFromPoint(e.clientX, e.clientY);
+  const overCard = under && under.closest ? under.closest('.slide') : null;
+  const overPane = under && under.closest ? under.closest('.pane') : null;
+  const overIdx = overCard ? SLIDES.findIndex(s => s.id === overCard.dataset.id) : -1;
+
+  if (overIdx >= 0 && overIdx !== from) {
+    const tgt = SLIDES[overIdx];
+    const r = overCard.getBoundingClientRect();
+    const inner = (e.clientX - r.left) / r.width;
+    // Dropping onto the MIDDLE of a solo makes a stack; onto one half of an existing stack takes
+    // that frame's place. Both arm on a short hold, so passing over a card on the way somewhere
+    // else can't grab it, and both say what they are about to do before you let go.
+    const wantStack = inner > 0.27 && inner < 0.73 && stackable(SLIDES[from], tgt);
+    const wantSwap = overPane && tgt.kind === 'stack' && SLIDES[from].kind === 'solo';
+    if (wantStack || wantSwap) {
+      const pane = wantSwap ? Number(overPane.dataset.panel || 0) : -1;
+      const key = tgt.id + ':' + pane;
+      if (DRAG.tkey !== key) { DRAG.tkey = key; DRAG.hoverAt = e.timeStamp; DRAG.target = null; clearTargets(); }
+      if (!DRAG.target && e.timeStamp - DRAG.hoverAt > 240) {
+        DRAG.target = { id:tgt.id, mode: wantSwap ? 'swap' : 'stack', pane };
+        (wantSwap ? overPane : overCard).classList.add(wantSwap ? 'swapTarget' : 'stackTarget');
+      }
+      return;
+    }
+    if (DRAG.tkey) { DRAG.tkey = null; DRAG.target = null; clearTargets(); }
+    const before = e.clientX < r.left + r.width / 2;
+    let to = overIdx + (before ? 0 : 1);
+    if (from < to) to--;
+    if (to !== from) {
+      reflow(() => { const [sl] = SLIDES.splice(from, 1); SLIDES.splice(to, 0, sl); sl.moved = true; CUR = to; });
+    }
+  } else if (overIdx < 0 && DRAG.tkey) { DRAG.tkey = null; DRAG.target = null; clearTargets(); }
+
+  // edge autoscroll, so a drag can reach a slide that is off-screen
+  const bb = $('board').getBoundingClientRect();
+  if (e.clientY < bb.top + 70) $('board').scrollTop -= 16;
+  else if (e.clientY > bb.bottom - 70) $('board').scrollTop += 16;
+});
 
 function endDrag() {
   if (!DRAG) return;
-  const el = CARDS.get(DRAG.id);
-  if (el) el.classList.remove('lift');
-  const armed = DRAG.target && CARDS.get(DRAG.target) && CARDS.get(DRAG.target).classList.contains('stackTarget');
-  const targetId = DRAG.target;
-  const wasDrag = DRAG.on;
-  DRAG = null;
-  clearStackTarget();
-  if (armed) {
-    const i = SLIDES.findIndex(s => s.id === el.dataset.id);
-    const j = SLIDES.findIndex(s => s.id === targetId);
-    // the dragged frame lands on top of the one it was dropped onto
+  const d = DRAG; DRAG = null;
+  clearTargets();
+  document.body.classList.remove('dragging');
+  const el = CARDS.get(d.id);
+  if (el) el.classList.remove('placeholder');
+  if (!d.on) return;                                   // it was a click
+
+  // Settle the ghost into the slot it is landing in, then hand back to the real card. Letting it
+  // vanish mid-air loses the thread of where the thing you were holding actually went.
+  if (d.ghost) {
+    const land = el && el.getBoundingClientRect();
+    const g = d.ghost;
+    if (land) {
+      g.style.transition = 'transform .2s var(--ease-out), opacity .2s var(--ease-io)';
+      g.style.transform = 'translate(' + land.left + 'px,' + land.top + 'px)';
+      g.style.opacity = '0';
+      setTimeout(() => g.remove(), 230);
+    } else g.remove();
+  }
+
+  const t = d.target;
+  if (t) {
+    const i = SLIDES.findIndex(s => s.id === d.id);
+    const j = SLIDES.findIndex(s => s.id === t.id);
     if (i >= 0 && j >= 0) {
-      const [a] = SLIDES.splice(i, 1);
-      const jj = SLIDES.findIndex(s => s.id === targetId);
-      SLIDES.splice(jj, 0, a);
-      stackWith(jj, jj + 1);
+      if (t.mode === 'stack') {
+        // the frame you dragged lands on top of the one you dropped it onto
+        reflow(() => { const [a] = SLIDES.splice(i, 1); SLIDES.splice(SLIDES.findIndex(s => s.id === t.id), 0, a); });
+        stackWith(SLIDES.findIndex(s => s.id === d.id), SLIDES.findIndex(s => s.id === t.id));
+        return;
+      }
+      // swap: your frame takes that half of the stack, and the one it displaces takes your slot
+      const tgt = SLIDES[j], solo = SLIDES[i];
+      const displaced = tgt.sources[t.pane];
+      reflow(() => {
+        tgt.sources[t.pane] = solo.sources[0];
+        solo.sources[0] = displaced;
+        tgt.ruled = true;
+      });
+      renderPanel(); saveState();
+      toast('into the stack — ' + (SRC[displaced] || {}).name + ' takes its place');
       return;
     }
   }
-  if (wasDrag) { render(); renderPanel(); saveState(); }
+  renderPanel(); saveState();
 }
 $('board').addEventListener('pointerup', endDrag);
 $('board').addEventListener('pointercancel', endDrag);
@@ -1055,11 +1257,7 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'Enter') { e.preventDefault(); askCommit(); }
 });
 
-function select(i) {
-  if (!SLIDES.length) return;
-  CUR = clamp(i, 0, SLIDES.length - 1);
-  render(); renderPanel(); scrollToCur();
-}
+function select(i) { setCur(i); scrollToCur(); }
 
 /* --- carousel preview ----------------------------------------------------------------------------
  * A grid tells you what is in the post; only a swipe tells you how it reads. Split groups expand into
@@ -1332,11 +1530,18 @@ window.__clearSaved = () => { localStorage.removeItem(SAVE_KEY); toast('saved pa
  * Orientation decides everything downstream — what gets flagged, what can stack, how a split slices —
  * and it cannot be guessed from a filename. So every source is measured from its real pixels.
  */
+let MEASURE_T = null;
+function measured() {
+  clearTimeout(MEASURE_T);
+  MEASURE_T = setTimeout(() => { repaint(); chrome(); saveState(); }, 60);
+}
+
 function measureAll() {
   Object.values(SRC).forEach(s => {
     if (s.w || !s.url) return;
     const im = new Image();
-    im.onload = () => { s.w = im.naturalWidth; s.h = im.naturalHeight; render(); saveState(); };
+    // One repaint per photo would be 24 of them during a load. Coalesce into one on the next frame.
+    im.onload = () => { s.w = im.naturalWidth; s.h = im.naturalHeight; measured(); };
     im.src = s.url;
   });
 }
