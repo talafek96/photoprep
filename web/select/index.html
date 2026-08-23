@@ -489,6 +489,30 @@ body.locked .locknote { display:flex; }
 
 .empty { color:var(--faint); font-size:11.5px; line-height:1.6; }
 
+/* --- context menu ------------------------------------------------------------------------------- */
+#ctx {
+  position:fixed; z-index:80; min-width:210px; padding:5px;
+  background:color-mix(in oklch, var(--surface) 94%, transparent);
+  backdrop-filter:blur(18px) saturate(1.3); -webkit-backdrop-filter:blur(18px) saturate(1.3);
+  border:1px solid var(--border-strong); border-radius:var(--radius);
+  box-shadow:0 18px 44px -16px oklch(0 0 0 / 70%), var(--highlight);
+  animation:ctxIn .14s var(--ease-out) both;
+}
+@keyframes ctxIn { from { opacity:0; transform:translateY(-4px) scale(.985) } to { opacity:1; transform:none } }
+#ctx .ctxHead {
+  font-family:var(--mono); font-size:9px; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--faint); padding:6px 9px 7px; border-bottom:1px solid var(--border); margin-bottom:4px;
+}
+#ctx button {
+  display:block; width:100%; text-align:left; background:transparent; border:0; box-shadow:none;
+  padding:7px 9px; border-radius:var(--radius-sm); font-size:12px; color:var(--fg);
+}
+#ctx button:hover { background:oklch(1 0 0 / 7%); }
+#ctx button.danger { color:var(--st-rej); }
+#ctx button.danger:hover { background:color-mix(in oklch, var(--st-rej) 16%, transparent); }
+#ctx hr { border:0; border-top:1px solid var(--border); margin:4px 0; }
+#ctx .k { float:right; color:var(--faint); font-family:var(--mono); font-size:9.5px; }
+
 /* --- loupe ------------------------------------------------------------------------------------- */
 #loupe {
   /* Not opaque. At 80% the sheet stays faintly visible behind, so the loupe reads as a layer over
@@ -640,7 +664,7 @@ kbd {
       <p><b class="pl">🔒 set by you</b> you set that verdict by hand, so tags no longer move it. <kbd>U</kbd> hands it back.</p>
       <p><b class="pl">💬</b> you left a tag or a note on it - both now show on the tile itself, under my reason. The <b class="pl">Has notes</b> filter collects them.</p>
       <h3>Groups</h3>
-      <p><kbd>⌘</kbd>-click (or <kbd>Ctrl</kbd>-click) adds a frame to a selection, <kbd>⇧</kbd>-click takes a range, <kbd>⌘A</kbd> / <kbd>Ctrl A</kbd> takes everything on screen, <kbd>esc</kbd> clears. With frames selected, the bar at the bottom groups them and can set a target - <em>up to 2</em> or <em>exactly 1</em> - which I read as "out of these, pick that many". It works both ways: I can suggest a group and a count, and you can make your own and tell me a count. <em>Nothing is ever enforced</em> - a target only shows where you are, and you can commit over, under or ignoring it entirely.</p>
+      <p><kbd>⌘</kbd>-click (or <kbd>Ctrl</kbd>-click) adds a frame to a selection, <kbd>⇧</kbd>-click takes a range, <kbd>⌘A</kbd> / <kbd>Ctrl A</kbd> takes everything on screen, <kbd>esc</kbd> clears. With frames selected, the bar at the bottom groups them and can set a target - <em>up to 2</em> or <em>exactly 1</em> - which I read as "out of these, pick that many". <em>Right-click a group chip</em> for the rest: select all of it, sort it by score, set or change its target, rename it, or delete it (the photos stay). It works both ways: I can suggest a group and a count, and you can make your own and tell me a count. <em>Nothing is ever enforced</em> - a target only shows where you are, and you can commit over, under or ignoring it entirely.</p>
       <p>Verdict keys apply to the whole selection when there is one, so ⇧-click a run of near-duplicates and press <kbd>X</kbd> once.</p>
 
       <h3>Adding your own photos</h3>
@@ -753,6 +777,8 @@ kbd {
     <p class="hint" id="commitHint">Maybe frames come back to me as questions, not decisions.</p>
   </div>
 </div>
+
+<div id="ctx" hidden role="menu"></div>
 
 <div id="loupe" aria-modal="true" role="dialog">
   <div id="lhead">
@@ -1192,6 +1218,8 @@ function renderGroups() {
   }).join('');
   box.querySelectorAll('.grp').forEach(b => {
     b.onclick = () => { const k = 'group:' + b.dataset.g; FILTER = (FILTER === k) ? 'all' : k; render(); };
+    b.oncontextmenu = ev => groupMenu(ev, b.dataset.g);
+    b.title = 'Click to filter · right-click for more';
   });
 }
 
@@ -1403,6 +1431,74 @@ function makeGroup() {
   toast(mine.length + (existed ? ' added to ' : ' frames → ') + gLabel(key) +
         (!existed && target != null ? ' (' + $('mMode').value + ' ' + target + ')' : ''));
   render(); renderPanel();
+}
+
+function closeCtx() { const m = $('ctx'); m.hidden = true; m.innerHTML = ''; }
+
+function openCtx(x, y, title, items) {
+  const m = $('ctx');
+  m.innerHTML = '<div class="ctxHead">' + esc(title) + '</div>' +
+    items.map((it, i) => it === '-' ? '<hr>' :
+      '<button data-i="' + i + '"' + (it.danger ? ' class="danger"' : '') + '>' + esc(it.label) +
+      (it.k ? '<span class="k">' + esc(it.k) + '</span>' : '') + '</button>').join('');
+  m.hidden = false;
+  // keep it on screen when opened near an edge
+  const r = m.getBoundingClientRect();
+  m.style.left = Math.min(x, innerWidth - r.width - 8) + 'px';
+  m.style.top  = Math.min(y, innerHeight - r.height - 8) + 'px';
+  m.querySelectorAll('button').forEach(b => {
+    b.onclick = () => { const it = items[+b.dataset.i]; closeCtx(); if (it && it.run) it.run(); };
+  });
+}
+
+addEventListener('pointerdown', e => { if (!$('ctx').hidden && !e.target.closest('#ctx')) closeCtx(); }, true);
+addEventListener('keydown', e => { if (e.key === 'Escape' && !$('ctx').hidden) { e.stopPropagation(); closeCtx(); } }, true);
+addEventListener('resize', closeCtx);
+
+function groupMenu(ev, name) {
+  ev.preventDefault();
+  const g = groupState(name);
+  const members = IMGS.filter(i => inGroup(i, name));
+  const scored = members.filter(i => scoreOf(i, name)).length;
+  const filtered = FILTER === 'group:' + name;
+  openCtx(ev.clientX, ev.clientY, g.label + ' · ' + g.total + ' frames', [
+    { label: filtered ? 'Show all frames' : 'Show only this group',
+      run: () => { FILTER = filtered ? 'all' : 'group:' + name; render(); } },
+    { label: 'Select all ' + g.total,
+      run: () => { members.forEach(i => MULTI.add(i.id)); ANCHOR = IMGS.indexOf(members[0]); render(); } },
+    { label: 'Sort by score in this group',
+      run: () => { FILTER = 'group:' + name; SORT = 'score'; render(); } },
+    '-',
+    { label: g.target == null ? 'Set a target…' : 'Change target (now ' + (g.mode === 'exactly' ? '=' : '≤') + g.target + ')…',
+      run: () => {
+        const v = prompt('How many frames should come from ' + g.label + '?\n' +
+                         'A suggestion only - nothing is enforced. Blank clears it.',
+                         g.target == null ? '' : String(g.target));
+        if (v === null) return;
+        if (v.trim() === '') { delete GROUPS[name].target; }
+        else { GROUPS[name] = Object.assign({}, GROUPS[name], { target: Math.max(0, parseInt(v, 10) || 0), by:'you' }); }
+        render();
+      } },
+    { label: 'Rename…',
+      run: () => {
+        const v = prompt('Rename this group', g.label);
+        if (v && v.trim()) { GROUPS[name] = Object.assign({}, GROUPS[name], { label: v.trim() }); render(); }
+      } },
+    '-',
+    { label: 'Delete group', danger: true,
+      run: () => {
+        // The photos stay; only the grouping goes. Scores go with it because a score was a statement
+        // about this set and means nothing once the set is gone - so say so before discarding them.
+        if (scored && !confirm('Delete "' + g.label + '"?\n\nThe ' + g.total +
+              ' photos stay on the sheet, but the ' + scored + ' score(s) you gave inside this group ' +
+              'will be discarded - a score only means something relative to its group.')) return;
+        members.forEach(i => { i.groups = i.groups.filter(x => x !== name); delete i.scores[name]; });
+        delete GROUPS[name];
+        if (FILTER === 'group:' + name) FILTER = 'all';
+        render();
+        toast('deleted ' + g.label + ' — ' + g.total + ' photos kept');
+      } },
+  ]);
 }
 
 function renderStatus() {

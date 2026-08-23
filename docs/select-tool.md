@@ -184,6 +184,12 @@ assistant's own A/B.
 A cheap assertion before sending: every candidate has a `group`, and each group's size matches the
 number of candidates in that category.
 
+**Right-click a group chip** for everything else it can do: filter to it, select all its frames, sort
+it by score, set or change its target, rename it, or delete it. Deleting removes only the *grouping* —
+the photos stay on the sheet — but it also discards the scores given inside that group, since a score
+was a statement about that set and means nothing once the set is gone. That is worth a confirmation,
+so it asks before throwing scores away.
+
 **A target is only ever a suggestion.** It never blocks the commit, never caps what can be selected,
 and being over it is not an error — the badge simply stops looking met. A hard cap that refuses to
 commit would be a dialog standing in front of a judgement call, and the judgement is the person's.
