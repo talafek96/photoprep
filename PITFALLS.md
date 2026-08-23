@@ -118,3 +118,26 @@ Nothing errors and `pointerdown` does fire, so the bug looks like broken pan log
 browser claiming the gesture. `-webkit-user-drag` alone is not enough - it is non-standard and
 unsupported in Firefox - so cancel `dragstart` as well, and `preventDefault()` the `pointerdown`
 to stop the text-selection drag on whatever sits behind the image.
+
+## `setPointerCapture` retargets `pointerup`, so "did they click that element?" is wrong
+
+**After capture, `pointerup.target` is the capturing element — never the child the press landed on.**
+
+```js
+// Wrong — a click squarely on the image reports the stage and reads as "clicked outside"
+st.addEventListener('pointerdown', e => st.setPointerCapture(e.pointerId));
+st.addEventListener('pointerup',   e => { if (e.target === st) closeOverlay(); });
+
+// Right — record where the press STARTED
+let downOnPhoto = false;
+st.addEventListener('pointerdown', e => { downOnPhoto = (e.target === img); st.setPointerCapture(e.pointerId); });
+st.addEventListener('pointerup',   () => { if (!downOnPhoto) closeOverlay(); });
+```
+
+Capture exists so a drag keeps receiving events after the pointer leaves the element, which is
+exactly why it rewrites the target. The trap is that it makes hit-testing on `pointerup` silently
+wrong in only *some* cases, so it looks like a flaky bug rather than a wrong reading.
+
+It also defeats the obvious test. Dispatching a synthetic `pointerup` on the child **passes**, because
+nothing simulated the capture — the assertion confirms a behaviour the real browser never produces.
+Synthetic pointer tests must send `pointerup` to the capturing element to mean anything.

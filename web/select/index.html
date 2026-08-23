@@ -519,6 +519,16 @@ body.locked .locknote { display:flex; }
   to   { opacity:1; filter:blur(0);   transform:none; }
 }
 #lhead, #lfoot { animation:rise .5s var(--ease-out) .06s both; }
+
+/* the exit is the entrance reversed, and faster - leaving should feel lighter than arriving */
+#loupe.on.closing { animation:lfadeOut .25s var(--ease-io) both; }
+@keyframes lfadeOut { from { opacity:1 } to { opacity:0 } }
+#loupe.on.closing #lstage { animation:loupeOut .25s var(--ease-io) both; }
+@keyframes loupeOut {
+  from { opacity:1; filter:blur(0);   transform:none; }
+  to   { opacity:0; filter:blur(9px); transform:scale(.985); }
+}
+#loupe.on.closing #lhead, #loupe.on.closing #lfoot { animation:none; opacity:0; transition:opacity .18s; }
 #lhead, #lfoot {
   display:flex; align-items:center; gap:12px; padding:11px 16px;
   font-family:var(--mono); font-size:9.5px; letter-spacing:.09em; text-transform:uppercase;
@@ -1462,8 +1472,27 @@ function updateInputTag() {
     : 'Detected a trackpad: pinch zooms, two-finger scroll pans. Click to pin or re-detect.';
 }
 
-function openLoupe() { if (!C()) return; $('loupe').classList.add('on'); loadLoupe(); }
-function closeLoupe() { $('loupe').classList.remove('on'); $('sheet').focus(); }
+function openLoupe() {
+  if (!C()) return;
+  const L = $('loupe');
+  L.classList.remove('closing');
+  L.classList.add('on');
+  loadLoupe();
+}
+
+// Leaving runs the entrance in reverse - the photo blurs and shrinks away rather than vanishing.
+// A disappearance with no exit is disorienting: it leaves you unsure whether you closed something
+// or something crashed.
+let CLOSE_T = null;
+function closeLoupe() {
+  const L = $('loupe');
+  if (!L.classList.contains('on') || L.classList.contains('closing')) return;
+  const done = () => { L.classList.remove('on', 'closing'); CLOSE_T = null; $('sheet').focus(); };
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return done();
+  L.classList.add('closing');
+  clearTimeout(CLOSE_T);
+  CLOSE_T = setTimeout(done, 250);
+}
 
 function loadLoupe() {
   const it = C(); if (!it) return;
@@ -1559,11 +1588,15 @@ function zoomAt(cx, cy, factor, animate) {
   // -webkit-user-drag is not honoured everywhere (Firefox), so cancel the drag outright as well.
   st.addEventListener('dragstart', e => e.preventDefault());
 
-  let drag = null, moved = 0;
+  let drag = null, moved = 0, downOnPhoto = false;
   st.addEventListener('pointerdown', e => {
     e.preventDefault();
     drag = { x:e.clientX, y:e.clientY, ox:LZ.x, oy:LZ.y };
     moved = 0;
+    // Where the press STARTED is the only reliable signal: setPointerCapture retargets pointerup to
+    // the stage, so a click squarely on the photo still reports the stage as its target and would be
+    // read as "clicked outside".
+    downOnPhoto = (e.target === $('limg'));
     st.setPointerCapture(e.pointerId); st.classList.add('drag');
   });
   st.addEventListener('pointermove', e => {
@@ -1573,13 +1606,12 @@ function zoomAt(cx, cy, factor, animate) {
     LZ.y = drag.oy + (e.clientY - drag.y);
     applyLoupe();
   });
-  const end = e => {
-    // Click the empty space around the photo to leave. The distance guard is what stops a drag that
-    // happens to finish off the image from being read as "done looking"; e.target is the stage only
-    // when the press did NOT land on the photo itself.
-    const wasClick = moved < 5;
-    if (wasClick && e && e.target === st) { drag = null; st.classList.remove('drag'); closeLoupe(); return; }
+  const end = () => {
+    // Click the empty space around the photo to leave. Two guards: the press must not have started
+    // on the photo, and it must not have moved (or a pan that ended off the edge would dump you out).
+    const wasClick = moved < 5 && !downOnPhoto;
     drag = null; st.classList.remove('drag');
+    if (wasClick) closeLoupe();
   };
   st.addEventListener('pointerup', end);
   st.addEventListener('pointercancel', () => { drag = null; st.classList.remove('drag'); });
