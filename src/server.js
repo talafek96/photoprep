@@ -228,6 +228,19 @@ function createServer(opts = {}) {
       return pickDir(P.expand(url.searchParams.get('start')), r => json(res, r));
     }
 
+    // --- read a report back: GET /feedback?name=foo.json ---
+    // A page's autosave lives in localStorage, which is keyed to the ORIGIN - and the origin carries
+    // the port, which changes every time the server restarts. So a restart silently loses a long
+    // sitting. Drafts written here survive it, and can be read back by the next page.
+    if (req.method === 'GET' && route === '/feedback') {
+      if (!review) return json(res, { ok: false, disabled: true }, 404);
+      const name = path.basename(url.searchParams.get('name') || '');
+      if (!/^[\w.\-]+\.json$/i.test(name)) return json(res, { ok: false, error: 'bad name' }, 400);
+      return fs.readFile(path.join(feedbackDir, name), 'utf8', (err, txt) => err
+        ? json(res, { ok: false, error: 'no such report' }, 404)
+        : send(res, 200, txt, TYPES['.json']));
+    }
+
     // --- the page's export report, kept on disk so an assistant can read the run afterwards ---
     if (req.method === 'POST' && route === '/feedback') {
       if (!review) return json(res, { ok: false, disabled: true }, 404);

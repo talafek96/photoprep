@@ -425,6 +425,22 @@ kbd {
   position:absolute; left:8px; top:8px; font-family:var(--mono); font-size:10px;
   background:oklch(0 0 0 / 62%); color:oklch(0.9 0 0); padding:2px 7px; border-radius:4px;
 }
+#lnote {
+  position:absolute; left:50%; bottom:64px; transform:translateX(-50%);
+  width:min(560px, calc(100% - 32px)); z-index:60;
+  background:color-mix(in oklch, var(--surface) 88%, transparent);
+  backdrop-filter:blur(18px) saturate(1.3); -webkit-backdrop-filter:blur(18px) saturate(1.3);
+  border:1px solid var(--border-strong); border-radius:var(--radius-lg);
+  padding:12px 14px 13px; box-shadow:0 20px 50px -18px oklch(0 0 0 / 70%), var(--highlight);
+  animation:noteIn .26s var(--ease-out) both;
+}
+@keyframes noteIn { from { opacity:0; transform:translate(-50%, 14px) } to { opacity:1; transform:translateX(-50%) } }
+#lnote.closing { animation:noteOut .2s var(--ease-io) both; }
+@keyframes noteOut { to { opacity:0; transform:translate(-50%, 10px) } }
+#lnote > label { display:flex; align-items:center; gap:7px; }
+#lnoteClose { margin-left:auto; flex:none; padding:3px 8px; font-size:10px; font-family:var(--mono); text-transform:none; }
+#lnote .tagRow { margin-top:8px; }
+
 #lfoot {
   flex:none; display:flex; align-items:center; justify-content:center; gap:18px;
   padding:11px 16px; border-top:1px solid var(--border);
@@ -647,6 +663,15 @@ kbd {
     <button class="fbtn" id="lClose">✕ Close <kbd>esc</kbd></button>
   </div>
   <div id="lstage"><div id="lframe"></div></div>
+
+  <!-- Same card as Select's, for the same reason: a thought you have while looking at the picture
+       should be writeable without leaving the picture. -->
+  <div id="lnote" hidden>
+    <label for="lnoteText">Note on <b id="lnoteName"></b> <span class="hint">saves as you type</span>
+      <button id="lnoteClose" title="Close this box - the note is already saved">✕ Close <kbd>esc</kbd></button></label>
+    <textarea id="lnoteText" rows="2" placeholder="wrong slot · wrong partner · this should close"></textarea>
+    <div class="tagRow" id="lnoteTags"></div>
+  </div>
   <!-- Gestures for the view, and only those. Everything else that has a key already wears it on its
        own control in the header - a legend that repeats the buttons above it is noise, and one long
        sentence of nine items is not a legend at all. -->
@@ -1833,6 +1858,14 @@ $('board').addEventListener('pointercancel', endDrag);
 
 /* --- keyboard ------------------------------------------------------------------------------------ */
 document.addEventListener('keydown', e => {
+  /* Asked first, before any overlay's own keys. A note box lives INSIDE the loupe, so a router that
+     checks the loupe first turns every letter you type into a shortcut - v opens the carousel, z
+     re-zooms, f closes the whole thing - and the note is unusable. */
+  const el = e.target;
+  if (el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' || el.isContentEditable)) {
+    if (e.key === 'Escape') { el.blur(); if (noteIsUp()) toggleLoupeNote(false); }
+    return;
+  }
   if (!$('confirmWrap').hidden) {
     if (e.key === 'Escape') { e.preventDefault(); closeConfirm(); }
     else if (e.key === 'Enter') { e.preventDefault(); commit(); }
@@ -1846,10 +1879,13 @@ document.addEventListener('keydown', e => {
     return;
   }
   if (loupeIsOpen()) {
+    // a note that is up is what Escape means; the loupe is what the second Escape means
+    if (e.key === 'Escape' && noteIsUp()) { e.preventDefault(); toggleLoupeNote(false); return; }
     if (e.key === 'Escape' || e.key.toLowerCase() === 'f') { e.preventDefault(); loupeClose(); return; }
-    if (e.key === 'ArrowLeft')  { e.preventDefault(); setCur(CUR - 1); scrollToCur(); paintLoupe(); return; }
-    if (e.key === 'ArrowRight') { e.preventDefault(); setCur(CUR + 1); scrollToCur(); paintLoupe(); return; }
+    if (e.key === 'ArrowLeft')  { e.preventDefault(); walkLoupe(-1); return; }
+    if (e.key === 'ArrowRight') { e.preventDefault(); walkLoupe(1); return; }
     const lk = e.key.toLowerCase();
+    if (lk === 't' || lk === 'c') { e.preventDefault(); toggleLoupeNote(); return; }
     if (lk === 'v') { e.preventDefault(); loupeClose(); igOpen(); return; }
     if (lk === 'z') { e.preventDefault(); LOUPE.toggleZoom(); return; }          // Lightroom's toggle
     if (lk === 's') { e.preventDefault(); $('lInput').onclick(); return; }
@@ -1899,6 +1935,7 @@ const LOUPE = PPLoupe.create({
   stage: $('lstage'),
   content: $('lframe'),
   zoomEl: $('lZoom'),
+  canClose: () => { const ok = !NOTE_DISMISSED; NOTE_DISMISSED = false; return ok; },
   onInput: L => {
     $('lInput').innerHTML = 'scroll: ' + (L.zooms() ? 'zoom' : 'pan') + ' <kbd>S</kbd>';
   },
@@ -1973,6 +2010,78 @@ function paintLoupe() {
   LOUPE.setNatural(g.w, g.h);
   LOUPE.fit(false);
 }
+
+let NOTE_T = null, NOTE_DISMISSED = false;
+
+function toggleLoupeNote(force) {
+  const box = $('lnote'), sl = SLIDES[CUR];
+  if (!sl) return;
+  const visible = !box.hidden && !box.classList.contains('closing');
+  const show = force != null ? force : !visible;
+
+  if (!show) {
+    if (box.hidden) return;
+    // Drop out the way it came in - a panel that simply blinks off reads as a glitch, and the
+    // reverse motion points the eye back at the photograph underneath.
+    clearTimeout(NOTE_T);
+    $('lnoteText').blur();
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { box.hidden = true; return; }
+    box.classList.add('closing');
+    NOTE_T = setTimeout(() => { box.hidden = true; box.classList.remove('closing'); NOTE_T = null; }, 200);
+    return;
+  }
+  clearTimeout(NOTE_T); NOTE_T = null;
+  box.classList.remove('closing');
+  box.hidden = false;
+  paintLoupeNote();
+  const ta = $('lnoteText');
+  ta.focus();
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+}
+
+// Moving to another slide re-points an open note rather than closing it, so a walk down the sequence
+// with the box up is one continuous act of commenting.
+function walkLoupe(dir) {
+  setCur(CUR + dir);
+  scrollToCur();
+  paintLoupe();
+  if (noteIsUp()) paintLoupeNote();
+}
+
+function paintLoupeNote() {
+  const sl = SLIDES[CUR]; if (!sl) return;
+  $('lnoteName').textContent = srcOf(sl).map(x => x.name).join(' · ') || 'this slide';
+  $('lnoteText').value = sl.text || '';
+  $('lnoteTags').innerHTML = TAGS.map(t =>
+    '<button class="tg' + ((sl.tags || []).includes(t.id) ? ' on' : '') + '" data-t="' + t.id + '">' +
+    esc(t.t) + '</button>').join('');
+}
+const noteIsUp = () => !$('lnote').hidden && !$('lnote').classList.contains('closing');
+
+$('lnoteText').oninput = () => {
+  const sl = SLIDES[CUR]; if (!sl) return;
+  sl.text = $('lnoteText').value;
+  sl.ruled = true;
+  paintCard(CARDS.get(sl.id), sl, CUR); renderPanel(); saveState();
+};
+$('lnoteTags').onclick = e => {
+  const b = e.target.closest('.tg'); if (!b) return;
+  const sl = SLIDES[CUR]; if (!sl) return;
+  sl.tags = sl.tags || [];
+  const i = sl.tags.indexOf(b.dataset.t);
+  if (i >= 0) sl.tags.splice(i, 1); else sl.tags.push(b.dataset.t);
+  sl.ruled = true;
+  paintLoupeNote();
+  paintCard(CARDS.get(sl.id), sl, CUR); chrome(); renderPanel(); saveState();
+};
+$('lnoteClose').onclick = () => toggleLoupeNote(false);
+// a click anywhere off the box puts it away - and must not ALSO drop you out of the loupe
+$('loupe').addEventListener('pointerdown', e => {
+  if (!noteIsUp()) return;
+  if (e.target.closest && e.target.closest('#lnote')) return;
+  toggleLoupeNote(false);
+  NOTE_DISMISSED = true;
+}, true);
 
 $('lClose').onclick = loupeClose;
 $('lCarousel').onclick = () => { loupeClose(); igOpen(); };
@@ -2115,6 +2224,10 @@ addEventListener('resize', () => {
 function igClose() { $('igWrap').classList.remove('on'); }
 function igGo(i) {
   IG_I = clamp(i, 0, IG_FRAMES.length - 1);
+  // the board follows the swipe - leaving the carousel should put you on the slide you stopped at,
+  // not back on whatever was selected when you opened it
+  const f = IG_FRAMES[IG_I];
+  if (f && f.si != null && f.si !== CUR) { setCur(f.si); scrollToCur(); }
   $('igTrack').style.transition = 'transform .34s var(--ease-out)';
   $('igTrack').style.transform = 'translateX(' + (-IG_I * 100) + '%)';
   $('igCount').textContent = (IG_I + 1) + '/' + IG_FRAMES.length;
@@ -2316,7 +2429,45 @@ function saveState() {
         setPrompt:SET_PROMPT, setComment:$('setComment').value,
       }));
     } catch (e) { /* quota or private mode — not worth interrupting the pass over */ }
+    postDraft();
   }, 400);
+}
+
+/* localStorage is keyed to the ORIGIN, and the origin carries the port - which changes every time
+ * the server restarts. So the browser's copy silently disappears exactly when you most wanted it.
+ * A draft on disk survives that, and it doubles as the intermediate state I can read WHILE the pass
+ * is still going, rather than only seeing the sequence once it has been sent.
+ */
+const DRAFT = 'sort-draft.json';
+let DRAFT_T = null, DRAFT_PENDING = false;
+function postDraft() {
+  if (!window.__runtime || !window.__runtime.review) return;
+  if (DRAFT_T) { DRAFT_PENDING = true; return; }          // at most one write in flight per window
+  const send = () => {
+    DRAFT_PENDING = false;
+    fetch('/feedback?name=' + DRAFT, { method:'POST', body:JSON.stringify(draftPayload(), null, 2) })
+      .catch(() => {});
+    DRAFT_T = setTimeout(() => {
+      DRAFT_T = null;
+      if (DRAFT_PENDING) postDraft();
+    }, 1500);
+  };
+  send();
+}
+
+function draftPayload() {
+  return {
+    tool: 'sort', draft: true, savedAt: new Date().toISOString(),
+    setPrompt: SET_PROMPT, setComment: $('setComment').value,
+    slideCount: totalSlides(),
+    // the same shape __loadOrder takes, so a draft can simply be loaded back
+    slides: SLIDES.map(sl => ({
+      kind: sl.kind, n: sl.n, why: sl.why, proposed: !!sl.proposed, ruled: !!sl.ruled,
+      tags: (sl.tags || []).slice(), text: sl.text || '', mute: (sl.mute || []).slice(),
+      sources: sl.sources.map(id => ({ id, name:(SRC[id] || {}).name, path:(SRC[id] || {}).path })),
+    })),
+    takenOut: CUT.map(c => ({ sources:c.srcIds, name:c.name, reason:c.reason || '' })),
+  };
 }
 
 function restoreState() {
@@ -2428,9 +2579,34 @@ else window.__ready = true;
 render(); renderPanel();
 const RESTORED = restoreState();
 
+/* A fresh origin after a restart has no localStorage, so look on disk before deciding there is
+ * nothing to come back to. */
+async function restoreDraft() {
+  if (RESTORED) return false;
+  // review mode is fetched, not known at parse time - asking before it lands always answers "off"
+  if (window.__runtime) await window.__runtime.ready;
+  if (!window.__runtime || !window.__runtime.review) return false;
+  const d = await fetch('/feedback?name=' + DRAFT).then(r => r.ok ? r.json() : null).catch(() => null);
+  if (!d || !d.slides || !d.slides.length) return false;
+  loadOrder({ setPrompt:d.setPrompt, slides:d.slides });
+  d.slides.forEach((raw, i) => {
+    const sl = SLIDES[i]; if (!sl) return;
+    sl.tags = raw.tags || []; sl.text = raw.text || '';
+    sl.mute = raw.mute || []; sl.ruled = !!raw.ruled;
+  });
+  CUT = (d.takenOut || []).map(c => ({ srcIds:c.sources, name:c.name, reason:c.reason,
+                                       url:(SRC[c.sources[0]] || {}).url || '' }));
+  $('setComment').value = d.setComment || '';
+  render(); renderPanel();
+  const mins = Math.round((Date.now() - Date.parse(d.savedAt)) / 60000);
+  toast('picked up your pass from disk' + (mins > 1 ? ', ' + mins + ' min old' : ''));
+  return true;
+}
+
 // `photoprep sort <folder>` opens straight onto a folder of already-picked frames, with no assistant
 // involved. A restored pass always wins — losing one to a stray command line would be the worse bug.
 (async function fromCommandLine() {
+  if (await restoreDraft()) return;
   const dir = new URLSearchParams(location.search).get('folder');
   if (!dir || RESTORED) return;
   await window.__loadFolder(dir);
