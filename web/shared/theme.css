@@ -229,3 +229,64 @@ body.doc::before {
   .rise { animation:none; opacity:1; }
   * { transition-duration:.01ms !important; animation-duration:.01ms !important; }
 }
+
+/* --- the focus ring: a light orbiting the card under judgement -----------------------------------
+ * Lifted out of Select so Sort can wear the same mark. Two earlier attempts are worth recording
+ * because they fail differently: a bright dot on an `offset-path` is a marquee chase, a hard point
+ * circling the frame, which reads as retro; and a translucent gradient slid across an oversized
+ * background brightens and dims unevenly on a tall rectangle, because a radial gradient moving
+ * diagonally covers the short edges and the long ones at different rates - it looks like a rendering
+ * glitch rather than a sheen.
+ *
+ * What works is a WIDE luminous arc rotating at constant speed: a conic gradient spanning ~200deg
+ * with a soft falloff at both ends, spun by an @property angle so it interpolates rather than steps.
+ * There is no head to track, the whole ring is lit to varying degrees at all times, and the motion
+ * reads as a light source orbiting the frame.
+ *
+ * Usage: a positioned parent, two spans (.ppRingGlow then .ppRing), and --edge for the colour.
+ * The parent decides when they show; this file only decides what they look like.
+ */
+@property --ang { syntax:'<angle>'; inherits:false; initial-value:0deg; }
+
+.ppRing, .ppRingGlow {
+  position:absolute; inset:0; border-radius:inherit;
+  pointer-events:none; opacity:0; padding:2px; z-index:4;
+  /* Two layers. The conic arc rides on TOP of a solid base in the edge colour, so the ring never
+     goes dark on the unlit side - the colour stays readable all the way round and the sweep is a
+     highlight travelling over it, not the only thing holding it.
+
+     The peak raises LIGHTNESS in oklch while keeping hue and chroma - `oklch(from var(--edge) 0.97
+     c h)` - which is not the same as mixing in white, and the difference is large: mixing 28% white
+     into a green gives a muddy olive, desaturated AND barely brighter, so the sweep vanishes.
+     The base sits at 62% so the peak has something to be brighter than; contrast is what makes the
+     sweep visible, not absolute brightness. */
+  background:
+    conic-gradient(from var(--ang) at 50% 50%,
+      color-mix(in oklch, var(--edge) 30%, transparent) 0deg,
+      color-mix(in oklch, var(--edge) 45%, transparent) 45deg,
+      color-mix(in oklch, var(--edge) 80%, transparent) 90deg,
+      var(--edge) 140deg,
+      oklch(from var(--edge) 0.97 c h) 168deg,
+      var(--edge) 196deg,
+      color-mix(in oklch, var(--edge) 70%, transparent) 250deg,
+      color-mix(in oklch, var(--edge) 40%, transparent) 320deg,
+      color-mix(in oklch, var(--edge) 30%, transparent) 360deg),
+    linear-gradient(color-mix(in oklch, var(--edge) 62%, transparent) 0 0);
+  -webkit-mask:linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+          mask:linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite:xor;
+          mask-composite:exclude;
+  animation:ppOrbit 3.2s linear infinite;
+  transition:opacity .35s var(--ease-io);
+}
+/* the bloom: same arc, thicker and blurred, so the ring spills light onto the photo edge */
+.ppRingGlow { padding:7px; filter:blur(10px); z-index:3; }
+@keyframes ppOrbit { to { --ang:360deg; } }
+
+/* A continuous indicator never stops on its own, so this matters more than the one-shots: the ring
+   stays as a static outline in the edge colour, and only the sweep stops. */
+@media (prefers-reduced-motion: reduce) {
+  .ppRing, .ppRingGlow { animation:none; }
+  .ppRingGlow { opacity:0 !important; }
+  .ppRing { background:var(--edge); }
+}

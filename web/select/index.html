@@ -164,66 +164,15 @@ body { grid-template-columns:1fr 366px; }
 .tile.cur { border-color:color-mix(in oklch, var(--edge) 60%, transparent); }
 
 /* --- selection ring on the FOCUSED image -------------------------------------------------------
-   Third attempt, and the two rejected ones are worth recording because they fail differently.
-
-   A bright dot on an `offset-path` is a marquee chase: a hard point circling the frame, which reads
-   as retro. A translucent gradient slid across an oversized background (Magic UI's ShineBorder)
-   brightens and dims unevenly on a tall rectangle, because a radial gradient moving diagonally
-   covers the short edges and the long ones at different rates - it looks like a rendering glitch
-   rather than a sheen.
-
-   What works is a WIDE luminous arc rotating at constant speed: a conic gradient spanning ~200deg
-   with a soft falloff at both ends, spun by an @property angle so it interpolates rather than steps.
-   There is no head to track, the whole ring is lit to varying degrees at all times, and the motion
-   reads as a light source orbiting the frame. Same family as the card borders on Linear and Vercel.
-
-   Focus only, never hover - hover is the pointer wandering; this marks the frame under judgement. */
-@property --ang { syntax:'<angle>'; inherits:false; initial-value:0deg; }
-
+   The paint and the motion live in shared/theme.css as .ppRing / .ppRingGlow, so Sort wears the same
+   mark. What stays here is only this tool's geometry: the ring hugs the IMAGE, not the whole tile,
+   because the footer carries the name and a ring around that reads as a button. */
 .tile .trail, .tile .trailGlow {
-  position:absolute; left:0; right:0; top:0; height:var(--ph);
+  top:0; bottom:auto; height:var(--ph);
   border-radius:var(--radius) var(--radius) 0 0;
-  pointer-events:none; opacity:0; padding:2px; z-index:4;
-  /* Two layers. The conic arc rides on TOP of a solid base in the verdict colour, so the ring never
-     goes dark on the unlit side - the state stays readable all the way round and the sweep is a
-     highlight travelling over it, not the only thing holding the colour. The arc's own low stops
-     stay tinted rather than transparent for the same reason.
-
-     The peak of the arc raises LIGHTNESS in oklch while keeping the hue and chroma
-     (`oklch(from var(--edge) 0.97 c h)`), which is not the same as mixing in white and the
-     difference is large. Mixing 28% white into the green gives rgb(204,209,140) - a muddy olive,
-     desaturated AND barely brighter than the base, so the sweep vanished. Raising L to 0.97 gives
-     rgb(167,255,202): clearly brighter, still unmistakably green. Neutral white is brighter still
-     but washes the state out exactly where the eye is drawn.
-
-     The base sits at 62% so the peak has something to be brighter than - contrast is what makes
-     the sweep visible, not absolute brightness. */
-  background:
-    conic-gradient(from var(--ang) at 50% 50%,
-      color-mix(in oklch, var(--edge) 30%, transparent) 0deg,
-      color-mix(in oklch, var(--edge) 45%, transparent) 45deg,
-      color-mix(in oklch, var(--edge) 80%, transparent) 90deg,
-      var(--edge) 140deg,
-      oklch(from var(--edge) 0.97 c h) 168deg,
-      var(--edge) 196deg,
-      color-mix(in oklch, var(--edge) 70%, transparent) 250deg,
-      color-mix(in oklch, var(--edge) 40%, transparent) 320deg,
-      color-mix(in oklch, var(--edge) 30%, transparent) 360deg),
-    linear-gradient(color-mix(in oklch, var(--edge) 62%, transparent) 0 0);
-  -webkit-mask:linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-          mask:linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  -webkit-mask-composite:xor;
-          mask-composite:exclude;
-  animation:orbit 3.2s linear infinite;
-  transition:opacity .35s var(--ease-io);
 }
-/* the bloom: same arc, thicker and blurred, so the ring spills light onto the photo edge */
-.tile .trailGlow { padding:7px; filter:blur(10px); z-index:3; }
-
 .tile.cur .trail { opacity:1; }
 .tile.cur .trailGlow { opacity:.7; }
-
-@keyframes orbit { to { --ang:360deg; } }
 
 /* the focused card lifts and pools ambient light in its own verdict colour */
 .tile.cur {
@@ -807,10 +756,6 @@ kbd {
 @media (prefers-reduced-motion: reduce) {
   .tile { animation:none; }
   #loupe { animation:none; }
-  /* a continuous indicator never stops on its own, so it matters more here than the one-shots.
-     The ring stays as a static state-coloured outline; only the sweep stops. */
-  .tile .trail, .tile .trailGlow { animation:none; }
-  .tile .trailGlow { opacity:0 !important; }
   .tile.cur .trail { opacity:1; background:var(--edge); }
 }
 </style>
@@ -1235,7 +1180,7 @@ function buildTile(it) {
   const d = document.createElement('div');
   d.className = 'tile fresh';                       // .fresh is what animates; patching never re-adds it
   d.innerHTML =
-    '<span class="trailGlow"></span><span class="trail"></span>' +
+    '<span class="trailGlow ppRingGlow"></span><span class="trail ppRing"></span>' +
     '<span class="mcheck">✓</span>' +
     '<span class="ph">' +
       '<img loading="lazy" alt="">' +

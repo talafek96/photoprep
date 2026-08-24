@@ -123,7 +123,18 @@ body.dragging .slide { will-change:transform; }
    `translate` is its own property, so it composes with `transform` instead of fighting it. */
 @keyframes cardIn { from { opacity:0; translate:0 8px } to { opacity:1; translate:none } }
 .slide:hover { border-color:var(--border-strong); }
-.slide.on { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent), 0 10px 30px -14px var(--accent); }
+.slide { --edge:var(--accent); }
+.slide.on { border-color:color-mix(in oklch, var(--edge) 60%, transparent);
+            box-shadow:0 0 0 7px color-mix(in oklch, var(--edge) 14%, transparent),
+                       0 18px 40px -16px color-mix(in oklch, var(--edge) 70%, transparent),
+                       var(--highlight); }
+/* the ring marks the card under judgement - the same mark Select uses, and for the same reason */
+.slide.on .ppRing { opacity:1; }
+.slide.on .ppRingGlow { opacity:.7; }
+/* an armed drop target is a different kind of attention, and says so in the ok colour */
+.slide.dropTarget { --edge:var(--ok); }
+.slide.dropTarget .ppRing { opacity:1; }
+.slide.multi { --edge:var(--accent); }
 
 /* The card you are holding leaves the board and follows the pointer; the one left behind stops being
    a card and becomes the gap it will land in. Two elements, two jobs - a single card that both
@@ -959,7 +970,8 @@ function cardFor(sl) {
   el = document.createElement('div');
   el.className = 'slide';
   el.dataset.id = sl.id;
-  el.innerHTML = '<div class="hd"></div><div class="media"></div><div class="brk" hidden></div><div class="ft"></div>';
+  el.innerHTML = '<span class="ppRingGlow"></span><span class="ppRing"></span>' +
+    '<div class="hd"></div><div class="media"></div><div class="brk" hidden></div><div class="ft"></div>';
   // A card enters once. After that the animation is retired outright, so that no future move of the
   // node - however it happens - can replay it.
   el.addEventListener('animationend', () => { el.style.animation = 'none'; }, { once:true });
