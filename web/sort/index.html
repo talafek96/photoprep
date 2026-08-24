@@ -450,7 +450,8 @@ kbd {
   padding:3px 9px; font-size:11px; box-shadow:none; margin-right:4px;
 }
 #igLoupe:hover { border-color:#555; background:#141414; color:#fff; }
-#igLoupe kbd { background:#000; border-color:#333; color:#888; margin-left:5px; }
+/* No keycap here. This header is pretending to be an Instagram post, and a keyboard hint stuck to it
+   breaks the one thing the mock exists to do. The shortcut still works; the tooltip still says so. */
 #igView { position:relative; width:100%; aspect-ratio:4/5; background:#000; overflow:hidden;
           touch-action:pan-y; cursor:grab; user-select:none; }
 #igView.drag { cursor:grabbing; }
@@ -657,7 +658,7 @@ kbd {
       <div id="igAv"><i></i></div>
       <b id="igUser" contenteditable="plaintext-only" spellcheck="false" title="Click to edit — this is just the preview's handle">your_handle</b>
       <span class="sp"></span>
-      <button id="igLoupe" title="Look at this slide full screen">⛶ <kbd>F</kbd></button>
+      <button id="igLoupe" title="Look at this slide full screen (F)">⛶</button>
       <span id="igClose" title="Close (Esc)">✕</span>
     </div>
     <div id="igView">
@@ -1997,10 +1998,14 @@ function igFrames() {
 // to cross between them in whichever direction the question came up.
 function igToLoupe() {
   const f = IG_FRAMES[IG_I];
-  igClose();
   if (f && f.si != null) setCur(f.si);
   scrollToCur();
+  // Open the loupe FIRST and drop the carousel out from underneath it once it has arrived. Closing
+  // the carousel first leaves a hole: the loupe fades in over ~160ms, and for that whole time you
+  // are looking straight at the board with nothing over it, which reads as the app dropping a frame.
+  // The loupe sits above the carousel in the stack, so this way something is always covering it.
   loupeOpen();
+  setTimeout(igClose, 200);
 }
 
 /* Build the slides at the size the viewport ACTUALLY is.
