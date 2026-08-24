@@ -213,3 +213,27 @@ jitter threshold can absorb. Say it without moving anything — dim the gap inst
 The libraries that project layouts arithmetically (react-beautiful-dnd, Framer Motion) do not have
 this bug class. The ones that re-measure the mutated DOM (SortableJS, dnd-kit) ship three or four
 mitigations each and still have open reports.
+
+## `scale` is applied BEFORE `transform`, so it scales the position too
+
+**The independent `translate` / `rotate` / `scale` properties compose in a fixed order — translate,
+rotate, scale, then `transform` — all about `transform-origin`. So an element positioned by
+`transform` and scaled by the `scale` property does not stay where it was put.**
+
+```js
+// Wrong - the ghost follows the pointer, but tucking it to 26% moves it to roughly a quarter of
+// the distance to the cursor. It looks like the drag maths is off by a factor you can't find.
+el.style.transform = `translate3d(${x}px,${y}px,0)`;   // rewritten every frame, no transition
+el.style.scale = tucked ? '0.26' : '1';                // transitioned
+```
+
+The composite is `origin + s·(translate + p − origin)`, so the translation is multiplied by `s`.
+
+The fix is two elements: a wrapper that carries the **position** (rewritten per frame, never
+transitioned) and a child that carries the **scale** (transitioned). Splitting them is also the only
+way to animate one without lagging the other — a transition on the positioning `transform` makes the
+element trail the pointer.
+
+This bites specifically because splitting position and scale across the two properties is the
+*documented* fix for a different problem (an animation's `transform` fighting an inline one), so it
+reads as the careful thing to do.

@@ -102,8 +102,9 @@ body.dragging .slide { will-change:transform; }
 /* The card you are holding leaves the board and follows the pointer; the one left behind stops being
    a card and becomes the gap it will land in. Two elements, two jobs - a single card that both
    follows the cursor and holds its own slot cannot show you where it is going. */
+.ghostWrap { position:fixed; left:0; top:0; z-index:90; pointer-events:none; will-change:transform; }
 .slide.ghost {
-  position:fixed; left:0; top:0; z-index:90; margin:0; pointer-events:none;
+  position:relative; margin:0; pointer-events:none;
   animation:none;
   /* `transform` is rewritten every frame to follow the pointer, so it must never be transitioned.
      `scale` is an independent property, so tucking can animate without touching the position. */
@@ -1127,19 +1128,31 @@ function project(ids, geo) {
   return pos;
 }
 
+/* Two elements, and it has to be two.
+ *
+ * The wrapper carries the POSITION and is rewritten every frame to follow the pointer, so it can
+ * never hold a transition. The card inside carries the TUCK and is transitioned. Putting both on one
+ * element - position in `transform`, tuck in the independent `scale` property - looks like it should
+ * work and does not: the browser applies `scale` BEFORE `transform`, so the scale multiplies the
+ * position too, and a card tucked to 26% lands at roughly a quarter of the distance to the cursor.
+ * That is a ghost sitting a card and a half away from the hand holding it. */
 function ghostFrom(el, x, y) {
   const r = el.getBoundingClientRect();
+  const wrap = document.createElement('div');
+  wrap.className = 'ghostWrap';
   const g = el.cloneNode(true);
   g.classList.add('ghost');
-  g.classList.remove('on', 'placeholder');
+  g.classList.remove('on', 'placeholder', 'muted');
   g.style.width = r.width + 'px';
   g.style.height = r.height + 'px';
   g.style.transform = '';
-  document.body.appendChild(g);
   DRAG.ox = x - r.left; DRAG.oy = y - r.top;
-  // tuck toward the cursor, not toward the card's middle, so the chip stays where your hand is
+  // tuck toward the cursor, not the card's middle, so the chip stays exactly where your hand is
   g.style.transformOrigin = DRAG.ox + 'px ' + DRAG.oy + 'px';
+  wrap.appendChild(g);
+  document.body.appendChild(wrap);
   DRAG.ghost = g;
+  DRAG.ghostWrap = wrap;
 }
 
 /* Where the DRAGGED CARD is decides what the drop means - not where the cursor is.
@@ -1481,7 +1494,7 @@ function step() {
     beginDrag(DRAG.x0, DRAG.y0);
   }
 
-  DRAG.ghost.style.transform = 'translate3d(' + (x - DRAG.ox) + 'px,' + (y - DRAG.oy) + 'px,0)';
+  DRAG.ghostWrap.style.transform = 'translate3d(' + (x - DRAG.ox) + 'px,' + (y - DRAG.oy) + 'px,0)';
 
   // Where the dragged CARD is, in the board's own coordinates - the pointer offset by wherever it
   // was grabbed. Every decision below is made from this, never from the cursor.
@@ -1545,14 +1558,15 @@ function endDrag() {
   // Settle the ghost onto the slot it is landing in, then hand back to the real card. Letting it
   // vanish mid-air loses the thread of where the thing you were holding actually went.
   const land = el && el.getBoundingClientRect();
-  const g = d.ghost;
-  if (g) {
+  const g = d.ghost, w = d.ghostWrap;
+  if (w) {
     if (land) {
-      g.style.transition = 'transform .3s var(--ease-move), opacity .3s var(--ease-io)';
-      g.style.transform = 'translate3d(' + land.left + 'px,' + land.top + 'px,0)';
+      w.style.transition = 'transform .3s var(--ease-move)';
+      w.style.transform = 'translate3d(' + land.left + 'px,' + land.top + 'px,0)';
+      g.style.scale = '1';                 // untuck as it lands, so it arrives the size of the slot
       g.style.opacity = '0';
-      setTimeout(() => g.remove(), 330);
-    } else g.remove();
+      setTimeout(() => w.remove(), 330);
+    } else w.remove();
   }
 
   // Commit the order the preview was already showing, then drop the transforms. The cards do not
