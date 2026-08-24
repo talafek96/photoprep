@@ -303,3 +303,28 @@ button:active { transform:scale(.97); }                    /* the global press e
 `transform` is one property, not a list of effects, so anything that sets it wins outright. Either
 restate the positioning in the `:active` rule, or put the press effect on the independent `scale`
 property, which composes instead of replacing.
+
+## Measuring an element that is still `display:none`
+
+**`clientWidth` on a hidden element is 0, and a `|| fallback` turns that into a plausible-looking
+wrong number rather than an obvious failure.**
+
+```js
+// Wrong - the modal is still hidden here, so every size inside it is computed for 380px
+const vw = view.clientWidth || 380;
+buildSlides(vw);
+wrap.classList.add('on');
+
+// Right - put it on screen first, then measure what is actually there
+wrap.classList.add('on');
+if (!view.clientWidth) return;        // still nothing real to measure: refuse rather than guess
+buildSlides(view.clientWidth);
+```
+
+It is at its worst where several elements must agree with each other — panorama tiles windowing one
+shared image, for instance. Each tile is individually plausible, and the error only shows up as a
+seam where two of them meet, which sends you hunting for a bug in the crop arithmetic that isn't
+there.
+
+And when verifying, wait for entrance animations to finish: `getBoundingClientRect()` on an element
+mid-`scale(.98)` returns the animated size, so a correct build measures as 2% wrong.

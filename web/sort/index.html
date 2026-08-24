@@ -1905,13 +1905,21 @@ function igFrames() {
   return out;
 }
 
-function igOpen() {
-  IG_FRAMES = igFrames();
-  if (!IG_FRAMES.length) { toast('nothing to preview yet'); return; }
+/* Build the slides at the size the viewport ACTUALLY is.
+ *
+ * The panorama tiles are the reason this matters. Each tile shows a window onto one shared image,
+ * and the windows only line up if the scale and the per-tile offset are computed against the real
+ * width of the frame they are painted into. Measure a hidden element and clientWidth is 0, the
+ * fallback takes over, and every tile is scaled for a viewport that does not exist - so the seam
+ * between two halves of one photograph repeats a strip of it, which is exactly the misalignment you
+ * see when you swipe across a split.
+ */
+function igBuild() {
   const track = $('igTrack');
   track.innerHTML = '';
-  const vw = $('igView').clientWidth || 380;
-  const vh = vw * 1.25;
+  const view = $('igView');
+  const vw = view.clientWidth, vh = view.clientHeight;
+  if (!vw || !vh) return false;                 // not on screen yet: nothing measured is trustworthy
   IG_FRAMES.forEach(f => {
     const el = document.createElement('div');
     el.className = 'igF' + (f.kind === 'stack' ? ' stackF' : f.kind === 'tile' ? ' tileF' : '');
@@ -1926,18 +1934,36 @@ function igOpen() {
         const cropH = Math.min(f.src.h, f.src.w / (f.n * R45));
         const cropW = cropH * R45 * f.n;
         const x0 = (f.src.w - cropW) / 2, y0 = (f.src.h - cropH) / 2;
-        const s = vh / cropH;
+        // Scale from the tile's WIDTH rather than its height. Height would be equivalent only if the
+        // viewport were exactly 4:5; anything else - a rounded height, a scrollbar - and consecutive
+        // tiles no longer step by exactly one frame, which is a visible seam.
+        const s = vw / (cropH * R45);
         p.style.backgroundSize = (f.src.w * s) + 'px ' + (f.src.h * s) + 'px';
-        p.style.backgroundPosition = (-(x0 + f.i * cropH * R45) * s) + 'px ' + (-y0 * s) + 'px';
+        p.style.backgroundPosition = (-(x0 + f.i * cropH * R45) * s) + 'px ' +
+                                     (-(y0 + (cropH - vh / s) / 2) * s) + 'px';
       }
     }
     track.appendChild(el);
   });
   $('igNote').textContent = IG_FRAMES.length + ' slide' + (IG_FRAMES.length > 1 ? 's' : '') +
     (IG_FRAMES.length > IG_MAX ? ' — over Instagram\'s limit of 20' : '');
-  $('igWrap').classList.add('on');
+  return true;
+}
+
+function igOpen() {
+  IG_FRAMES = igFrames();
+  if (!IG_FRAMES.length) { toast('nothing to preview yet'); return; }
+  $('igWrap').classList.add('on');          // on screen FIRST, so there is something real to measure
+  igBuild();
   igGo(clamp(slotsFor(CUR).first - 1, 0, IG_FRAMES.length - 1));
 }
+
+// A window resize changes the frame width, and the tile offsets were computed from the old one.
+addEventListener('resize', () => {
+  if (!$('igWrap').classList.contains('on')) return;
+  if (igBuild()) igGo(IG_I);
+});
+
 function igClose() { $('igWrap').classList.remove('on'); }
 function igGo(i) {
   IG_I = clamp(i, 0, IG_FRAMES.length - 1);
