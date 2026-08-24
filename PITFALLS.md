@@ -287,3 +287,19 @@ move of the node can replay it however it happens.
 The symptom is described as "everything reloaded" or "the images flickered", which sends you looking
 at image loading and caching — but nothing reloaded, and a network panel showing zero requests is the
 clue that it is the animations restarting rather than the content.
+
+## `:active { transform: scale() }` throws away a transform-based centring
+
+**A global press effect written as `transform:scale(.97)` REPLACES any transform the element is
+already using — including the one holding it in place.** An absolutely-positioned control centred
+with `translateY(-50%)` therefore drops half its own height the moment you press it.
+
+```css
+button:active { transform:scale(.97); }                    /* the global press effect */
+.nav { position:absolute; top:50%; transform:translateY(-50%); }
+.nav:active { transform:translateY(-50%) scale(.94); }     /* restate the centring, or it jumps */
+```
+
+`transform` is one property, not a list of effects, so anything that sets it wins outright. Either
+restate the positioning in the `:active` rule, or put the press effect on the independent `scale`
+property, which composes instead of replacing.

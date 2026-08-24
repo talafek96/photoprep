@@ -432,6 +432,10 @@ kbd {
          color:#fff; border:0; width:28px; height:28px; border-radius:50%; cursor:pointer; font-size:15px;
          display:grid; place-items:center; padding:0; }
 #igL { left:8px; } #igR { right:8px; }
+/* The global `button:active { transform:scale(.97) }` REPLACES this button's transform, and its
+   vertical centring lives in that same property - so pressing it dropped it half its own height.
+   Anything centred by transform has to restate the centring in its own :active rule. */
+.igNav:active { transform:translateY(-50%) scale(.94); }
 #igDots { display:flex; gap:4px; justify-content:center; padding:8px 0 2px; }
 #igDots i { width:5px; height:5px; border-radius:50%; background:#3c3c3c; display:block; }
 #igDots i.on { background:#3897f0; }
@@ -1953,6 +1957,10 @@ window.__setPreviewUser = v => { $('igUser').textContent = v; $('igUser2').textC
 // swipe
 let SW = null;
 $('igView').addEventListener('pointerdown', e => {
+  // A press on the arrows is not a swipe. Letting it through matters more than it looks: the swipe
+  // captures the pointer, and a captured pointer retargets pointerup to the capturing element - so
+  // the button never receives a click at all, and the arrows silently did nothing.
+  if (e.target.closest && e.target.closest('button')) return;
   SW = { x:e.clientX, at:IG_I }; $('igView').classList.add('drag');
   try { $('igView').setPointerCapture(e.pointerId); } catch (err) { /* likewise */ }
 });
