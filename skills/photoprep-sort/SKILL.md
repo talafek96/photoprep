@@ -114,17 +114,27 @@ Say what they are looking at — how many slides, which decisions are still dash
 flagged — and then wait. **Don't drive the page while they are in it.** Synthetic keystrokes hit real
 bindings, and `Enter` ends the pass.
 
-Worth telling them once: dragging does everything, and where you drop decides what it means — a
-card's left or right **edge** puts the frame there in the order, its **middle** stacks the two, and
-how high up you are picks which of the pair ends on top. `F` opens the loupe full screen: the slide big and
-composed, so a stack shows its seam and a split shows its real tiles, with the same zoom and pan as
-the Select tool's — `Z` toggles fit and 100%, 100% means the actual exported pixels, scrolling zooms, and holding
-`space` pans instead for as long as it is held. The arrows
-walk the sequence from in there. `1` sends a slide to the cover, `S` stacks with the next, `/` splits, `V` opens a fake
-Instagram carousel, and `Z` undoes.
+Worth telling them once, because most of it is not discoverable from a static board:
 
-The carousel preview is the part worth pointing at. A board tells you what is in the post; only a
-swipe tells you how it reads, and it is the only honest way to judge whether a panorama split lands.
+- **Dragging is the verb, and where you drop decides what it means.** A card's left or right **edge**
+  puts the frame there in the order; its **middle** stacks the two, and how high up you are picks
+  which of the pair ends on top. The target fills with the actual pair, in the actual order, before
+  they let go.
+- **`F`** opens the loupe: the slide big and **composed**, so a stack shows its seam and a split its
+  real tiles, at the pixels that will be exported — `Z` toggles fit and 100%, scrolling zooms, and
+  holding `space` pans for as long as it is held. Arrows walk the sequence from in there.
+- **`V`** is a fake Instagram carousel. A board tells you what is in the post; only a swipe tells you
+  how it reads, and it is the only honest way to judge whether a panorama split lands. `F` inside it
+  hands back to the loupe on whatever slide is on screen.
+- **`T`** writes a note on the slide without leaving the picture; walking to the next slide re-points
+  an open box rather than closing it.
+- **⌘-click or shift-click** selects several slides, and **`C`** writes ONE comment about all of them.
+- **Right-click** any card for everything above, at the place they were already pointing.
+- **`1`** sends a slide to the cover, **`S`** pairs it with the next, **`/`** splits and unsplits,
+  **`X`** takes it out, **`Z`** undoes.
+
+Frames they take out are not gone: they land in a **bucket** under the board that expands into full
+cards, can be looked at in the same loupe, and go back **where they came from**.
 
 ## Read the result
 
@@ -138,14 +148,18 @@ photoprep's user directory, so it survives the page being closed.
 | `diff.composites` | a stack or split they changed, with `was` / `now` and the cause |
 | `takenOut[]` | frames they pulled out of the post, with their reason |
 | `slides[id]` | tags and comments on one slide |
+| `setNotes[]` | one comment about **several slides together**, with the slots it names |
 | `setComment` | the critique of the sequence as a whole |
 | `slideCount` / `overLimit` | what the post actually costs |
 
 Three things worth handling deliberately:
 
-- **`setComment` carries the best feedback**, because ordering critiques are almost always about
-  *relationships* — "don't put the two sea views together", "too many food slides in a row". Respond
-  to the relationship; don't apply the note to one slide.
+- **`setComment` and `setNotes` carry the best feedback**, because ordering critiques are almost
+  always about *relationships* — "don't put the two sea views together", "these three are the same
+  overlook". Respond to the relationship; don't apply the note to each slide separately.
+- **A comment can be about the day rather than the composition.** "This happened after we already
+  arrived at the temple" is a chronology correction, and nothing in the pixels could have told you.
+  Sequence questions worth asking BEFORE proposing an order, not after.
 - **`takenOut` is feedback about the selection, not a re-selection.** The choosing pass stays
   committed. Report what came out and why, and let them decide whether the selection should reopen.
 - **A changed composite is the most useful line in the report.** It says the same photographs,
@@ -156,6 +170,19 @@ Three things worth handling deliberately:
 `plan[]` is the input to `photoprep-layout`: each `stack` entry names the top and bottom source, each
 `split` entry names the photo and its tile count, each `solo` passes through untouched. Build in slot
 order so the exported filenames sort into the sequence that was approved.
+
+## While they are still working
+
+Under `--review` the pass is written to disk continuously, not only on commit, as `sort-draft.json`
+in photoprep's `feedback/` directory — the same shape `__loadOrder` takes. Two things follow:
+
+- **You can read the pass in progress.** If they ask a question halfway through, answer it against
+  what is actually on their board rather than against what you proposed.
+- **It survives a restart.** `localStorage` is keyed to the origin and the origin carries the port,
+  so restarting the server used to lose a long sitting; the draft is restored automatically instead.
+
+The other side of that: **every Sort page on that server restores the same draft**, so a second tab
+is not a scratch pad. To try something destructive, start a separate instance without `--review`.
 
 ## Clean up
 
