@@ -163,6 +163,13 @@ button {
 }
 button:hover { border-color:var(--border-strong); background:oklch(0.29 0.006 70); }
 button:active { transform:scale(.97); }
+/* A control that cannot act right now has to LOOK like it cannot. The `disabled` attribute stops the
+   click and says nothing to the eye, so an inert button that still lightens on hover and presses in
+   under the cursor reads as broken rather than as unavailable - you click it twice, then wonder. */
+button:disabled { opacity:.35; cursor:not-allowed; box-shadow:none; }
+button:disabled:hover { background:var(--surface-2); border-color:var(--border); }
+button.primary:disabled:hover { background:var(--accent); border-color:var(--accent); }
+button:disabled:active { transform:none; }
 button.primary {
   background:var(--accent); color:var(--accent-ink); border-color:var(--accent); font-weight:650;
 }

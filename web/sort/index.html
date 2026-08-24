@@ -487,6 +487,12 @@ kbd {
     <h1>Sort</h1>
     <p class="sub" id="setPrompt">Nothing loaded.</p>
 
+    <fieldset>
+      <legend>About the whole sequence</legend>
+      <textarea id="setComment" rows="3" placeholder="too many food slides in a row · don't put the two sea views together · the sunset should close"></textarea>
+      <p class="hint">Ordering critiques are usually about <b>relationships</b>, not single slides. This is
+         where the useful ones live.</p>
+    </fieldset>
     <fieldset id="insBox">
       <legend>Slide <span id="insNo"></span></legend>
       <p id="insName">—</p>
@@ -527,12 +533,6 @@ kbd {
       <div class="tagRow" id="insTags"></div>
     </fieldset>
 
-    <fieldset>
-      <legend>About the whole sequence</legend>
-      <textarea id="setComment" rows="3" placeholder="too many food slides in a row · don't put the two sea views together · the sunset should close"></textarea>
-      <p class="hint">Ordering critiques are usually about <b>relationships</b>, not single slides. This is
-         where the useful ones live.</p>
-    </fieldset>
 
     <fieldset>
       <legend>Worth a look</legend>
@@ -1016,7 +1016,10 @@ function renderPanel() {
   $('nSlices').value = sl.n || 2;
   $('nV').textContent = sl.n || 2;
   $('btnSwap').disabled = sl.kind !== 'stack';
+  $('btnSwap').title = sl.kind === 'stack'
+    ? 'Put the bottom frame on top' : 'Only a stack has two panels to swap';
   $('btnCover').disabled = CUR === 0;
+  $('btnCover').title = CUR === 0 ? 'This is already the cover' : 'Send this to slot 1';
   $('btnLeft').disabled = CUR === 0;
   $('btnRight').disabled = CUR === SLIDES.length - 1;
 
