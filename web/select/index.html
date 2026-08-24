@@ -854,7 +854,7 @@ kbd {
       <p>The flag keys follow Lightroom: <kbd>P</kbd> pick / keep · <kbd>X</kbd> reject / cut · <kbd>U</kbd> unpick · plus <kbd>M</kbd> for maybe, which Lightroom has no equivalent of. With several frames selected they apply to all of them.</p>
       <p><kbd>C</kbd> comments: on the focused frame, or — with several selected — one comment about them <em>together</em>. Every button that has a key shows it, so you should not need this list.</p>
       <p><kbd>F</kbd> full screen · <kbd>Z</kbd> zoom fit ↔ 100% · <kbd>←</kbd><kbd>→</kbd> move · <kbd>⇧F</kbd> filter · <kbd>⏎</kbd> commit</p>
-      <p>Inside the loupe: <kbd>T</kbd> (or <kbd>C</kbd>) opens everything you can say about the frame you are looking at — score, tags and a note — without going back to the sheet. Digits are the zoom presets in there, so the score is a slider. Hold <kbd>space</kbd> and scrolling does the opposite of whatever it normally does — pan if it zooms, zoom if it pans — for as long as you hold it. <kbd>S</kbd> swaps which way round that pair sits.</p>
+      <p>Inside the loupe: <kbd>T</kbd> (or <kbd>C</kbd>) opens everything you can say about the frame you are looking at — score, tags and a note — without going back to the sheet. Digits are the zoom presets in there, so the score is a slider. Scrolling zooms. Hold <kbd>space</kbd> and it pans instead, for as long as you hold it. <kbd>S</kbd> swaps which way round that pair sits.</p>
       <p><kbd>R</kbd> reverts a frame to <em>my</em> proposal and clears the 🔒. Pressing a verdict the frame is already in also sends it back to <b data-s="untouched">○ Not picked</b>.</p>
     </div>
   </div>
@@ -2336,7 +2336,7 @@ function toggleScrollMode() {
   // A plain two-way switch. The old three-state auto/mouse/trackpad cycle made you press it twice
   // to get back to where you were and never showed which state was which.
   const mode = LOUPE.toggleScrollMode();
-  toast('scroll now ' + (mode === 'mouse' ? 'zooms' : 'pans'));
+  toast('scroll now ' + (mode === 'zoom' ? 'zooms' : 'pans'));
 }
 $('inputTag').onclick = toggleScrollMode;
 updateInputTag();

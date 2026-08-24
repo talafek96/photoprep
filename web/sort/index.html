@@ -1850,7 +1850,7 @@ $('lClose').onclick = loupeClose;
 $('lCarousel').onclick = () => { loupeClose(); igOpen(); };
 $('lInput').onclick = () => {
   const mode = LOUPE.toggleScrollMode();
-  toast('scroll now ' + (mode === 'mouse' ? 'zooms' : 'pans'));
+  toast('scroll now ' + (mode === 'zoom' ? 'zooms' : 'pans'));
 };
 
 /* --- carousel preview ----------------------------------------------------------------------------

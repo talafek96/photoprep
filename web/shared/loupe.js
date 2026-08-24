@@ -36,7 +36,14 @@ const PPLoupe = {
       stage: opts.stage,
       content: opts.content,
       z: { scale:1, x:0, y:0, fit:1, natural:[0, 0] },
-      input: 'auto',            // 'auto' | 'mouse' | 'trackpad' — an explicit pin overrides the sniff
+      /* Two separate things that were one for too long:
+       *   mode  - what a bare scroll DOES at rest. Zoom, because that is what you reach for in a
+       *           loupe; you opened it to look closer. S swaps it, space inverts it while held.
+       *   guess - what hardware is scrolling, which is never a mode. It only decides the SIGN:
+       *           two fingers up on a trackpad reports deltaY positive and must zoom IN, a mouse
+       *           wheel rolled forward reports negative and must also zoom in. One formula cannot
+       *           serve both, so the hardware picks the direction while the mode picks the verb. */
+      mode: 'zoom',             // 'zoom' | 'pan'
       guess: 'trackpad',
       space: false,             // held: scrolling does the OTHER thing, for as long as you hold it
       closeT: null,
@@ -110,13 +117,13 @@ const PPLoupe = {
     // What the WHEEL does, which is the only thing anyone cares about — not what hardware it thinks
     // you have. A plain two-way switch: the three-state auto/mouse/trackpad cycle made you press it
     // twice to get back where you were and never showed which state was which.
-    L.device = () => (L.input === 'auto' ? L.guess : L.input);
+    L.device = () => L.guess;                 // hardware, for the sign only
     // what a bare scroll does at this instant, with the space key taken into account
-    L.zooms = () => (L.device() === 'mouse') !== !!L.space;
+    L.zooms = () => (L.mode === 'zoom') !== !!L.space;
     L.toggleScrollMode = () => {
-      L.input = L.device() === 'mouse' ? 'trackpad' : 'mouse';
+      L.mode = L.mode === 'zoom' ? 'pan' : 'zoom';
       if (opts.onInput) opts.onInput(L);
-      return L.input;
+      return L.mode;
     };
 
     L.open = () => {
@@ -141,11 +148,9 @@ const PPLoupe = {
     /* --- input ------------------------------------------------------------------------------- */
     const st = L.stage;
 
-    // A bare wheel means opposite things on the two devices, and the browser fires the SAME event
-    // for both, so it has to be inferred:
-    //   mouse    -> wheel = zoom, drag = pan          (a wheel is the natural zoom)
-    //   trackpad -> pinch = zoom, two-finger = pan    (a two-finger scroll must not zoom)
-    //   either   -> ctrl+wheel = zoom, drag = pan     (the universal desktop convention)
+    // Which hardware is scrolling, inferred because the browser fires the SAME event for a mouse
+    // wheel and a two-finger trackpad swipe. This decides the zoom DIRECTION only - the verb is
+    // L.mode, swapped with S and inverted while space is held.
     //
     // The tells: a mouse wheel is coarse and quantised (deltaMode LINE/PAGE, or a large whole-number
     // deltaY) and never reports deltaX. A trackpad sends small fractional deltas and drifts
@@ -153,17 +158,15 @@ const PPLoupe = {
     // can't flip the behaviour mid-gesture. It is a heuristic - some Windows precision touchpads
     // report coarse deltas like a mouse - so the tool shows what it decided and lets you pin it.
     function sniff(e) {
-      if (L.input !== 'auto') return L.input;
       if (e.deltaMode !== 0) { L.guess = 'mouse'; }
       else if (e.deltaX !== 0 || !Number.isInteger(e.deltaY)) { L.guess = 'trackpad'; }
       else if (Math.abs(e.deltaY) >= 50) { L.guess = 'mouse'; }
-      if (opts.onInput) opts.onInput(L);
       return L.guess;
     }
 
     st.addEventListener('wheel', e => {
       e.preventDefault();
-      const dev = sniff(e);
+      sniff(e);                                 // keep the hardware guess current, for the sign
       // exp() keeps the zoom perceptually even regardless of how big a delta the device reports.
       //
       // The SIGN has to come from the hardware, not the mode. Two fingers up on a trackpad reports
@@ -174,8 +177,7 @@ const PPLoupe = {
       // from a scroll in a zoomed image are both wanted CONSTANTLY, and a mode you have to switch
       // makes you pay for the wrong guess every time. Holding space inverts whichever way round the
       // pair currently sits, for exactly as long as you hold it. S decides the resting state.
-      const wantZoom = (dev === 'mouse') !== !!L.space;
-      if (e.ctrlKey || wantZoom) {
+      if (e.ctrlKey || L.zooms()) {
         const k = e.ctrlKey ? 0.012 : 0.003;
         const dir = (!e.ctrlKey && L.guess === 'trackpad') ? 1 : -1;
         L.zoomAt(e.clientX, e.clientY, Math.exp(dir * e.deltaY * k));
