@@ -2073,7 +2073,13 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'ArrowRight') { e.preventDefault(); e.altKey ? move(CUR, CUR + 1) : select(CUR + 1); }
   else if (k === '1') toCover();
   else if (k === 's') { e.preventDefault(); e.shiftKey ? unstack(CUR) : stackWith(CUR, CUR + 1); }
-  else if (k === '/') { e.preventDefault(); setSplit(CUR, SLIDES[CUR] && SLIDES[CUR].n || 2); }
+  // the same key both ways: a shape you can apply with one press should come off with the same one
+  else if (k === '/') {
+    e.preventDefault();
+    const sl = SLIDES[CUR]; if (!sl) return;
+    if (sl.kind === 'split') { unsplit(CUR); toast('back to one whole photo'); }
+    else setSplit(CUR, sl.n || 2);
+  }
   else if (k >= '2' && k <= '5' && SLIDES[CUR] && SLIDES[CUR].kind === 'split') setSplit(CUR, Number(k));
   else if (k === 'a') { if (!$('ruleBox').hidden) $('ruleOk').click(); }
   else if (k === 'x') { e.preventDefault(); cutCurrent(); }
@@ -2495,11 +2501,14 @@ function igBuild() {
     el.className = 'igF' + (f.kind === 'stack' ? ' stackF' : f.kind === 'tile' ? ' tileF' : '');
     if (f.kind === 'stack') {
       el.innerHTML = '<div class="p"></div><div class="p"></div>';
-      f.srcs.forEach((s, i) => { el.children[i].style.backgroundImage = 'url("' + paintUrl(s) + '")'; });
+      f.srcs.forEach((s, i) => { el.children[i].style.backgroundImage = 'url("' + s.url + '")'; });
     } else {
       el.innerHTML = '<div class="p"></div>';
       const p = el.firstChild;
-      p.style.backgroundImage = f.src ? 'url("' + paintUrl(f.src) + '")' : 'none';
+      // Full resolution here, not the board's bitmap. This is a modal you opened to judge how the
+      // post reads, at ~430 CSS px on a retina panel - and a split tile shows only a fraction of the
+      // file, so a 720px thumbnail is visibly soft exactly where the panorama has to convince.
+      p.style.backgroundImage = f.src ? 'url("' + f.src.url + '")' : 'none';
       if (f.kind === 'tile' && f.src && f.src.w) {
         const cropH = Math.min(f.src.h, f.src.w / (f.n * R45));
         const cropW = cropH * R45 * f.n;
