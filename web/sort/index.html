@@ -12,6 +12,10 @@
 body { grid-template-columns:1fr 352px; }
 
 :root {
+  /* Arrivals use --ease-out, which spends most of its distance immediately - excellent for something
+     appearing, unreadable for something you are meant to FOLLOW across the board. Displacement gets
+     its own curve: a gentle start, a long settle, so the eye can keep hold of a card that moved. */
+  --ease-move: cubic-bezier(0.25, 0.05, 0.15, 1);
   --card-h: 180px;            /* media height for every card; widths derive from it */
   --tile-w: 144px;            /* 4:5 at --card-h */
   --seam:   oklch(1 0 0 / 22%);
@@ -79,7 +83,7 @@ body { grid-template-columns:1fr 352px; }
   position:relative; flex:0 0 auto; border:1px solid var(--border); border-radius:var(--radius);
   background:var(--surface); box-shadow:var(--highlight); cursor:grab; user-select:none;
   transition:border-color .15s var(--ease-io), box-shadow .2s var(--ease-io),
-             transform .26s var(--ease-out), scale .2s var(--ease-out), opacity .15s var(--ease-io);
+             transform .38s var(--ease-move), scale .2s var(--ease-out), opacity .15s var(--ease-io);
   animation:cardIn .34s var(--ease-out) both;
 }
 /* During a drag the cards are moved by transform alone and nothing else about them changes, so the
@@ -767,7 +771,7 @@ function reflow(mutate) {
   CARDS.forEach((el, id) => first.set(id, el.getBoundingClientRect()));
   if (mutate) mutate();
   layout(); repaint(); chrome();
-  const dur = DRAG && DRAG.on ? 170 : 260;
+  const dur = DRAG && DRAG.on ? 300 : 420;
   CARDS.forEach((el, id) => {
     const f = first.get(id); if (!f) return;                 // brand new card: it animates itself in
     const l = el.getBoundingClientRect();
@@ -776,7 +780,7 @@ function reflow(mutate) {
     el.style.transition = 'none';
     el.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
     requestAnimationFrame(() => {
-      el.style.transition = 'transform ' + dur + 'ms var(--ease-out)';
+      el.style.transition = 'transform ' + dur + 'ms var(--ease-move)';
       el.style.transform = '';
     });
   });
@@ -1392,12 +1396,31 @@ function preview(idx) {
   DRAG.order = order;
   const next = project(order, DRAG.geo);
   DRAG.shown = next;                     // what the board is now showing, for the combine hit-test
-  DRAG.base.forEach((p, id) => {
-    const q = next.get(id), el = CARDS.get(id);
-    if (!q || !el) return;
+
+  /* How the cards travel is the difference between "the board rearranged" and "I can see what went
+   * where". Three things do that work, and none of them is the transform itself:
+   *
+   *   - a curve that starts gently instead of throwing most of the distance into the first 80ms.
+   *     --ease-out is right for something ARRIVING, and wrong for something you have to follow;
+   *   - a duration that grows with how far the card actually has to go, so the card wrapping to the
+   *     next row is not given the same 260ms as one sliding a single slot sideways;
+   *   - a stagger by distance from the gap, so the row opens as a wave rather than all at once.
+   *     One simultaneous jump of nine cards is unreadable no matter how long it takes.
+   */
+  const from = DRAG.tf || (DRAG.tf = new Map());
+  order.forEach((id, i) => {
+    const p = DRAG.base.get(id), q = next.get(id), el = CARDS.get(id);
+    if (!p || !q || !el) return;
     const dx = Math.round(q.x - p.x), dy = Math.round(q.y - p.y);
     const t = (dx || dy) ? 'translate3d(' + dx + 'px,' + dy + 'px,0)' : '';
-    if (el.style.transform !== t) el.style.transform = t;
+    if (el.style.transform === t) return;
+    const was = from.get(id) || { dx:0, dy:0 };
+    const travel = Math.hypot(dx - was.dx, dy - was.dy);
+    const dur = clamp(300 + travel * 0.5, 300, 560);
+    const wait = Math.min(Math.abs(i - idx) * 9, 72);
+    el.style.transition = 'transform ' + Math.round(dur) + 'ms var(--ease-move) ' + wait + 'ms';
+    el.style.transform = t;
+    from.set(id, { dx, dy });
   });
   renumber(order);
 }
@@ -1525,10 +1548,10 @@ function endDrag() {
   const g = d.ghost;
   if (g) {
     if (land) {
-      g.style.transition = 'transform .2s var(--ease-out), opacity .2s var(--ease-io)';
+      g.style.transition = 'transform .3s var(--ease-move), opacity .3s var(--ease-io)';
       g.style.transform = 'translate3d(' + land.left + 'px,' + land.top + 'px,0)';
       g.style.opacity = '0';
-      setTimeout(() => g.remove(), 230);
+      setTimeout(() => g.remove(), 330);
     } else g.remove();
   }
 
@@ -1537,6 +1560,7 @@ function endDrag() {
   const commit = () => {
     const order = d.order || d.ids;
     CARDS.forEach(c => { c.style.transition = 'none'; c.style.transform = ''; });
+    d.tf && d.tf.clear();
     SLIDES = order.map(id => d.byId.get(id)).filter(Boolean);
     const moved = d.byId.get(d.id); if (moved && d.idx !== d.home) moved.moved = true;
     CUR = Math.max(0, SLIDES.findIndex(s => s.id === d.id));
