@@ -21,7 +21,7 @@ body { grid-template-columns:1fr 352px; }
   --seam:   oklch(1 0 0 / 22%);
 }
 
-#left { display:grid; grid-template-rows:auto 1fr auto; min-width:0; min-height:0; }
+#left { display:grid; grid-template-rows:auto auto 1fr auto auto; min-width:0; min-height:0; }
 
 /* --- top bar ----------------------------------------------------------------------------------- */
 #bar {
@@ -352,6 +352,18 @@ kbd {
 .wrn.hard { border-left-color:var(--danger); color:var(--danger); }
 #warnNone { font-size:11px; color:var(--faint); }
 
+#bucket {
+  display:flex; align-items:center; gap:10px; padding:8px 14px; min-height:0;
+  border-top:1px solid var(--border); background:var(--surface);
+  font-family:var(--mono); font-size:9.5px; letter-spacing:.09em; text-transform:uppercase;
+  color:var(--faint);
+}
+#bucket .bLabel { flex:none; }
+#bucket .bLabel b { color:var(--fg); font-size:12px; font-variant-numeric:tabular-nums; margin-left:3px; }
+#bucket .bHint { flex:none; margin-left:auto; opacity:.7; text-transform:none; letter-spacing:normal;
+                 font-family:-apple-system, system-ui, sans-serif; font-size:10.5px; }
+#bucket #shelf { flex:1; min-width:0; overflow-x:auto; flex-wrap:nowrap; scrollbar-width:thin; }
+
 /* --- the cut shelf ------------------------------------------------------------------------------ */
 /* Sorting is not selecting. A frame pulled out here is not silently gone — it lands on a shelf with
    the reason attached, and the reason is what goes back to whoever chose the set. */
@@ -372,6 +384,27 @@ kbd {
  * Committing ends the pass and sends it back. Enter is far too easy to hit by accident — that has
  * happened, mid-review, and cost someone their sitting. So it asks, and the ask doubles as the last
  * look at what is actually going out. */
+/* Right-click asks the card what it can do. Everything here also lives in the panel - this is the
+   shorter road to it, at the place you were already pointing. */
+#ctx {
+  position:fixed; z-index:95; min-width:210px; padding:5px;
+  background:var(--surface); border:1px solid var(--border-strong); border-radius:var(--radius);
+  box-shadow:0 22px 50px -18px oklch(0 0 0 / 80%), var(--highlight);
+  animation:pop .12s var(--ease-out) both;
+}
+#ctx button {
+  display:flex; align-items:center; gap:8px; width:100%; text-align:left;
+  background:transparent; border:0; box-shadow:none; padding:7px 9px; font-size:12px;
+  border-radius:var(--radius-sm);
+}
+#ctx button:hover { background:var(--surface-2); }
+#ctx button:disabled { opacity:.32; }
+#ctx button .k {
+  margin-left:auto; font-family:var(--mono); font-size:9px; color:var(--faint);
+}
+#ctx button.danger { color:var(--danger); }
+#ctx hr { border:0; border-top:1px solid var(--border); margin:4px 2px; }
+
 #gnoteWrap {
   position:fixed; inset:0; z-index:76; display:grid; place-items:center;
   background:oklch(0.11 0.004 70 / 62%); backdrop-filter:blur(6px);
@@ -575,6 +608,15 @@ kbd {
     </div>
   </div>
 
+  <!-- Frames pulled out of the post live here, next to the board rather than three screens down the
+       panel where the shelf used to be: the whole point of a bucket is that you can see what is in it
+       without going to look. -->
+  <div id="bucket" hidden>
+    <span class="bLabel">Taken out <b id="shelfN">0</b></span>
+    <div id="shelf"></div>
+    <span class="bHint">click one to put it back at the end</span>
+  </div>
+
   <div id="status">
     <span><b id="stSlides">0</b> slides</span>
     <span><b id="stSrc">0</b> frames</span>
@@ -657,12 +699,6 @@ kbd {
       <p id="warnNone">Nothing flagged. None of these ever block you anyway.</p>
     </fieldset>
 
-    <fieldset id="shelfBox" hidden>
-      <legend>Taken out (<span id="shelfN">0</span>)</legend>
-      <div id="shelf"></div>
-      <p class="hint">Click one to put it back. These go back with your reason attached — the selection
-         itself stays as it was.</p>
-    </fieldset>
 
     <fieldset>
       <legend>Keys</legend>
@@ -687,6 +723,8 @@ kbd {
     <p class="hint" id="commitHint">It asks before it sends. Proposals you never ruled on go back as accepted.</p>
   </div>
 </div>
+
+<div id="ctx" hidden></div>
 
 <div id="gnoteWrap" hidden>
   <div id="gnote" role="dialog" aria-modal="true">
@@ -1141,7 +1179,7 @@ $('warnChip').onclick = () => {
 
 /* --- the cut shelf ------------------------------------------------------------------------------ */
 function renderShelf() {
-  $('shelfBox').hidden = !CUT.length;
+  $('bucket').hidden = !CUT.length;
   $('shelfN').textContent = CUT.length;
   $('shelf').innerHTML = CUT.map((c, i) =>
     '<div class="cut" data-i="' + i + '" title="' + esc(c.name + (c.reason ? ' — ' + c.reason : '')) + '"' +
@@ -1153,7 +1191,11 @@ $('shelf').onclick = e => {
   snapshot();
   reflow(() => {
     const c = CUT.splice(Number(el.dataset.i), 1)[0];
-    SLIDES.push({ id:nid(), kind:'solo', sources:c.srcIds, why:'', tags:[], text:'', ruled:true });
+    // A stack that was taken out comes back AS a stack. Rebuilding it as a solo carrying two sources
+    // makes a slide that is neither - it renders as one frame, reports as one frame, and quietly
+    // loses the pairing you had already decided on.
+    SLIDES.push({ id:nid(), kind:c.kind || 'solo', n:c.n, sources:c.srcIds.slice(),
+                  why:c.why || '', tags:[], text:'', ruled:true });
     CUR = SLIDES.length - 1;
   });
   renderPanel(); scrollToCur(); saveState();
@@ -1357,8 +1399,10 @@ function cutCurrent() {
   const reason = (sl.text || (sl.tags || []).map(tagLabel).join(', ') || '').slice(0, 40);
   snapshot();
   reflow(() => {
-    CUT.push({ srcIds:sl.sources.slice(), name:srcs.map(s => s.name).join(' + '),
-               url:(srcs[0] || {}).url || '', reason });
+    // what it WAS, not just which frames were in it - a stack taken out has to come back as a stack
+    CUT.push({ srcIds:sl.sources.slice(), kind:sl.kind, n:sl.n, why:sl.why,
+               name:srcs.map(s => s.name).join(' + '),
+               url:paintUrl(srcs[0]), reason });
     SLIDES.splice(CUR, 1);
     CUR = clamp(CUR, 0, SLIDES.length - 1);
   });
@@ -2020,6 +2064,7 @@ document.addEventListener('keydown', e => {
   else if (k === 'z') { e.preventDefault(); undo(); }
   else if (k === 'v') { e.preventDefault(); igOpen(); }
   else if (k === 'f') { e.preventDefault(); loupeOpen(); }
+  else if (e.key === 'Escape' && !$('ctx').hidden) { e.preventDefault(); closeCtx(); }
   else if (e.key === 'Escape' && MULTI.size) { e.preventDefault(); MULTI.clear(); paintMulti(); }
   else if (e.key === 'Enter') { e.preventDefault(); askCommit(); }
 });
@@ -2266,6 +2311,68 @@ $('multiClear').onclick = () => { MULTI.clear(); paintMulti(); };
 $('gnoteCancel').onclick = closeSetNote;
 $('gnoteSave').onclick = saveSetNote;
 $('gnoteWrap').onpointerdown = e => { if (e.target === $('gnoteWrap')) closeSetNote(); };
+
+/* --- right-click on a card -------------------------------------------------------------------- */
+/* Every item here exists in the panel too. This is the shorter road to it, offered where you were
+   already pointing - and it is where "take this out" belongs, because that is the one action you
+   reach for while looking at a card rather than while reading its details. */
+function closeCtx() { $('ctx').hidden = true; }
+
+function openCtx(x, y, i) {
+  const sl = SLIDES[i]; if (!sl) return;
+  const partner = SLIDES[i + 1];
+  const pairable = sl.kind === 'solo' && partner && canStack(sl, partner);
+  const items = [
+    ['⛶', 'Look at it full screen', 'F', () => loupeOpen(), false],
+    ['▣', 'See it in the carousel', 'V', () => igOpen(), false],
+    null,
+    ['①', 'Make this the cover', '1', () => toCover(), i === 0],
+    ['←', 'Move left', '⌥←', () => move(i, i - 1), i === 0],
+    ['→', 'Move right', '⌥→', () => move(i, i + 1), i === SLIDES.length - 1],
+    null,
+  ];
+  if (sl.kind === 'stack') {
+    items.push(['⇅', 'Swap which is on top', '', () => swapPanels(), false]);
+    items.push(['✂', 'Break this stack up', '⇧S', () => unstack(i), false]);
+  } else {
+    items.push(['⬍', pairable ? 'Pair with ' + (SRC[partner.sources[0]] || {}).name : 'Pair with the next slide',
+                'S', () => stackWith(i, i + 1), !pairable]);
+    items.push([sl.kind === 'split' ? '▯' : '⬌',
+                sl.kind === 'split' ? 'Post it whole instead' : 'Split into tiles', '/',
+                () => (sl.kind === 'split' ? unsplit(i) : setSplit(i, 2)), sl.sources.length !== 1]);
+  }
+  items.push(null);
+  items.push(['💬', 'Comment on this slide', 'C', () => { $('insText').focus(); }, false]);
+  items.push(['✕', 'Take this out of the post', 'X', () => cutCurrent(), false, true]);
+
+  const box = $('ctx');
+  box.innerHTML = items.map((it, n) => it === null ? '<hr>' :
+    '<button data-n="' + n + '"' + (it[4] ? ' disabled' : '') + (it[5] ? ' class="danger"' : '') + '>' +
+    '<span>' + it[0] + '</span>' + esc(it[1]) +
+    (it[2] ? '<span class="k">' + esc(it[2]) + '</span>' : '') + '</button>').join('');
+  box.onclick = e => {
+    const b = e.target.closest('button'); if (!b || b.disabled) return;
+    closeCtx();
+    items[Number(b.dataset.n)][3]();
+  };
+  box.hidden = false;
+  // keep it on screen: a menu opened near the right or bottom edge flips back over the cursor
+  const r = box.getBoundingClientRect();
+  box.style.left = Math.min(x, innerWidth - r.width - 8) + 'px';
+  box.style.top = Math.min(y, innerHeight - r.height - 8) + 'px';
+}
+
+$('board').addEventListener('contextmenu', e => {
+  const card = e.target.closest('.slide'); if (!card) return;
+  e.preventDefault();
+  const i = SLIDES.findIndex(s => s.id === card.dataset.id);
+  if (i < 0) return;
+  setCur(i);
+  openCtx(e.clientX, e.clientY, i);
+});
+addEventListener('pointerdown', e => { if (!$('ctx').hidden && !e.target.closest('#ctx')) closeCtx(); }, true);
+addEventListener('blur', closeCtx);
+$('board').addEventListener('scroll', closeCtx);
 
 $('lClose').onclick = loupeClose;
 $('lCarousel').onclick = () => { loupeClose(); igOpen(); };
