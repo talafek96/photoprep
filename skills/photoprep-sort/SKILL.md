@@ -116,8 +116,10 @@ bindings, and `Enter` ends the pass.
 
 Worth telling them once: dragging does everything, and where you drop decides what it means — a
 card's left or right **edge** puts the frame there in the order, its **middle** stacks the two, and
-how high up you are picks which of the pair ends on top. `1` sends a slide to the cover, `S` stacks
-with the next, `/` splits, `V` opens a fake Instagram carousel, and `Z` undoes.
+how high up you are picks which of the pair ends on top. `Space` opens the slide big — composed, so
+a stack shows its seam and a split shows its real tiles — and the arrows walk the sequence from
+there. `1` sends a slide to the cover, `S` stacks with the next, `/` splits, `V` opens a fake
+Instagram carousel, and `Z` undoes.
 
 The carousel preview is the part worth pointing at. A board tells you what is in the post; only a
 swipe tells you how it reads, and it is the only honest way to judge whether a panorama split lands.

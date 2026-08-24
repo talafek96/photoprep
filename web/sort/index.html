@@ -342,6 +342,46 @@ kbd {
          border-left:2px solid var(--warn); padding-left:9px; }
 #confirm .row button { padding:9px; }
 
+/* --- the loupe -----------------------------------------------------------------------------------
+ * A board is for judging the SEQUENCE; at 144px a card cannot tell you whether the photograph is any
+ * good, and a sort pass keeps needing that second question answered. So Space opens the slide big -
+ * and composed, because a stack is not two photos and a split is not one: what has to be judged is
+ * the thing Instagram will actually show, seams and all.
+ */
+#loupe {
+  position:fixed; inset:0; z-index:85; display:none; flex-direction:column;
+  background:oklch(0.11 0.004 70 / 88%); backdrop-filter:blur(10px);
+  animation:fade .16s var(--ease-out) both;
+}
+#loupe.on { display:flex; }
+#lhead {
+  display:flex; align-items:center; gap:10px; padding:10px 16px; flex:none;
+  border-bottom:1px solid var(--border);
+  font-family:var(--mono); font-size:9.5px; letter-spacing:.09em; text-transform:uppercase;
+  color:var(--faint);
+}
+#lhead .no { color:var(--fg); font-size:12px; font-variant-numeric:tabular-nums; }
+#lhead b { color:var(--fg); font-size:11px; font-family:var(--mono); letter-spacing:.04em; }
+#lhead .sp { flex:1; }
+#lWhy { font-family:-apple-system, system-ui, sans-serif; font-size:11px; text-transform:none;
+        letter-spacing:normal; color:var(--mut); }
+#lstage { flex:1; min-height:0; display:grid; place-items:center; padding:20px; }
+#lframe { display:flex; gap:0; background:#000; box-shadow:0 30px 70px -24px oklch(0 0 0 / 85%); }
+#lframe.stack { flex-direction:column; gap:4px; background:transparent; box-shadow:none; }
+#lframe .lp { background:#000 center/contain no-repeat; }
+#lframe.stack .lp { background-size:cover; border-radius:4px;
+                    box-shadow:0 0 0 1px oklch(1 0 0 / 16%), 0 6px 20px -8px oklch(0 0 0 / 85%); }
+#lframe.split .lp { border-right:1px solid oklch(1 0 0 / 26%); position:relative; }
+#lframe.split .lp:last-child { border-right:0; }
+#lframe.split .lp .n {
+  position:absolute; left:8px; top:8px; font-family:var(--mono); font-size:10px;
+  background:oklch(0 0 0 / 62%); color:oklch(0.9 0 0); padding:2px 7px; border-radius:4px;
+}
+#lfoot {
+  flex:none; padding:9px 16px; border-top:1px solid var(--border); text-align:center;
+  font-size:10.5px; color:var(--faint);
+}
+
 /* --- fake Instagram carousel --------------------------------------------------------------------
  * The only honest way to judge whether a panorama split lands, and the only way to FEEL the rhythm
  * of a sequence rather than read it as a grid. */
@@ -484,6 +524,7 @@ kbd {
     <fieldset>
       <legend>Keys</legend>
       <p class="hint" style="margin:0">
+        <kbd>space</kbd> look at the slide big ·
         <kbd>←</kbd><kbd>→</kbd> move between slides · <kbd>⌥←</kbd><kbd>⌥→</kbd> move the slide ·
         <kbd>1</kbd> send to cover · <kbd>S</kbd> stack with the next · <kbd>⇧S</kbd> unstack ·
         <kbd>/</kbd> split, then <kbd>2</kbd>–<kbd>5</kbd> · <kbd>A</kbd> approve · <kbd>X</kbd> take out ·
@@ -507,6 +548,23 @@ kbd {
       <button id="cCancel">Keep sorting <kbd>esc</kbd></button>
       <button id="cGo" class="primary">Send it <kbd>⏎</kbd></button>
     </div>
+  </div>
+</div>
+
+<div id="loupe" role="dialog" aria-modal="true">
+  <div id="lhead">
+    <span class="no" id="lNo">1</span>
+    <span class="kind" id="lKind">solo</span>
+    <b id="lName">—</b>
+    <span id="lWhy"></span>
+    <span class="sp"></span>
+    <span id="lPos"></span>
+    <button class="fbtn" id="lClose">✕ Close <kbd>esc</kbd></button>
+  </div>
+  <div id="lstage"><div id="lframe"></div></div>
+  <div id="lfoot">
+    <kbd>←</kbd><kbd>→</kbd> walk the sequence · <kbd>V</kbd> see it as a carousel ·
+    <kbd>space</kbd> or <kbd>esc</kbd> to close
   </div>
 </div>
 
@@ -652,7 +710,7 @@ function paneStyle(el, src, mode) {
 
 // A split tile shows the real slice of the real photograph. Anything less (the whole image repeated
 // N times, or a generic bracket) makes it impossible to judge whether the panorama actually reads.
-function sliceStyle(el, src, i, n) {
+function sliceStyle(el, src, i, n, tileH) {
   setClass(el, 'pane');
   setStyle(el, 'backgroundImage', src && src.url ? 'url("' + src.url + '")' : 'none');
   if (!src || !src.w || !src.h) { setStyle(el, 'backgroundSize', 'cover'); setStyle(el, 'backgroundPosition', 'center'); return; }
@@ -660,7 +718,7 @@ function sliceStyle(el, src, i, n) {
   const cropH = Math.min(src.h, src.w / (n * R45));
   const cropW = cropH * R45 * n;
   const x0 = (src.w - cropW) / 2, y0 = (src.h - cropH) / 2;
-  const s = CARD_H / cropH;                       // source px -> screen px
+  const s = (tileH || CARD_H) / cropH;            // source px -> screen px
   setStyle(el, 'backgroundSize', (src.w * s) + 'px ' + (src.h * s) + 'px');
   setStyle(el, 'backgroundPosition', (-(x0 + i * cropH * R45) * s) + 'px ' + (-y0 * s) + 'px');
 }
@@ -1635,6 +1693,13 @@ document.addEventListener('keydown', e => {
     else if (e.key === 'Enter') { e.preventDefault(); commit(); }
     return;
   }
+  if (loupeIsOpen()) {
+    if (e.key === 'Escape' || e.key === ' ') { e.preventDefault(); loupeClose(); }
+    else if (e.key === 'ArrowLeft')  { e.preventDefault(); setCur(CUR - 1); scrollToCur(); paintLoupe(); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); setCur(CUR + 1); scrollToCur(); paintLoupe(); }
+    else if (e.key.toLowerCase() === 'v') { e.preventDefault(); loupeClose(); igOpen(); }
+    return;
+  }
   if ($('igWrap').classList.contains('on')) {
     if (e.key === 'Escape') igClose();
     else if (e.key === 'ArrowLeft') igGo(IG_I - 1);
@@ -1661,10 +1726,68 @@ document.addEventListener('keydown', e => {
   else if (k === 'c') { e.preventDefault(); $('insText').focus(); }
   else if (k === 'z') { e.preventDefault(); undo(); }
   else if (k === 'v') { e.preventDefault(); igOpen(); }
+  else if (e.key === ' ') { e.preventDefault(); loupeOpen(); }
   else if (e.key === 'Enter') { e.preventDefault(); askCommit(); }
 });
 
 function select(i) { setCur(i); scrollToCur(); }
+
+/* --- the loupe -------------------------------------------------------------------------------- */
+function loupeOpen() {
+  if (!SLIDES.length) { toast('nothing to look at yet'); return; }
+  $('loupe').classList.add('on');
+  paintLoupe();
+}
+function loupeClose() { $('loupe').classList.remove('on'); }
+const loupeIsOpen = () => $('loupe').classList.contains('on');
+
+function paintLoupe() {
+  const sl = SLIDES[CUR]; if (!sl) return;
+  const slots = slotsFor(CUR), srcs = srcOf(sl);
+  $('lNo').textContent = slots.count > 1 ? slots.first + '–' + slots.last : slots.first;
+  $('lKind').textContent = sl.kind === 'stack' ? '⬍ stack' : sl.kind === 'split' ? '⬌ split ×' + (sl.n || 2) : '▯ solo';
+  $('lName').textContent = srcs.map(s => s.name).join('  ·  ') || '—';
+  $('lWhy').textContent = sl.why || sl.text || '';
+  $('lPos').textContent = (CUR + 1) + ' of ' + SLIDES.length;
+
+  // Fit the composed frame to the stage: the shape is a property of the SLIDE, not of the photo -
+  // a stack and a split are 4:5 and n×4:5 by construction however their sources were shot.
+  const stage = $('lstage');
+  const maxH = stage.clientHeight - 40, maxW = stage.clientWidth - 40;
+  const n = sl.kind === 'split' ? (sl.n || 2) : 1;
+  const aspect = sl.kind === 'split' ? n * R45
+               : sl.kind === 'stack' ? R45
+               : (srcs[0] && srcs[0].w ? srcs[0].w / srcs[0].h : R45);
+  let h = Math.min(maxH, maxW / aspect), w = h * aspect;
+
+  const f = $('lframe');
+  f.className = sl.kind;
+  f.style.width = Math.round(w) + 'px';
+  f.style.height = Math.round(h) + 'px';
+  const want = sl.kind === 'split' ? n : sl.kind === 'stack' ? 2 : 1;
+  f.innerHTML = '';
+  for (let k = 0; k < want; k++) {
+    const p = document.createElement('div');
+    p.className = 'lp';
+    if (sl.kind === 'split') {
+      p.style.width = (w / n) + 'px'; p.style.height = h + 'px';
+      sliceStyle(p, srcs[0], k, n, h);
+      p.className = 'lp';                                  // sliceStyle stamps the card's class
+      p.innerHTML = '<span class="n">' + (slots.first + k) + '</span>';
+    } else if (sl.kind === 'stack') {
+      p.style.width = w + 'px'; p.style.height = ((h - 4) / 2) + 'px';
+      p.style.backgroundImage = srcs[k] ? 'url("' + srcs[k].url + '")' : 'none';
+    } else {
+      p.style.width = w + 'px'; p.style.height = h + 'px';
+      p.style.backgroundImage = srcs[0] ? 'url("' + srcs[0].url + '")' : 'none';
+    }
+    f.appendChild(p);
+  }
+}
+
+$('lClose').onclick = loupeClose;
+$('loupe').onpointerdown = e => { if (e.target === $('loupe') || e.target === $('lstage')) loupeClose(); };
+window.addEventListener('resize', () => { if (loupeIsOpen()) paintLoupe(); });
 
 /* --- carousel preview ----------------------------------------------------------------------------
  * A grid tells you what is in the post; only a swipe tells you how it reads. Split groups expand into
