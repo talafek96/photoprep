@@ -1011,7 +1011,17 @@ function renderPanel() {
   }
 
   [...$('kindSeg').children].forEach(b => b.classList.toggle('on', b.dataset.k === sl.kind));
-  $('kindSeg').children[1].disabled = sl.kind !== 'stack' && srcs.length < 2;
+  /* Stack is not "this slide has two sources" - it is "pair this with the next one", which is the
+     only way the button can do anything at all from a solo. It was disabled precisely when it had
+     work to do, and lit up only when the slide was already a stack and clicking it was a no-op. */
+  const partner = SLIDES[CUR + 1];
+  const canPair = sl.kind === 'solo' && partner && canStack(sl, partner);
+  const stackBtn = $('kindSeg').children[1];
+  stackBtn.disabled = sl.kind !== 'stack' && !canPair;
+  stackBtn.title = sl.kind === 'stack' ? 'This slide is already a stack'
+    : canPair ? 'Pair this with ' + (SRC[partner.sources[0]] || {}).name + ' into one 4:5 frame'
+    : partner ? 'The next slide is not a single frame - drag one card onto another instead'
+    : 'Nothing after this to pair it with';
   $('splitBox').hidden = sl.kind !== 'split';
   $('nSlices').value = sl.n || 2;
   $('nV').textContent = sl.n || 2;
