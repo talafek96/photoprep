@@ -353,3 +353,29 @@ that measures the image, and its guard is `if (already measured) return` — so 
 sizes already known skips the bitmaps entirely and the stutter returns with no visible cause. And
 `blob:` urls belong to the page that created them, so they must never be written into an autosave;
 persist the path, rebuild the bitmap.
+
+## Pointer capture also retargets the mouse events derived from it — including `contextmenu`
+
+**A `pointerdown` handler that calls `setPointerCapture` on ANY button steals the compatibility mouse
+events that follow, so a right-click's `contextmenu` fires on the capturing element rather than on
+the thing under the cursor.**
+
+```js
+// Wrong - a right-press starts a "drag", captures the pointer, and the menu handler below then
+// looks for a card in an event that now says it hit the container
+board.addEventListener('pointerdown', e => { board.setPointerCapture(e.pointerId); /* ... */ });
+board.addEventListener('contextmenu', e => {
+  const card = e.target.closest('.card');   // null: e.target is the board
+  if (!card) return;                        // ...so the browser's own menu appears instead
+});
+
+// Right - drags are a left-button gesture, and the menu finds its target by position too
+if (e.button !== 0) return;
+const card = e.target.closest('.card') ||
+             document.elementFromPoint(e.clientX, e.clientY)?.closest('.card');
+```
+
+It presents as "the custom menu never appears", which sends you looking at the menu code — where a
+synthetic `contextmenu` dispatched straight at the card passes every time, because nothing in the
+test ever set the capture. Same root cause as `pointerup` reporting the capturing element; the
+lesson generalises to every event that follows a captured press.

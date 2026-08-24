@@ -1840,6 +1840,11 @@ function renumber(order) {
 }
 
 $('board').addEventListener('pointerdown', e => {
+  // Left button only. A right-press used to start a drag like any other, which took pointer capture
+  // on the board - and a captured pointer retargets the compatibility mouse events that follow, so
+  // the contextmenu arrived on the BOARD rather than on the card. The handler looked for a card,
+  // found none, and let the browser's own menu through. Same trap as pointerup hit-testing.
+  if (e.button !== 0) return;
   const card = e.target.closest('.slide'); if (!card) return;
   if (e.target.closest('button, textarea, input')) return;
   const i = SLIDES.findIndex(s => s.id === card.dataset.id);
@@ -2375,7 +2380,12 @@ function openCtx(x, y, i) {
 }
 
 $('board').addEventListener('contextmenu', e => {
-  const card = e.target.closest('.slide'); if (!card) return;
+  // ...and find the card by where the cursor IS, not only by what the event says it hit, so a
+  // retargeted event can still be answered.
+  const under = document.elementFromPoint(e.clientX, e.clientY);
+  const card = (e.target.closest && e.target.closest('.slide')) ||
+               (under && under.closest && under.closest('.slide'));
+  if (!card) return;
   e.preventDefault();
   const i = SLIDES.findIndex(s => s.id === card.dataset.id);
   if (i < 0) return;
