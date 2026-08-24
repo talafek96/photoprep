@@ -116,9 +116,10 @@ bindings, and `Enter` ends the pass.
 
 Worth telling them once: dragging does everything, and where you drop decides what it means — a
 card's left or right **edge** puts the frame there in the order, its **middle** stacks the two, and
-how high up you are picks which of the pair ends on top. `Space` opens the slide big — composed, so
-a stack shows its seam and a split shows its real tiles — and the arrows walk the sequence from
-there. `1` sends a slide to the cover, `S` stacks with the next, `/` splits, `V` opens a fake
+how high up you are picks which of the pair ends on top. `Space` opens the loupe: the slide big and
+composed, so a stack shows its seam and a split shows its real tiles, with the same zoom and pan as
+the Select tool's — `Z` toggles fit and 100%, and 100% means the actual exported pixels. The arrows
+walk the sequence from in there. `1` sends a slide to the cover, `S` stacks with the next, `/` splits, `V` opens a fake
 Instagram carousel, and `Z` undoes.
 
 The carousel preview is the part worth pointing at. A board tells you what is in the post; only a

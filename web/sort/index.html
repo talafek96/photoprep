@@ -363,16 +363,29 @@ kbd {
 #lhead .no { color:var(--fg); font-size:12px; font-variant-numeric:tabular-nums; }
 #lhead b { color:var(--fg); font-size:11px; font-family:var(--mono); letter-spacing:.04em; }
 #lhead .sp { flex:1; }
+#lZoom { color:var(--accent); font-variant-numeric:tabular-nums; }
+#lhead .fbtn { padding:4px 8px; }
+#lstage { cursor:grab; overflow:hidden; }
+#lstage.drag { cursor:grabbing; }
+#lframe { transform-origin:0 0; will-change:transform; }
+/* the loupe arrives and leaves, rather than blinking - matched to Select's, since it is the same
+   gesture in both tools and a different feel would read as a different thing */
+#loupe.on #lstage { animation:loupeIn .42s var(--ease-out) both; }
+@keyframes loupeIn { from { opacity:0; transform:scale(.965) } to { opacity:1; transform:none } }
+#loupe.on.closing { animation:lfadeOut .25s var(--ease-io) both; }
+@keyframes lfadeOut { to { opacity:0 } }
+#loupe.on.closing #lstage { animation:loupeOut .25s var(--ease-io) both; }
+@keyframes loupeOut { to { opacity:0; transform:scale(.97) } }
+#loupe.on.closing #lhead, #loupe.on.closing #lfoot { animation:none; opacity:0; transition:opacity .18s; }
+@media (prefers-reduced-motion: reduce) { #loupe, #loupe.on #lstage { animation:none; } }
 #lWhy { font-family:-apple-system, system-ui, sans-serif; font-size:11px; text-transform:none;
         letter-spacing:normal; color:var(--mut); }
-#lstage { flex:1; min-height:0; display:grid; place-items:center; padding:20px; }
+#lstage { flex:1; min-height:0; position:relative; padding:0; }
 #lframe { display:flex; gap:0; background:#000; box-shadow:0 30px 70px -24px oklch(0 0 0 / 85%); }
 #lframe.stack { flex-direction:column; gap:4px; background:transparent; box-shadow:none; }
 #lframe .lp { background:#000 center/contain no-repeat; }
-#lframe.stack .lp { background-size:cover; border-radius:4px;
-                    box-shadow:0 0 0 1px oklch(1 0 0 / 16%), 0 6px 20px -8px oklch(0 0 0 / 85%); }
-#lframe.split .lp { border-right:1px solid oklch(1 0 0 / 26%); position:relative; }
-#lframe.split .lp:last-child { border-right:0; }
+#lframe.stack .lp { background-size:cover; }
+#lframe.split .lp { position:relative; }
 #lframe.split .lp .n {
   position:absolute; left:8px; top:8px; font-family:var(--mono); font-size:10px;
   background:oklch(0 0 0 / 62%); color:oklch(0.9 0 0); padding:2px 7px; border-radius:4px;
@@ -558,13 +571,17 @@ kbd {
     <b id="lName">—</b>
     <span id="lWhy"></span>
     <span class="sp"></span>
+    <span id="lZoom">fit</span>
     <span id="lPos"></span>
+    <button class="fbtn" id="lInput" title="What scrolling does in here. Click or press S to switch.">scroll: pan <kbd>S</kbd></button>
+    <button class="fbtn" id="lCarousel">▣ Carousel <kbd>V</kbd></button>
     <button class="fbtn" id="lClose">✕ Close <kbd>esc</kbd></button>
   </div>
   <div id="lstage"><div id="lframe"></div></div>
   <div id="lfoot">
-    <kbd>←</kbd><kbd>→</kbd> walk the sequence · <kbd>V</kbd> see it as a carousel ·
-    <kbd>space</kbd> or <kbd>esc</kbd> to close
+    <kbd>←</kbd><kbd>→</kbd> walk · <kbd>Z</kbd> fit ↔ 100% · <kbd>0</kbd> fit · <kbd>1</kbd> actual ·
+    <kbd>S</kbd> scroll zooms or pans · <kbd>V</kbd> carousel ·
+    <kbd>space</kbd>/<kbd>esc</kbd> close
   </div>
 </div>
 
@@ -591,6 +608,7 @@ kbd {
 </div>
 
 <script src="/shared/util.js"></script>
+<script src="/shared/loupe.js"></script>
 <script src="/shared/runtime.js"></script>
 <script>
 'use strict';
@@ -1694,10 +1712,15 @@ document.addEventListener('keydown', e => {
     return;
   }
   if (loupeIsOpen()) {
-    if (e.key === 'Escape' || e.key === ' ') { e.preventDefault(); loupeClose(); }
-    else if (e.key === 'ArrowLeft')  { e.preventDefault(); setCur(CUR - 1); scrollToCur(); paintLoupe(); }
-    else if (e.key === 'ArrowRight') { e.preventDefault(); setCur(CUR + 1); scrollToCur(); paintLoupe(); }
-    else if (e.key.toLowerCase() === 'v') { e.preventDefault(); loupeClose(); igOpen(); }
+    if (e.key === 'Escape' || e.key === ' ') { e.preventDefault(); loupeClose(); return; }
+    if (e.key === 'ArrowLeft')  { e.preventDefault(); setCur(CUR - 1); scrollToCur(); paintLoupe(); return; }
+    if (e.key === 'ArrowRight') { e.preventDefault(); setCur(CUR + 1); scrollToCur(); paintLoupe(); return; }
+    const lk = e.key.toLowerCase();
+    if (lk === 'v') { e.preventDefault(); loupeClose(); igOpen(); return; }
+    if (lk === 'z') { e.preventDefault(); LOUPE.toggleZoom(); return; }          // Lightroom's toggle
+    if (lk === 's') { e.preventDefault(); $('lInput').onclick(); return; }
+    if (e.key === '0') { e.preventDefault(); LOUPE.fit(true); return; }
+    if (e.key === '1') { e.preventDefault(); LOUPE.actual(); return; }
     return;
   }
   if ($('igWrap').classList.contains('on')) {
@@ -1732,14 +1755,51 @@ document.addEventListener('keydown', e => {
 
 function select(i) { setCur(i); scrollToCur(); }
 
-/* --- the loupe -------------------------------------------------------------------------------- */
+/* --- the loupe ----------------------------------------------------------------------------------
+ * The mechanics - fit, zoom, pan, the mouse-vs-trackpad wheel argument, the click beside the frame
+ * that leaves - are Select's, lifted into /shared/loupe.js so both tools have the same hands. What
+ * differs is WHAT is being looked at: not a photograph but a SLIDE, composed. A stack is not two
+ * photos and a split is not one, and the thing that has to be judged is the shape Instagram will
+ * actually show.
+ *
+ * So the frame is built at the composed image's true pixel size and the loupe scales it. That makes
+ * 100% mean here what it means in Select - actual pixels - which is the point of being able to zoom
+ * at all: a split tile at 100% is the crop that will be exported.
+ */
+const LOUPE = PPLoupe.create({
+  root: $('loupe'),
+  stage: $('lstage'),
+  content: $('lframe'),
+  zoomEl: $('lZoom'),
+  onInput: L => {
+    $('lInput').innerHTML = 'scroll: ' + (L.device() === 'mouse' ? 'zoom' : 'pan') + ' <kbd>S</kbd>';
+  },
+});
+const loupeIsOpen = () => LOUPE.isOpen();
+
 function loupeOpen() {
   if (!SLIDES.length) { toast('nothing to look at yet'); return; }
-  $('loupe').classList.add('on');
+  LOUPE.open();
   paintLoupe();
 }
-function loupeClose() { $('loupe').classList.remove('on'); }
-const loupeIsOpen = () => $('loupe').classList.contains('on');
+function loupeClose() { LOUPE.close(); }
+
+// The composed slide's real dimensions. The fit, what 100% means, and how a split's slices are cut
+// all derive from these rather than from the card's on-screen size.
+function loupeGeometry(sl, srcs) {
+  if (sl.kind === 'split') {
+    const src = srcs[0], n = sl.n || 2;
+    if (!src || !src.w) return { w:1600 * n, h:2000, tile:2000, n };
+    const cropH = Math.min(src.h, src.w / (n * R45));
+    return { w:cropH * R45 * n, h:cropH, tile:cropH, n };
+  }
+  if (sl.kind === 'stack') {
+    const w = Math.max.apply(null, srcs.map(x => (x && x.w) || 1600));
+    return { w, h:w / R45, n:2 };
+  }
+  const src = srcs[0];
+  return { w:(src && src.w) || 1600, h:(src && src.h) || 2000, n:1 };
+}
 
 function paintLoupe() {
   const sl = SLIDES[CUR]; if (!sl) return;
@@ -1750,44 +1810,48 @@ function paintLoupe() {
   $('lWhy').textContent = sl.why || sl.text || '';
   $('lPos').textContent = (CUR + 1) + ' of ' + SLIDES.length;
 
-  // Fit the composed frame to the stage: the shape is a property of the SLIDE, not of the photo -
-  // a stack and a split are 4:5 and n×4:5 by construction however their sources were shot.
-  const stage = $('lstage');
-  const maxH = stage.clientHeight - 40, maxW = stage.clientWidth - 40;
-  const n = sl.kind === 'split' ? (sl.n || 2) : 1;
-  const aspect = sl.kind === 'split' ? n * R45
-               : sl.kind === 'stack' ? R45
-               : (srcs[0] && srcs[0].w ? srcs[0].w / srcs[0].h : R45);
-  let h = Math.min(maxH, maxW / aspect), w = h * aspect;
-
+  const g = loupeGeometry(sl, srcs);
   const f = $('lframe');
+  LOUPE.reset();
   f.className = sl.kind;
-  f.style.width = Math.round(w) + 'px';
-  f.style.height = Math.round(h) + 'px';
-  const want = sl.kind === 'split' ? n : sl.kind === 'stack' ? 2 : 1;
+  f.style.width = g.w + 'px';
+  f.style.height = g.h + 'px';
+  const gap = sl.kind === 'stack' ? Math.round(g.h * 0.012) : 0;
+  f.style.gap = gap + 'px';
   f.innerHTML = '';
-  for (let k = 0; k < want; k++) {
+  const panes = sl.kind === 'split' ? g.n : sl.kind === 'stack' ? 2 : 1;
+  for (let k = 0; k < panes; k++) {
     const p = document.createElement('div');
-    p.className = 'lp';
     if (sl.kind === 'split') {
-      p.style.width = (w / n) + 'px'; p.style.height = h + 'px';
-      sliceStyle(p, srcs[0], k, n, h);
-      p.className = 'lp';                                  // sliceStyle stamps the card's class
-      p.innerHTML = '<span class="n">' + (slots.first + k) + '</span>';
-    } else if (sl.kind === 'stack') {
-      p.style.width = w + 'px'; p.style.height = ((h - 4) / 2) + 'px';
-      p.style.backgroundImage = srcs[k] ? 'url("' + srcs[k].url + '")' : 'none';
+      p.style.width = (g.w / g.n) + 'px'; p.style.height = g.h + 'px';
+      sliceStyle(p, srcs[0], k, g.n, g.tile);
+      p.className = 'lp';                            // sliceStyle stamps the card's own class
+      // The frame is built at the photograph's own scale, so anything drawn ON it has to be sized in
+      // those units too - a 10px badge on a 4000px frame is invisible once it is fitted to the stage.
+      p.innerHTML = '<span class="n" style="font-size:' + Math.round(g.h * 0.032) + 'px;' +
+                    'padding:' + Math.round(g.h * 0.008) + 'px ' + Math.round(g.h * 0.016) + 'px;' +
+                    'left:' + Math.round(g.h * 0.02) + 'px;top:' + Math.round(g.h * 0.02) + 'px;' +
+                    'border-radius:' + Math.round(g.h * 0.008) + 'px">' + (slots.first + k) + '</span>';
+      if (k) p.style.borderLeft = Math.max(2, Math.round(g.h * 0.003)) + 'px solid oklch(1 0 0 / 30%)';
     } else {
-      p.style.width = w + 'px'; p.style.height = h + 'px';
-      p.style.backgroundImage = srcs[0] ? 'url("' + srcs[0].url + '")' : 'none';
+      p.className = 'lp';
+      p.style.width = g.w + 'px';
+      p.style.height = (sl.kind === 'stack' ? (g.h - gap) / 2 : g.h) + 'px';
+      p.style.backgroundImage = srcs[sl.kind === 'stack' ? k : 0]
+        ? 'url("' + srcs[sl.kind === 'stack' ? k : 0].url + '")' : 'none';
     }
     f.appendChild(p);
   }
+  LOUPE.setNatural(g.w, g.h);
+  LOUPE.fit(false);
 }
 
 $('lClose').onclick = loupeClose;
-$('loupe').onpointerdown = e => { if (e.target === $('loupe') || e.target === $('lstage')) loupeClose(); };
-window.addEventListener('resize', () => { if (loupeIsOpen()) paintLoupe(); });
+$('lCarousel').onclick = () => { loupeClose(); igOpen(); };
+$('lInput').onclick = () => {
+  const mode = LOUPE.toggleScrollMode();
+  toast('scroll now ' + (mode === 'mouse' ? 'zooms' : 'pans'));
+};
 
 /* --- carousel preview ----------------------------------------------------------------------------
  * A grid tells you what is in the post; only a swipe tells you how it reads. Split groups expand into
