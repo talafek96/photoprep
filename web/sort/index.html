@@ -391,9 +391,18 @@ kbd {
   background:oklch(0 0 0 / 62%); color:oklch(0.9 0 0); padding:2px 7px; border-radius:4px;
 }
 #lfoot {
-  flex:none; padding:9px 16px; border-top:1px solid var(--border); text-align:center;
-  font-size:10.5px; color:var(--faint);
+  flex:none; display:flex; align-items:center; justify-content:center; gap:18px;
+  padding:11px 16px; border-top:1px solid var(--border);
+  font-family:var(--mono); font-size:9.5px; letter-spacing:.09em; text-transform:uppercase;
+  color:var(--faint);
 }
+#lfoot span { display:inline-flex; align-items:center; }
+#lhead kbd, #lfoot kbd {
+  font-family:var(--mono); font-size:9px; background:var(--surface-2); color:var(--mut);
+  border:1px solid var(--border); border-radius:3px; padding:1px 5px; margin-right:4px;
+}
+#lhead .fbtn kbd { margin:0 0 0 6px; font-size:8.5px; padding:1px 4px; opacity:.72;
+  background:oklch(0 0 0 / 22%); border-color:oklch(1 0 0 / 14%); color:inherit; }
 
 /* --- fake Instagram carousel --------------------------------------------------------------------
  * The only honest way to judge whether a panorama split lands, and the only way to FEEL the rhythm
@@ -573,15 +582,21 @@ kbd {
     <span class="sp"></span>
     <span id="lZoom">fit</span>
     <span id="lPos"></span>
-    <button class="fbtn" id="lInput" title="What scrolling does in here. Click or press S to switch.">scroll: pan <kbd>S</kbd></button>
+    <button class="fbtn" id="lInput" title="What scrolling does in here right now — hold space to do the other one, press S to swap which is which."></button>
     <button class="fbtn" id="lCarousel">▣ Carousel <kbd>V</kbd></button>
     <button class="fbtn" id="lClose">✕ Close <kbd>esc</kbd></button>
   </div>
   <div id="lstage"><div id="lframe"></div></div>
+  <!-- Gestures for the view, and only those. Everything else that has a key already wears it on its
+       own control in the header - a legend that repeats the buttons above it is noise, and one long
+       sentence of nine items is not a legend at all. -->
   <div id="lfoot">
-    <kbd>←</kbd><kbd>→</kbd> walk · <kbd>Z</kbd> fit ↔ 100% · <kbd>0</kbd> fit · <kbd>1</kbd> actual ·
-    hold <kbd>space</kbd> to do the other one · <kbd>S</kbd> swaps which · <kbd>V</kbd> carousel ·
-    <kbd>F</kbd>/<kbd>esc</kbd> close
+    <span><kbd>drag</kbd>pan</span>
+    <span><kbd>scroll</kbd>zoom</span>
+    <span><kbd>space</kbd>+<kbd>scroll</kbd>pan</span>
+    <span><kbd>Z</kbd>fit / 100%</span>
+    <span><kbd>dbl-click</kbd>fit / 100%</span>
+    <span><kbd>←</kbd><kbd>→</kbd>slide</span>
   </div>
 </div>
 

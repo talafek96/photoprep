@@ -261,6 +261,11 @@ const PPLoupe = {
 
     addEventListener('resize', () => { if (L.isOpen()) L.fit(false); });
 
+    // Paint the caller's readout once from the model. Without this its markup is a guess that is
+    // only corrected the first time something changes - so a pill that starts life saying the wrong
+    // thing keeps saying it until you press the key it is there to tell you about.
+    if (opts.onInput) opts.onInput(L);
+
     return L;
   },
 };
