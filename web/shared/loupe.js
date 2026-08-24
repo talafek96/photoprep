@@ -13,6 +13,12 @@
  *   - a click on the empty space beside the content leaves, but a pan that ended there must not;
  *   - setPointerCapture retargets pointerup, so "did the press land on the content" has to be
  *     recorded at pointerdown.
+ *
+ * ONE REQUIREMENT ON THE CALLER'S CSS: the stage must not lay the content out. The content is
+ * positioned entirely by the transform written here, from the stage's top-left, with
+ * `transform-origin: 0 0`. A stage that also centres its child (`place-items:center`, auto margins,
+ * flex centring) adds a layout offset on top of that translate, and the content then sits off-centre
+ * by half the free space while every number in this file reads as perfectly centred.
  */
 const PPLoupe = {
   /* opts:

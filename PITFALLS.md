@@ -237,3 +237,26 @@ element trail the pointer.
 This bites specifically because splitting position and scale across the two properties is the
 *documented* fix for a different problem (an animation's `transform` fighting an inline one), so it
 reads as the careful thing to do.
+
+## A stage that centres its child fights the transform that positions it
+
+**If an element is positioned entirely by `transform`, its parent must not lay it out.** A stage with
+`place-items:center` (or auto margins, or flex centring) adds a layout offset *on top of* the
+translate — so the content sits off-centre by half the free space while every number in the model
+reads as perfectly centred.
+
+```css
+/* Wrong - grid centres the image, THEN the transform translates it from there */
+#stage { display:grid; place-items:center; }
+#stage img { transform-origin:0 0; }        /* transform: translate(x,y) scale(s) */
+
+/* Right - the stage is only a positioning context; the transform owns the position */
+#stage { display:block; position:relative; }
+#stage img { position:absolute; left:0; top:0; transform-origin:0 0; }
+```
+
+What makes it hard to see: it is invisible in any axis where the content overflows the stage (there
+is no free space to centre within), so a portrait photo in a wide viewer looks wrong horizontally and
+correct vertically — which reads as a bug in the horizontal maths. And logging the model is no help,
+because the model is right; only `getBoundingClientRect()` on the real element shows it. Measure the
+gap on BOTH sides and compare, rather than checking the computed offset against the container.

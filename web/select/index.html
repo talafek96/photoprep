@@ -676,9 +676,14 @@ body.locked .locknote { display:flex; }
 }
 #loupe.on { display:flex; }
 @keyframes lfade { from { opacity:0 } to { opacity:1 } }
-#lstage { flex:1; overflow:hidden; display:grid; place-items:center; min-height:0; cursor:grab; position:relative; }
+/* The stage must NOT lay the photo out: the loupe positions it entirely by transform, and a stage
+   that also centres its child adds a layout offset on top of that translate. The photo then sits
+   half a stage-width to the right of where the maths says it is - the further off-centre the wider
+   the window - while every number in the model reads as correctly centred. */
+#lstage { flex:1; overflow:hidden; display:block; min-height:0; cursor:grab; position:relative; }
 #lstage.drag { cursor:grabbing; }
 #lstage img {
+  position:absolute; left:0; top:0;
   max-width:none; transform-origin:0 0; will-change:transform;
   box-shadow:0 24px 80px oklch(0 0 0 / 55%);
   /* An <img> is natively draggable, so a press-and-move started an HTML5 file drag - complete with
