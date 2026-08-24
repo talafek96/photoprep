@@ -91,6 +91,8 @@ canvas#c {
   border-radius:2px; box-shadow:0 0 0 1px oklch(1 0 0 / 8%);
 }
 canvas#c.drag { cursor:grabbing; }
+/* space held = scroll pans instead of zooming; say so with the cursor */
+canvas#c.pan { cursor:all-scroll; }
 
 /* --- filmstrip -------------------------------------------------------------------------------- */
 #strip {

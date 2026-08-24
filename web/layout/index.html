@@ -68,6 +68,7 @@
   <div id="dupWarn">⚠︎ A source looks like it may already carry a watermark. For a clean stack, use an <b>un-watermarked</b> export, then watermark the finished frame with the watermark skill.</div>
 
   <fieldset id="srcStack"><legend>Source (stack)</legend>
+    <p class="hint" style="margin:0 0 8px">Drag to pan · scroll to zoom (at the cursor) · hold <b>space</b> and scroll to pan.</p>
     <div class="drop" id="dropTop">Drop / click — <b>TOP</b></div>
     <div class="drop" id="dropBot">Drop / click — <b>BOTTOM</b></div>
     <button id="swap">⇅ Swap panels</button>
@@ -189,7 +190,7 @@ function drawSpiralFit(g,r,orient){ const th=(orient||0)*Math.PI/2, co=Math.cos(
   const bw=mxx-mnx,bh=mxy-mny, sc=Math.min(r.w/bw,r.h/bh)*0.98, ox=r.x+(r.w-bw*sc)/2-mnx*sc, oy=r.y+(r.h-bh*sc)/2-mny*sc;
   twin(g,r.w,gg=>{ pts.forEach(([x,y],i)=>{ const px=ox+x*sc, py=oy+y*sc; if(i===0)gg.moveTo(px,py); else gg.lineTo(px,py); }); }); }
 
-function draw(){ const c=CC(); if(!c){ ctx.clearRect(0,0,cv.width,cv.height); return; } const {W,H}=dispDims(c); if(cv.width!==W||cv.height!==H){cv.width=W;cv.height=H;} render(ctx,W,H,c,false); }
+function draw(){ const c=CC(); if(!c){ ctx.clearRect(0,0,cv.width,cv.height); return; } const {W,H}=dispDims(c); if(cv.width!==W||cv.height!==H){cv.width=W;cv.height=H;} render(ctx,W,H,c,false); markDirty(); }
 function layout(){ const c=CC(); if(!c)return; const {W,H}=dispDims(c); cv.width=W; cv.height=H; const st=document.getElementById('stage'), aw=st.clientWidth-36, ah=st.clientHeight-36;
   let h=ah,w=h*W/H; if(w>aw){w=aw;h=w*H/W;} cv.style.width=w+'px'; cv.style.height=h+'px'; render(ctx,W,H,c,false); }
 addEventListener('resize',layout);
@@ -205,7 +206,44 @@ cv.addEventListener('pointerdown',e=>{ if(!CC())return; const pt=toCv(e), u=unit
 cv.addEventListener('pointermove',e=>{ if(!drag)return; const pt=toCv(e),u=drag.u,im=u.img,r=rectFor(u),base=Math.max(r.w/im.width,r.h/im.height)*u.scale;
   u.ox=clamp01(drag.ox-(pt.x-drag.sx)/(im.width*base)); u.oy=clamp01(drag.oy-(pt.y-drag.sy)/(im.height*base)); draw(); });
 cv.addEventListener('pointerup',()=>{ drag=null; cv.classList.remove('drag'); });
-cv.addEventListener('wheel',e=>{ if(!CC())return; const u=unitAt(toCv(e)); if(!u||!u.img)return; e.preventDefault(); u.scale=clamp(u.scale*(e.deltaY<0?1.06:.94),1,6); draw(); },{passive:false});
+/* Zoom about the cursor, at a rate proportional to how hard the device says you scrolled.
+ *
+ * ox/oy are a normalised focal point, but drawCover CLAMPS the drawn position so the frame can never
+ * show past an edge - so the point actually under the cursor is not derivable from ox/oy alone. Redo
+ * the same clamp here to find it, or the image slides sideways as you zoom near an edge. */
+function zoomUnitAt(u,pt,f){ const im=u.img, r=rectFor(u), fit=Math.max(r.w/im.width,r.h/im.height);
+  const s0=fit*u.scale, dw0=im.width*s0, dh0=im.height*s0;
+  let dx0=r.x+r.w/2-dw0*u.ox, dy0=r.y+r.h/2-dh0*u.oy;
+  dx0=Math.min(r.x,Math.max(r.x+r.w-dw0,dx0)); dy0=Math.min(r.y,Math.max(r.y+r.h-dh0,dy0));
+  const nx=(pt.x-dx0)/dw0, ny=(pt.y-dy0)/dh0;          // where the cursor is IN the photo, 0..1
+  u.scale=clamp(u.scale*f,1,6);
+  const s1=fit*u.scale, dw1=im.width*s1, dh1=im.height*s1;
+  u.ox=clamp01(nx+(r.x+r.w/2-pt.x)/dw1);               // put that same point back under the cursor
+  u.oy=clamp01(ny+(r.y+r.h/2-pt.y)/dh1); }
+/* Scroll a unit around inside its frame, in canvas pixels. */
+function panUnit(u,dx,dy){ const im=u.img, r=rectFor(u), s=Math.max(r.w/im.width,r.h/im.height)*u.scale;
+  u.ox=clamp01(u.ox+dx/(im.width*s)); u.oy=clamp01(u.oy+dy/(im.height*s)); }
+
+/* Photoshop's space-hold, and the reason it has outlived every tool palette it shipped with: while
+ * you are framing, zoom and pan are both wanted CONSTANTLY, and a mode you have to switch makes you
+ * pay for the wrong guess every single time. Held space inverts the scroll verb for exactly as long
+ * as it is held - the same bargain the loupe in Select and Sort already makes. */
+let SPACE=false;
+const typing=el=>!!el&&(/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName||'')||el.isContentEditable);
+addEventListener('keydown',e=>{ if(e.code!=='Space'||e.repeat||typing(e.target)||SPACE)return;
+  SPACE=true; cv.classList.add('pan'); e.preventDefault(); });
+addEventListener('keyup',e=>{ if(e.code==='Space'){ SPACE=false; cv.classList.remove('pan'); } });
+// a lost keyup - alt-tab away mid-hold - would otherwise leave it stuck panning forever
+addEventListener('blur',()=>{ SPACE=false; cv.classList.remove('pan'); });
+
+let WGUESS='trackpad';
+cv.addEventListener('wheel',e=>{ if(!CC())return; const pt=toCv(e), u=unitAt(pt); if(!u||!u.img)return; e.preventDefault();
+  WGUESS=wheelDevice(e,WGUESS);
+  if(SPACE&&!e.ctrlKey){ panUnit(u,e.deltaX,e.deltaY); }
+  // Gentler than the loupe's rate on purpose: the loupe ranges over fit..12x, this over 1..6x, so
+  // the same k would spend the whole usable range in three notches. One mouse notch ~ +13%.
+  else zoomUnitAt(u,pt,wheelZoomFactor(e,WGUESS,e.ctrlKey?0.005:0.001));
+  draw(); },{passive:false});
 cv.addEventListener('pointermove',e=>{ if(drag||!CC())return; const idx=idxAt(toCv(e)), u=hoverUnit(CC(),idx), ni=(u&&u.img)?idx:-1; if(ni!==hoverIdx){ hoverIdx=ni; draw(); } });
 cv.addEventListener('pointerleave',()=>{ if(hoverIdx!==-1){ hoverIdx=-1; draw(); } });
 window.addEventListener('keydown',e=>{ if(hoverIdx<0||!CC()||document.getElementById('igWrap').classList.contains('on'))return; const u=hoverUnit(CC(),hoverIdx); if(!u||e.key.toLowerCase()!=='o')return; e.preventDefault();
@@ -352,8 +390,10 @@ document.getElementById('expAll').onclick=exportApproved;
 function applyCandSpec(c,spec){ if(spec.name)c.name=spec.name; if(spec.mode)c.mode=spec.mode; if(spec.ratio!=null)c.ratio=spec.ratio; if(spec.gutter!=null)c.gutter=spec.gutter; if(spec.bg)c.bg=spec.bg; if(spec.n!=null)c.S.n=spec.n; if(spec.comment)c.comment=spec.comment;
   if(spec.overlays){ if(spec.overlays.top)c.P[0].overlay=spec.overlays.top; if(spec.overlays.bottom)c.P[1].overlay=spec.overlays.bottom; } if(spec.overlay){ c.S.overlay=spec.overlay; } }
 function loadCandImgs(c,spec){ const jobs=[];
-  if(spec.panels){ ['0','1'].forEach(k=>{ const url=spec.panels[k]; if(url) jobs.push(new Promise(r=>urlToImg(url,im=>{ c.P[+k]=mkP(); c.P[+k].img=im; r(); }))); }); }
-  if(spec.image){ jobs.push(new Promise(r=>urlToImg(spec.image,im=>{ c.S.img=im; if(spec.n==null)c.S.n=suggestN(im); r(); }))); }
+  // `src` is kept so a draft can be rebuilt after a restart. A dropped FILE has no url, so those
+  // candidates simply don't come back - the draft says so rather than restoring an empty frame.
+  if(spec.panels){ ['0','1'].forEach(k=>{ const url=spec.panels[k]; if(url) jobs.push(new Promise(r=>urlToImg(url,im=>{ c.P[+k]=mkP(); c.P[+k].img=im; c.P[+k].src=url; r(); }))); }); }
+  if(spec.image){ jobs.push(new Promise(r=>urlToImg(spec.image,im=>{ c.S.img=im; c.S.src=spec.image; if(spec.n==null)c.S.n=suggestN(im); r(); }))); }
   return Promise.all(jobs); }
 window.__addCandidate = async spec => { spec=spec||{}; const c=newCand(spec.name); if(spec.mode)c.mode=spec.mode; applyCandSpec(c,spec); await loadCandImgs(c,spec); CANDS.push(c); if(curC<0)switchCand(0); else buildStrip(); return c.id; };
 window.__loadCandidates = async list => { CANDS=[]; curC=-1; for(const spec of (list||[])){ const c=newCand(spec.name); if(spec.mode)c.mode=spec.mode; applyCandSpec(c,spec); await loadCandImgs(c,spec); CANDS.push(c); } if(CANDS.length)switchCand(0); else { CANDS.push(newCand()); switchCand(0); } return CANDS.length; };
@@ -361,7 +401,71 @@ window.__loadPanels = urls => { const c=CC()||(CANDS.push(newCand()),CANDS[CANDS
 window.__loadImage = url => { const c=CC()||(CANDS.push(newCand()),CANDS[CANDS.length-1]); c.mode='split'; return loadCandImgs(c,{image:url}).then(()=>{ if(curC<0)curC=0; switchCand(curC); }); };
 window.__setDest = p => { const d=PPSave.setDest(p); document.getElementById('dest').value=d; document.getElementById('destNote').textContent=d?('Path: '+d):'Click Choose… for a folder picker, or type a path.'; return 'ok'; };
 window.__result=null;
+/* ---------- draft: framing survives a restart ----------
+ *
+ * Pan and zoom are minutes of hand work per frame and, until this existed, they lived only in this
+ * page's memory: any reload - a restart, a stray __loadCandidates, a closed tab - threw all of it
+ * away with nothing to recover from. Sort already writes its pass to disk for exactly this reason;
+ * this is the same thing for framing. */
+const DRAFT='layout-draft.json';
+let DRAFT_T=null, DRAFT_PENDING=false, DRAFT_LAST='', RESTORED=false;
+/* Called from draw(), which is the one place every mutation already funnels through - hooking the
+ * dozen individual handlers instead would go stale the first time someone adds a thirteenth. draw()
+ * also fires on mere hover, so the payload is compared before writing: the debounce keeps this to at
+ * most one comparison per 1.5s, and a hover costs no disk write at all. */
+function markDirty(){
+  if(!window.__runtime||!window.__runtime.review) return;
+  if(DRAFT_T){ DRAFT_PENDING=true; return; }              // at most one write in flight
+  DRAFT_PENDING=false;
+  const body=JSON.stringify(draftPayload(),null,2);
+  if(body!==DRAFT_LAST){ DRAFT_LAST=body; fetch('/feedback?name='+DRAFT,{method:'POST',body}).catch(()=>{}); }
+  DRAFT_T=setTimeout(()=>{ DRAFT_T=null; if(DRAFT_PENDING) markDirty(); },1500);
+}
+const unitDraft=u=>({src:u.src||'',scale:u.scale,ox:u.ox,oy:u.oy,overlay:u.overlay,orient:u.orient});
+function draftPayload(){ return { tool:'layout', draft:true, savedAt:new Date().toISOString(),
+  dest:PPSave.destLabel(), cur:curC,
+  candidates:CANDS.map(c=>({ name:c.name, mode:c.mode, ratio:c.ratio, gutter:c.gutter, bg:c.bg,
+    approved:c.approved, comment:c.comment, outName:c.outName||'',
+    P:c.P.map(unitDraft), S:Object.assign(unitDraft(c.S),{n:c.S.n}) })) }; }
+
+async function restoreDraft(){
+  if(window.__runtime) await window.__runtime.ready;
+  if(!window.__runtime||!window.__runtime.review) return false;
+  const d=await fetch('/feedback?name='+DRAFT).then(r=>r.ok?r.json():null).catch(()=>null);
+  if(!d||!d.candidates||!d.candidates.length) return false;
+  // Only candidates whose images can be re-fetched come back. A /file?path= url needs its folder
+  // authorised again first - a fresh server has been shown nothing, and it refuses paths it was
+  // never given, which would restore the whole board as black frames.
+  const srcs=d.candidates.flatMap(c=>[...c.P.map(u=>u.src),c.S.src]).filter(Boolean);
+  const dirs=[...new Set(srcs.map(s=>{ const m=/[?&]path=([^&]+)/.exec(s); if(!m)return null;
+    const p=decodeURIComponent(m[1]); return p.slice(0,p.lastIndexOf('/')); }).filter(Boolean))];
+  for(const dir of dirs) await fetch('/list?dir='+encodeURIComponent(dir)).catch(()=>{});
+  const out=[]; let dropped=0;
+  for(const raw of d.candidates){
+    const spec=raw.mode==='split' ? {image:raw.S.src, n:raw.S.n} : {panels:{0:raw.P[0].src,1:raw.P[1].src}};
+    const need=raw.mode==='split' ? [raw.S.src] : [raw.P[0].src,raw.P[1].src];
+    if(need.some(s=>!s)){ dropped++; continue; }
+    const c=newCand(raw.name); c.mode=raw.mode;
+    Object.assign(c,{ratio:raw.ratio,gutter:raw.gutter,bg:raw.bg,approved:raw.approved,comment:raw.comment,outName:raw.outName});
+    await loadCandImgs(c,spec);
+    // the framing itself, applied after the images land so nothing resets it
+    const put=(u,r)=>{ if(!u||!r)return; u.scale=r.scale; u.ox=r.ox; u.oy=r.oy; u.overlay=r.overlay; u.orient=r.orient; };
+    if(raw.mode==='split'){ put(c.S,raw.S); c.S.n=raw.S.n; } else { put(c.P[0],raw.P[0]); put(c.P[1],raw.P[1]); }
+    out.push(c);
+  }
+  if(!out.length) return false;
+  CANDS=out; curC=-1; switchCand(Math.min(d.cur||0,CANDS.length-1));
+  if(d.dest) window.__setDest(d.dest);
+  RESTORED=true;
+  const mins=Math.round((Date.now()-Date.parse(d.savedAt))/60000);
+  toast('picked up your framing from disk'+(mins>1?', '+mins+' min old':'')+(dropped?' ('+dropped+' dropped - dragged-in files can\'t be restored)':''));
+  return true;
+}
+
 // start with one empty candidate so the tool is usable stand-alone
 CANDS.push(newCand()); switchCand(0); window.__ready=true;
+// A restored draft wins over the empty starting candidate, but never over an explicit load: the
+// assistant calling __loadCandidates is a deliberate act, and it replaces the board on purpose.
+restoreDraft().catch(()=>{});
 </script>
 </body>

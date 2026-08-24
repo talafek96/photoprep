@@ -405,3 +405,40 @@ whether they still line up with the template.
 
 The same applies to any layout that indexes children positionally, and it only appears when the
 optional element is absent — so it survives every test written while it was on screen.
+
+## A fixed zoom step per wheel event is unusable on a trackpad
+
+Layout zoomed with `scale *= e.deltaY < 0 ? 1.06 : 0.94` — one fixed step per event, ignoring how far
+the device said you scrolled. On a mouse that is one notch, one step, and it feels fine. A trackpad
+sends a *stream* of small fractional deltas for a single two-finger gesture, and each one took the
+full 6%: the lightest touch flew across the whole 1–6× range, and fine-tuning was impossible.
+
+Scale the zoom by the reported delta instead — `Math.exp(dir * e.deltaY * k)` — which lands in the
+same place whether the device reports one big delta or thirty small ones. Two more things that
+matter and are easy to miss:
+
+- **The sign comes from the hardware, not from a mode.** Two fingers up on a trackpad reports deltaY
+  POSITIVE (natural scrolling) and must zoom IN; a mouse wheel rolled forward reports NEGATIVE and
+  must also zoom in. One formula cannot serve both, so the device has to be sniffed — and the guess
+  must LATCH, or one ambiguous scroll flips the direction mid-gesture. `wheelDevice` in
+  `shared/util.js` is the shared heuristic; the loupe keeps the latch on its instance because it also
+  exposes a pin for it.
+- **`k` is per zoom RANGE, not universal.** The loupe ranges over fit..12× and uses 0.003; Layout
+  ranges over 1..6× and needs 0.001, or a single mouse notch is +43% and three notches spend the
+  whole range.
+
+## Framing that lives only in the page will be lost, and there is no undo for it
+
+Layout held every pan and zoom in memory alone. A reload — a restart, a closed tab, or an assistant
+calling `__loadCandidates` to fix one wrong entry — silently discarded all of it, and pan/zoom is
+minutes of hand work per frame. Sort had already learned this and writes `sort-draft.json`; Layout
+now writes `layout-draft.json` the same way.
+
+Two details that make a restored draft actually work:
+
+- **Store the source URL on each unit.** The image object cannot be serialised, so without the url
+  there is nothing to re-fetch. Dropped *files* have no url and genuinely cannot come back — say so
+  in the toast rather than restoring an empty frame.
+- **Re-authorise the folders before rebuilding.** A `/file?path=` url means nothing to a freshly
+  started server, which refuses paths it was never shown via `/list`. Skip that and the board comes
+  back complete but entirely black, which reads as the photos having been lost.

@@ -160,10 +160,11 @@ const PPLoupe = {
     // sideways. The guess LATCHES rather than being recomputed per event, so one ambiguous scroll
     // can't flip the behaviour mid-gesture. It is a heuristic - some Windows precision touchpads
     // report coarse deltas like a mouse - so the tool shows what it decided and lets you pin it.
+    // The heuristic itself lives in util.js (wheelDevice) so Layout's canvas zoom judges the device
+    // the same way this does; the LATCH stays here, on the instance, because this is also what the
+    // pin UI reads and writes.
     function sniff(e) {
-      if (e.deltaMode !== 0) { L.guess = 'mouse'; }
-      else if (e.deltaX !== 0 || !Number.isInteger(e.deltaY)) { L.guess = 'trackpad'; }
-      else if (Math.abs(e.deltaY) >= 50) { L.guess = 'mouse'; }
+      L.guess = wheelDevice(e, L.guess);
       return L.guess;
     }
 
