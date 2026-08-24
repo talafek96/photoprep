@@ -895,16 +895,16 @@ const setStyle = (el, prop, v) => { if (el.style[prop] !== v) el.style[prop] = v
 const setClass = (el, v) => { if (el.className !== v) el.className = v; };
 
 function paneStyle(el, src, mode) {
-  setStyle(el, 'backgroundImage', src && src.url ? 'url("' + src.url + '")' : 'none');
+  setStyle(el, 'backgroundImage', src ? 'url("' + paintUrl(src) + '")' : 'none');
   setClass(el, 'pane ' + (mode || 'contain'));
   setStyle(el, 'backgroundSize', ''); setStyle(el, 'backgroundPosition', '');
 }
 
 // A split tile shows the real slice of the real photograph. Anything less (the whole image repeated
 // N times, or a generic bracket) makes it impossible to judge whether the panorama actually reads.
-function sliceStyle(el, src, i, n, tileH) {
+function sliceStyle(el, src, i, n, tileH, full) {
   setClass(el, 'pane');
-  setStyle(el, 'backgroundImage', src && src.url ? 'url("' + src.url + '")' : 'none');
+  setStyle(el, 'backgroundImage', src ? 'url("' + (full ? src.url : paintUrl(src)) + '")' : 'none');
   if (!src || !src.w || !src.h) { setStyle(el, 'backgroundSize', 'cover'); setStyle(el, 'backgroundPosition', 'center'); return; }
   // The tallest crop that yields n tiles of 4:5, centred on the source.
   const cropH = Math.min(src.h, src.w / (n * R45));
@@ -2096,7 +2096,7 @@ function paintLoupe() {
     const p = document.createElement('div');
     if (sl.kind === 'split') {
       p.style.width = (g.w / g.n) + 'px'; p.style.height = g.h + 'px';
-      sliceStyle(p, srcs[0], k, g.n, g.tile);
+      sliceStyle(p, srcs[0], k, g.n, g.tile, true);
       p.className = 'lp';                            // sliceStyle stamps the card's own class
       // The frame is built at the photograph's own scale, so anything drawn ON it has to be sized in
       // those units too - a 10px badge on a 4000px frame is invisible once it is fitted to the stage.
@@ -2109,8 +2109,8 @@ function paintLoupe() {
       p.className = 'lp';
       p.style.width = g.w + 'px';
       p.style.height = (sl.kind === 'stack' ? (g.h - gap) / 2 : g.h) + 'px';
-      p.style.backgroundImage = srcs[sl.kind === 'stack' ? k : 0]
-        ? 'url("' + srcs[sl.kind === 'stack' ? k : 0].url + '")' : 'none';
+      const one = srcs[sl.kind === 'stack' ? k : 0];
+      p.style.backgroundImage = one ? 'url("' + one.url + '")' : 'none';
     }
     f.appendChild(p);
   }
@@ -2366,11 +2366,11 @@ function igBuild() {
     el.className = 'igF' + (f.kind === 'stack' ? ' stackF' : f.kind === 'tile' ? ' tileF' : '');
     if (f.kind === 'stack') {
       el.innerHTML = '<div class="p"></div><div class="p"></div>';
-      f.srcs.forEach((s, i) => { el.children[i].style.backgroundImage = 'url("' + s.url + '")'; });
+      f.srcs.forEach((s, i) => { el.children[i].style.backgroundImage = 'url("' + paintUrl(s) + '")'; });
     } else {
       el.innerHTML = '<div class="p"></div>';
       const p = el.firstChild;
-      p.style.backgroundImage = f.src ? 'url("' + f.src.url + '")' : 'none';
+      p.style.backgroundImage = f.src ? 'url("' + paintUrl(f.src) + '")' : 'none';
       if (f.kind === 'tile' && f.src && f.src.w) {
         const cropH = Math.min(f.src.h, f.src.w / (f.n * R45));
         const cropW = cropH * R45 * f.n;
@@ -2613,8 +2613,11 @@ function saveState() {
   SAVE_T = setTimeout(() => {
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify({
-        ts:Date.now(), spec:SPEC, src:SRC, slides:SLIDES, cut:CUT, proposed:PROPOSED,
+        ts:Date.now(), spec:SPEC, slides:SLIDES, cut:CUT, proposed:PROPOSED,
         setNotes:SETNOTES, setPrompt:SET_PROMPT, setComment:$('setComment').value,
+        // blob: urls belong to the page that created them and are dead on the next load
+        src: Object.fromEntries(Object.entries(SRC).map(([k, v]) =>
+          [k, Object.assign({}, v, { thumb:undefined, _loading:undefined })])),
       }));
     } catch (e) { /* quota or private mode — not worth interrupting the pass over */ }
     postDraft();
@@ -2688,12 +2691,47 @@ function measured() {
   MEASURE_T = setTimeout(() => { repaint(); chrome(); saveState(); }, 60);
 }
 
+/* The board draws twenty-odd photographs into 144px cards, and the files behind them are 4000x3000.
+ * A browser re-decoding those on a repaint is half a second of work with no JavaScript in it at all -
+ * which is why typing into a comment box could stutter while every profiler said the handlers were
+ * free. So each source is decoded ONCE and kept as a small bitmap, and the board, the carousel and
+ * every card paint from that. The loupe keeps the original, because that is the one place the actual
+ * pixels are the point.
+ */
+const THUMB_MAX = 720;
+function makeThumb(src, im) {
+  if (src.thumb || !im.naturalWidth) return;
+  const k = Math.min(1, THUMB_MAX / Math.max(im.naturalWidth, im.naturalHeight));
+  if (k === 1) { src.thumb = src.url; return; }              // already small enough to hand over
+  const c = document.createElement('canvas');
+  c.width = Math.round(im.naturalWidth * k);
+  c.height = Math.round(im.naturalHeight * k);
+  c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+  c.toBlob(b => {
+    if (!b) return;
+    src.thumb = URL.createObjectURL(b);
+    measured();
+  }, 'image/jpeg', 0.86);
+}
+// what a small box should paint from; falls back to the original until the bitmap exists
+const paintUrl = src => (src && (src.thumb || src.url)) || '';
+
+// Measuring and thumbnailing are one pass, but they are NOT the same condition: a restored session
+// already knows every size, and gating the load on that skipped the bitmaps entirely - so the board
+// went back to painting full-resolution files and the stutter came back with nothing to show for it.
 function measureAll() {
   Object.values(SRC).forEach(s => {
-    if (s.w || !s.url) return;
+    if (!s.url || s.thumb || s._loading) return;
+    s._loading = true;
     const im = new Image();
     // One repaint per photo would be 24 of them during a load. Coalesce into one on the next frame.
-    im.onload = () => { s.w = im.naturalWidth; s.h = im.naturalHeight; measured(); };
+    im.onload = () => {
+      s._loading = false;
+      if (!s.w) { s.w = im.naturalWidth; s.h = im.naturalHeight; }
+      makeThumb(s, im);
+      measured();
+    };
+    im.onerror = () => { s._loading = false; };
     im.src = s.url;
   });
 }

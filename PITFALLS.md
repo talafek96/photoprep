@@ -328,3 +328,28 @@ there.
 
 And when verifying, wait for entrance animations to finish: `getBoundingClientRect()` on an element
 mid-`scale(.98)` returns the animated size, so a correct build measures as 2% wrong.
+
+## Full-resolution images in small boxes: half a second of paint with no JS in it
+
+**A 4000x3000 photo drawn into a 144px card costs the browser a decode every time it repaints, and
+twenty of them is a ~500ms long task that no profiler will attribute to your code.**
+
+The symptom is bizarre: typing into a text box stutters, while every handler on the path measures at
+0.1ms. `performance.getEntriesByType('longtask')` shows the time; wrapping your own functions in
+timers accounts for none of it. That gap between "the frame took 500ms" and "my code took 3ms" is the
+signature — it is style, layout or paint, and with photographs on screen it is almost always decode.
+
+```js
+// Decode once, keep a small bitmap, and paint every small box from that.
+const k = Math.min(1, 720 / Math.max(im.naturalWidth, im.naturalHeight));
+const c = document.createElement('canvas');
+c.width = im.naturalWidth * k; c.height = im.naturalHeight * k;
+c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+c.toBlob(b => { src.thumb = URL.createObjectURL(b); repaint(); }, 'image/jpeg', 0.86);
+```
+
+Two things that make it easy to half-fix: the loader that builds the bitmap is usually the same one
+that measures the image, and its guard is `if (already measured) return` — so a restored session with
+sizes already known skips the bitmaps entirely and the stutter returns with no visible cause. And
+`blob:` urls belong to the page that created them, so they must never be written into an autosave;
+persist the path, rebuild the bitmap.
