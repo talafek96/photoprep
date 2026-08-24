@@ -537,7 +537,7 @@ kbd {
     <fieldset>
       <legend>Keys</legend>
       <p class="hint" style="margin:0">
-        <kbd>space</kbd> look at the slide big ·
+        <kbd>F</kbd> look at the slide full screen ·
         <kbd>←</kbd><kbd>→</kbd> move between slides · <kbd>⌥←</kbd><kbd>⌥→</kbd> move the slide ·
         <kbd>1</kbd> send to cover · <kbd>S</kbd> stack with the next · <kbd>⇧S</kbd> unstack ·
         <kbd>/</kbd> split, then <kbd>2</kbd>–<kbd>5</kbd> · <kbd>A</kbd> approve · <kbd>X</kbd> take out ·
@@ -580,8 +580,8 @@ kbd {
   <div id="lstage"><div id="lframe"></div></div>
   <div id="lfoot">
     <kbd>←</kbd><kbd>→</kbd> walk · <kbd>Z</kbd> fit ↔ 100% · <kbd>0</kbd> fit · <kbd>1</kbd> actual ·
-    <kbd>S</kbd> scroll zooms or pans · <kbd>V</kbd> carousel ·
-    <kbd>space</kbd>/<kbd>esc</kbd> close
+    hold <kbd>space</kbd> to do the other one · <kbd>S</kbd> swaps which · <kbd>V</kbd> carousel ·
+    <kbd>F</kbd>/<kbd>esc</kbd> close
   </div>
 </div>
 
@@ -1712,7 +1712,7 @@ document.addEventListener('keydown', e => {
     return;
   }
   if (loupeIsOpen()) {
-    if (e.key === 'Escape' || e.key === ' ') { e.preventDefault(); loupeClose(); return; }
+    if (e.key === 'Escape' || e.key.toLowerCase() === 'f') { e.preventDefault(); loupeClose(); return; }
     if (e.key === 'ArrowLeft')  { e.preventDefault(); setCur(CUR - 1); scrollToCur(); paintLoupe(); return; }
     if (e.key === 'ArrowRight') { e.preventDefault(); setCur(CUR + 1); scrollToCur(); paintLoupe(); return; }
     const lk = e.key.toLowerCase();
@@ -1749,7 +1749,7 @@ document.addEventListener('keydown', e => {
   else if (k === 'c') { e.preventDefault(); $('insText').focus(); }
   else if (k === 'z') { e.preventDefault(); undo(); }
   else if (k === 'v') { e.preventDefault(); igOpen(); }
-  else if (e.key === ' ') { e.preventDefault(); loupeOpen(); }
+  else if (k === 'f') { e.preventDefault(); loupeOpen(); }
   else if (e.key === 'Enter') { e.preventDefault(); askCommit(); }
 });
 
@@ -1772,7 +1772,7 @@ const LOUPE = PPLoupe.create({
   content: $('lframe'),
   zoomEl: $('lZoom'),
   onInput: L => {
-    $('lInput').innerHTML = 'scroll: ' + (L.device() === 'mouse' ? 'zoom' : 'pan') + ' <kbd>S</kbd>';
+    $('lInput').innerHTML = 'scroll: ' + (L.zooms() ? 'zoom' : 'pan') + ' <kbd>S</kbd>';
   },
 });
 const loupeIsOpen = () => LOUPE.isOpen();

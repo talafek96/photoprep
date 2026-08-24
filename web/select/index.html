@@ -848,8 +848,8 @@ kbd {
       <h3>Keys</h3>
       <p>The flag keys follow Lightroom: <kbd>P</kbd> pick / keep · <kbd>X</kbd> reject / cut · <kbd>U</kbd> unpick · plus <kbd>M</kbd> for maybe, which Lightroom has no equivalent of. With several frames selected they apply to all of them.</p>
       <p><kbd>C</kbd> comments: on the focused frame, or — with several selected — one comment about them <em>together</em>. Every button that has a key shows it, so you should not need this list.</p>
-      <p><kbd>Space</kbd> loupe · <kbd>Z</kbd> zoom fit ↔ 100% · <kbd>←</kbd><kbd>→</kbd> move · <kbd>F</kbd> filter · <kbd>⏎</kbd> commit</p>
-      <p>Inside the loupe: <kbd>T</kbd> (or <kbd>C</kbd>) opens everything you can say about the frame you are looking at — score, tags and a note — without going back to the sheet. Digits are the zoom presets in there, so the score is a slider. <kbd>S</kbd> switches whether scrolling zooms or pans.</p>
+      <p><kbd>F</kbd> full screen · <kbd>Z</kbd> zoom fit ↔ 100% · <kbd>←</kbd><kbd>→</kbd> move · <kbd>⇧F</kbd> filter · <kbd>⏎</kbd> commit</p>
+      <p>Inside the loupe: <kbd>T</kbd> (or <kbd>C</kbd>) opens everything you can say about the frame you are looking at — score, tags and a note — without going back to the sheet. Digits are the zoom presets in there, so the score is a slider. Hold <kbd>space</kbd> and scrolling does the opposite of whatever it normally does — pan if it zooms, zoom if it pans — for as long as you hold it. <kbd>S</kbd> swaps which way round that pair sits.</p>
       <p><kbd>R</kbd> reverts a frame to <em>my</em> proposal and clears the 🔒. Pressing a verdict the frame is already in also sends it back to <b data-s="untouched">○ Not picked</b>.</p>
     </div>
   </div>
@@ -1971,10 +1971,11 @@ const LZ = LOUPE.z;
 // reason to care what it detected, only whether scrolling will zoom or pan.
 function updateInputTag() {
   const el = $('inputTag'); if (!el) return;
-  const dev = LOUPE.device();
-  el.innerHTML = 'scroll: ' + (dev === 'mouse' ? 'zoom' : 'pan') + ' <kbd>S</kbd>';
-  el.title = 'Scrolling currently ' + (dev === 'mouse' ? 'zooms' : 'pans') +
-             '. Click or press S to switch. Pinch and ⌘/ctrl+scroll always zoom either way.';
+  const zooms = LOUPE.zooms();
+  el.innerHTML = 'scroll: ' + (zooms ? 'zoom' : 'pan') + ' <kbd>S</kbd>';
+  el.title = 'Scrolling currently ' + (zooms ? 'zooms' : 'pans') +
+             '. Hold space in the loupe to do the other one; press S to swap which is which. ' +
+             'Pinch and ⌘/ctrl+scroll always zoom either way.';
 }
 
 // Enter the loupe on one shared comment: its frames, in the order you picked them, with the comment
@@ -2173,7 +2174,9 @@ addEventListener('keydown', e => {
   if (e.key === 'ArrowRight') { e.preventDefault(); move(1); return; }
   if (e.key === 'ArrowLeft')  { e.preventDefault(); move(-1); return; }
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); askCommit(); return; }
-  if (e.key === ' ') { e.preventDefault(); open ? closeLoupe() : openLoupe(); return; }
+  // F for full screen. Space is not a toggle any more - inside the loupe it is HELD, to invert what
+  // scrolling does, which is a far more useful thing to spend the biggest key on.
+  if (k === 'f' && !e.shiftKey) { e.preventDefault(); open ? closeLoupe() : openLoupe(); return; }
 
   if (open) {
     // preventDefault is load-bearing: this handler focuses the textarea, and without cancelling the
@@ -2240,7 +2243,9 @@ addEventListener('keydown', e => {
     setScore(it, n, g);
     toast(n ? 'scored ' + n + ' in ' + gLabel(g) : 'score cleared in ' + gLabel(g));
   }
-  else if (k === 'f') {
+  // ⇧F cycles the filter, which used to be plain F - it moved when F became full screen, and it
+  // keeps the mnemonic rather than being rehomed onto some unrelated letter.
+  else if (k === 'f' && e.shiftKey) {
     const order = ['all','selected','maybe','rejected','untouched'];
     FILTER = order[(order.indexOf(FILTER) + 1) % order.length];
     render();

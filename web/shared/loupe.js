@@ -32,6 +32,7 @@ const PPLoupe = {
       z: { scale:1, x:0, y:0, fit:1, natural:[0, 0] },
       input: 'auto',            // 'auto' | 'mouse' | 'trackpad' — an explicit pin overrides the sniff
       guess: 'trackpad',
+      space: false,             // held: scrolling does the OTHER thing, for as long as you hold it
       closeT: null,
     };
 
@@ -104,6 +105,8 @@ const PPLoupe = {
     // you have. A plain two-way switch: the three-state auto/mouse/trackpad cycle made you press it
     // twice to get back where you were and never showed which state was which.
     L.device = () => (L.input === 'auto' ? L.guess : L.input);
+    // what a bare scroll does at this instant, with the space key taken into account
+    L.zooms = () => (L.device() === 'mouse') !== !!L.space;
     L.toggleScrollMode = () => {
       L.input = L.device() === 'mouse' ? 'trackpad' : 'mouse';
       if (opts.onInput) opts.onInput(L);
@@ -119,6 +122,7 @@ const PPLoupe = {
       if (!L.isOpen() || L.root.classList.contains('closing')) return;
       const done = () => {
         L.root.classList.remove('on', 'closing');
+        L.space = false; L.stage.classList.remove('spaceHeld');
         L.closeT = null;
         if (opts.onClose) opts.onClose();
       };
@@ -160,7 +164,12 @@ const PPLoupe = {
       // deltaY POSITIVE (natural scrolling) and should zoom IN; a mouse wheel rolled forward reports
       // deltaY NEGATIVE and should also zoom in. One formula cannot serve both, so the sniffed
       // device picks the direction while the pin picks zoom-vs-pan.
-      if (e.ctrlKey || dev === 'mouse') {
+      // Photoshop's hand tool, and the reason it has survived thirty years: the two things you want
+      // from a scroll in a zoomed image are both wanted CONSTANTLY, and a mode you have to switch
+      // makes you pay for the wrong guess every time. Holding space inverts whichever way round the
+      // pair currently sits, for exactly as long as you hold it. S decides the resting state.
+      const wantZoom = (dev === 'mouse') !== !!L.space;
+      if (e.ctrlKey || wantZoom) {
         const k = e.ctrlKey ? 0.012 : 0.003;
         const dir = (!e.ctrlKey && L.guess === 'trackpad') ? 1 : -1;
         L.zoomAt(e.clientX, e.clientY, Math.exp(dir * e.deltaY * k));
@@ -221,6 +230,26 @@ const PPLoupe = {
       L.zoomAt(e.clientX, e.clientY, e.scale / gScale);
       gScale = e.scale;
     }, { passive:false });
+
+    // Space is a HELD modifier, so it is tracked here rather than in either tool's key handler -
+    // both need it, and neither should have to remember to clear it. A keyup that never arrives
+    // (the window lost focus mid-hold) would otherwise leave scrolling inverted forever.
+    const setSpace = on => {
+      if (L.space === on) return;
+      L.space = on;
+      L.stage.classList.toggle('spaceHeld', on);
+      if (opts.onInput) opts.onInput(L);
+    };
+    addEventListener('keydown', e => {
+      if (e.key !== ' ' || !L.isOpen()) return;
+      const t = e.target;
+      if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable)) return;
+      e.preventDefault();                       // or the page scrolls underneath
+      setSpace(true);
+    });
+    addEventListener('keyup', e => { if (e.key === ' ') setSpace(false); });
+    addEventListener('blur', () => setSpace(false));
+    L.releaseSpace = () => setSpace(false);
 
     addEventListener('resize', () => { if (L.isOpen()) L.fit(false); });
 
