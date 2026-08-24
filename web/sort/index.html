@@ -371,6 +371,11 @@ kbd {
 #warnNone { font-size:11px; color:var(--faint); }
 
 #bucket {
+  /* Both states have a DEFINITE height, which is the whole reason this can animate: a transition
+     between a content-sized height and another content-sized height has nothing to interpolate, so
+     the tray would snap open however long the duration said. */
+  height:88px; overflow:hidden;
+  transition:height .45s var(--ease-move);
   display:flex; align-items:center; gap:10px; padding:8px 14px; min-height:0;
   border-top:1px solid var(--border); background:var(--surface);
   font-family:var(--mono); font-size:9.5px; letter-spacing:.09em; text-transform:uppercase;
@@ -385,7 +390,9 @@ kbd {
 /* Expanded, the bucket stops being a row of stamps and becomes a second board. A frame you took out
    is still a candidate - the decision to drop it deserves the same look as the decision to keep it,
    and at 52px you cannot make either. */
-#bucket.open { flex-direction:column; align-items:stretch; gap:8px; max-height:46vh; }
+#bucket.open { flex-direction:column; align-items:stretch; gap:8px; height:46vh; }
+/* the cards fade up as the tray makes room for them, rather than being revealed by a moving edge */
+#bucket.open .cut { animation:cardIn .4s var(--ease-out) both; }
 /* flex:0 1 auto, NOT the flex:1 the collapsed rail uses. In a column flex whose own height is auto,
    flex-grow with a zero basis resolves to zero - so the tray rendered 17px tall with everything in it
    laid out inside nothing. The bucket's max-height provides the bound; the shelf sizes to content. */
@@ -663,7 +670,7 @@ kbd {
   <div id="bucket" hidden>
     <button class="fbtn" id="bucketToggle" title="Show these at a size you can judge">▲ Taken out <b id="shelfN">0</b></button>
     <div id="shelf"></div>
-    <span class="bHint">click one to put it back at the end</span>
+    <span class="bHint">click one to put it back where it came from</span>
   </div>
 
   <div id="status">
@@ -1262,8 +1269,8 @@ $('bucketToggle').onclick = () => {
   $('bucketToggle').innerHTML = (b.classList.contains('open') ? '▼' : '▲') +
     ' Taken out <b id="shelfN">' + CUT.length + '</b>';
   $('bucket').querySelector('.bHint').textContent = b.classList.contains('open')
-    ? 'look at one, or put it back at the end of the post'
-    : 'click one to put it back at the end';
+    ? 'look at one, or put it back where it came from'
+    : 'click one to put it back where it came from';
   renderShelf();
 };
 $('shelf').onclick = e => {
@@ -1277,12 +1284,18 @@ $('shelf').onclick = e => {
     // A stack that was taken out comes back AS a stack. Rebuilding it as a solo carrying two sources
     // makes a slide that is neither - it renders as one frame, reports as one frame, and quietly
     // loses the pairing you had already decided on.
-    SLIDES.push({ id:nid(), kind:c.kind || 'solo', n:c.n, sources:c.srcIds.slice(),
-                  why:c.why || '', tags:[], text:'', ruled:true });
-    CUR = SLIDES.length - 1;
+    const back = { id:nid(), kind:c.kind || 'solo', n:c.n, sources:c.srcIds.slice(),
+                   why:c.why || '', tags:[], text:'', ruled:true };
+    const after = c.afterId ? SLIDES.findIndex(x => x.id === c.afterId) : -1;
+    const before = c.beforeId ? SLIDES.findIndex(x => x.id === c.beforeId) : -1;
+    const at = after >= 0 ? after + 1
+             : before >= 0 ? before
+             : Number.isInteger(c.at) ? clamp(c.at, 0, SLIDES.length) : SLIDES.length;
+    SLIDES.splice(at, 0, back);
+    CUR = at;
   });
   renderPanel(); scrollToCur(); saveState();
-  toast('back in, at the end');
+  toast('back in at slot ' + slotsFor(CUR).first);
 };
 
 /* --- the inspector ------------------------------------------------------------------------------ */
@@ -1482,8 +1495,14 @@ function cutCurrent() {
   const reason = (sl.text || (sl.tags || []).map(tagLabel).join(', ') || '').slice(0, 40);
   snapshot();
   reflow(() => {
-    // what it WAS, not just which frames were in it - a stack taken out has to come back as a stack
+    /* what it WAS, not just which frames were in it - a stack taken out has to come back as a stack,
+       and it has to come back WHERE it was. The index alone is a poor record: cut two cards and put
+       the first one back, and its old number now points at somebody else. So the neighbours are
+       remembered by id and the index is only the fallback for when neither survived. */
     CUT.push({ srcIds:sl.sources.slice(), kind:sl.kind, n:sl.n, why:sl.why,
+               at:CUR,
+               afterId:(SLIDES[CUR - 1] || {}).id || null,
+               beforeId:(SLIDES[CUR + 1] || {}).id || null,
                name:srcs.map(s => s.name).join(' + '),
                url:paintUrl(srcs[0]), reason });
     SLIDES.splice(CUR, 1);
@@ -2791,6 +2810,7 @@ function buildResult() {
     // session has to be able to FIND - carrying only its id gives a card back with nothing in it.
     takenOut: CUT.map(c => ({
       kind:c.kind, n:c.n, why:c.why, name:c.name, reason:c.reason || '',
+      at:c.at, afterId:c.afterId, beforeId:c.beforeId,
       sources: c.srcIds.map(id => ({ id, name:(SRC[id] || {}).name, path:(SRC[id] || {}).path })),
     })),
     setComment: $('setComment').value.trim(),
@@ -2906,6 +2926,7 @@ function draftPayload() {
     // session has to be able to FIND - carrying only its id gives a card back with nothing in it.
     takenOut: CUT.map(c => ({
       kind:c.kind, n:c.n, why:c.why, name:c.name, reason:c.reason || '',
+      at:c.at, afterId:c.afterId, beforeId:c.beforeId,
       sources: c.srcIds.map(id => ({ id, name:(SRC[id] || {}).name, path:(SRC[id] || {}).path })),
     })),
   };
@@ -3091,6 +3112,7 @@ async function restoreDraft() {
     objs.forEach(addSource);
     const ids = objs.length ? objs.map(x => x.id) : c.sources;
     return { srcIds:ids, kind:c.kind, n:c.n, why:c.why, name:c.name, reason:c.reason,
+             at:c.at, afterId:c.afterId, beforeId:c.beforeId,
              url:(SRC[ids[0]] || {}).url || '' };
   });
   // a draft names slides by slot, so the ids are re-bound to the slides that came back
