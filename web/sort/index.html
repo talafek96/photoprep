@@ -578,7 +578,7 @@ kbd {
       <p class="hint" style="margin:0">
         <kbd>F</kbd> look at the slide full screen ·
         <kbd>←</kbd><kbd>→</kbd> move between slides · <kbd>⌥←</kbd><kbd>⌥→</kbd> move the slide ·
-        <kbd>1</kbd> send to cover · <kbd>S</kbd> stack with the next · <kbd>⇧S</kbd> unstack ·
+        <kbd>1</kbd> send to cover · <kbd>S</kbd> pair with the next slide · <kbd>⇧S</kbd> break a stack up ·
         <kbd>/</kbd> split, then <kbd>2</kbd>–<kbd>5</kbd> · <kbd>A</kbd> approve · <kbd>X</kbd> take out ·
         <kbd>C</kbd> comment · <kbd>Z</kbd> undo · <kbd>V</kbd> preview · <kbd>⏎</kbd> send back.
         Dragging does all of it too. Onto a card's <b>left or right edge</b> puts it there in the
@@ -1053,22 +1053,16 @@ function renderPanel() {
   $('shapeNote').textContent = isStack
     ? 'Two frames in one 4:5 slide. Break it up to give either its own shape.' : '';
 
-  /* One button, whose LABEL always says exactly what pressing it will do and to which frame. The
-     partner is named, because "stack" without a second name is a question, not an instruction. */
-  const partner = SLIDES[CUR + 1];
-  const pairable = !isStack && partner && canStack(sl, partner);
+  /* Breaking a stack up is a button; making one is not. Pairing needs a SECOND frame named, and any
+     button that has to answer "with which one?" by itself is either a guess about the next slide or
+     a modal list of every other slide - and dragging one card onto another already answers it far
+     better, because you watch the pair form before you commit to it. Taking one apart has no such
+     question: there is exactly one thing it can mean. */
   const pair = $('btnPair');
-  pair.disabled = !isStack && !pairable;
+  pair.hidden = !isStack;
   if (isStack) {
     pair.textContent = '✂ Break this stack up';
     pair.title = 'Both frames go back to being their own slide';
-  } else if (pairable) {
-    pair.textContent = '⬍ Pair with ' + (SRC[partner.sources[0]] || {}).name;
-    pair.title = 'The two become one 4:5 slide - this one on top';
-  } else {
-    pair.textContent = '⬍ Pair with the next slide';
-    pair.title = partner ? 'The next slide is not a single frame — drag one card onto another instead'
-                         : 'Nothing after this to pair it with';
   }
 
   $('splitBox').hidden = sl.kind !== 'split';
@@ -1224,10 +1218,7 @@ function cutCurrent() {
 
 $('kindSeg').onclick = e => { const b = e.target.closest('button'); if (b) setKind(b.dataset.k); };
 rng('nSlices', v => { txt('nV', v); setSplit(CUR, Number(v)); });
-$('btnPair').onclick = () => {
-  const sl = SLIDES[CUR]; if (!sl) return;
-  if (sl.kind === 'stack') unstack(CUR); else stackWith(CUR, CUR + 1);
-};
+$('btnPair').onclick = () => { if (SLIDES[CUR] && SLIDES[CUR].kind === 'stack') unstack(CUR); };
 $('btnSwap').onclick = swapPanels;
 $('btnCover').onclick = toCover;
 $('btnLeft').onclick = () => move(CUR, CUR - 1);
