@@ -1147,6 +1147,19 @@ function ghostFrom(el, x, y) {
   g.style.height = r.height + 'px';
   g.style.transform = '';
   DRAG.ox = x - r.left; DRAG.oy = y - r.top;
+  /* Pulling a frame out of a stack is the one case where the card under the cursor at pointerdown is
+   * NOT the card being dragged: the stack has just been replaced by two solo cards, and the one you
+   * grabbed is laid out somewhere else entirely - a whole slot to the right, if you took the bottom
+   * half. Measuring the offset against its new box then puts the ghost a card-width from your hand.
+   * So carry the grip across as a FRACTION of the pane you actually grabbed, and land it on the same
+   * spot of the frame in its new, full-size card. Only the media-to-card offsets are read here, and
+   * those are unaffected by the reflow that is still animating underneath. */
+  if (DRAG.grip) {
+    const media = el.querySelector('.media');
+    const m = media ? media.getBoundingClientRect() : r;
+    DRAG.ox = (m.left - r.left) + DRAG.grip.fx * m.width;
+    DRAG.oy = (m.top - r.top) + DRAG.grip.fy * m.height;
+  }
   // tuck toward the cursor, not the card's middle, so the chip stays exactly where your hand is
   g.style.transformOrigin = DRAG.ox + 'px ' + DRAG.oy + 'px';
   wrap.appendChild(g);
@@ -1465,8 +1478,15 @@ $('board').addEventListener('pointerdown', e => {
     id: card.dataset.id, x0:e.clientX, y0:e.clientY, on:false, target:null,
     // grabbing one half of a stack means you want that frame, not the pair
     panel: (SLIDES[i].kind === 'stack' && pane) ? Number(pane.dataset.panel || 0) : -1,
+    grip: null,
     raf: 0, last: null,
   };
+  if (DRAG.panel >= 0) {
+    // where in that half-height pane the press landed, as a fraction - the card it belongs to is
+    // about to be replaced, so an absolute offset would be measured against the wrong box
+    const pr = pane.getBoundingClientRect();
+    DRAG.grip = { fx:(e.clientX - pr.left) / pr.width, fy:(e.clientY - pr.top) / pr.height };
+  }
   try { $('board').setPointerCapture(e.pointerId); } catch (err) { /* a synthetic pointer has no id to capture */ }
 });
 
