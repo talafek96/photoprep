@@ -398,6 +398,14 @@ kbd {
 /* the loupe arrives and leaves, rather than blinking - matched to Select's, since it is the same
    gesture in both tools and a different feel would read as a different thing */
 #loupe.on #lstage { animation:loupeIn .42s var(--ease-out) both; }
+/* arriving from the carousel, the frame's own travel IS the entrance - a second one on top of it
+   just muddies the move */
+#loupe.crossing #lstage, #loupe.crossing { animation:none; }
+#igWrap.leaving { pointer-events:none; }
+#igWrap.leaving #igCard { animation:igCardOut .3s var(--ease-io) both; }
+@keyframes igCardOut { to { opacity:0; transform:scale(1.03) } }
+#igWrap.leaving { animation:igFadeOut .3s var(--ease-io) both; }
+@keyframes igFadeOut { to { background:oklch(0 0 0 / 0%); backdrop-filter:blur(0px) } }
 @keyframes loupeIn { from { opacity:0; transform:scale(.965) } to { opacity:1; transform:none } }
 #loupe.on.closing { animation:lfadeOut .25s var(--ease-io) both; }
 @keyframes lfadeOut { to { opacity:0 } }
@@ -1996,16 +2004,53 @@ function igFrames() {
 // From the carousel back into the loupe, on whatever slide is on screen. The two views answer
 // different questions - how does it read in the swipe, and is the photograph any good - and you want
 // to cross between them in whichever direction the question came up.
+/* The frame you are looking at GROWS into the loupe, rather than one view being swapped for another.
+ *
+ * A cross-fade still reads as two screens, because nothing on the first one turns into anything on
+ * the second. So the loupe's frame starts life exactly where the carousel's frame was - same size,
+ * same place on the glass - and travels to its fitted position while the post fades out behind it.
+ * For a split that is worth more than it sounds: the tile you were swiping stays put, and the rest
+ * of the panorama unfolds out of it, which shows you the thing the two views disagree about.
+ */
 function igToLoupe() {
   const f = IG_FRAMES[IG_I];
-  if (f && f.si != null) setCur(f.si);
+  if (!f) { igClose(); return; }
+  const view = $('igView').getBoundingClientRect();
+  if (f.si != null) setCur(f.si);
   scrollToCur();
-  // Open the loupe FIRST and drop the carousel out from underneath it once it has arrived. Closing
-  // the carousel first leaves a hole: the loupe fades in over ~160ms, and for that whole time you
-  // are looking straight at the board with nothing over it, which reads as the app dropping a frame.
-  // The loupe sits above the carousel in the stack, so this way something is always covering it.
-  loupeOpen();
-  setTimeout(igClose, 200);
+
+  // .crossing goes on BEFORE the loupe opens, not after: it suppresses the entrance animation, and
+  // that animation scales the stage from .965 - so measuring the stage while it is running returns a
+  // rect a couple of percent adrift, and the frame starts its travel visibly off the post it is
+  // supposed to be growing out of.
+  $('loupe').classList.add('crossing');
+  loupeOpen();                                    // paints and fits: z now holds the destination
+  const to = { x:LOUPE.z.x, y:LOUPE.z.y, scale:LOUPE.z.scale };
+  const sl = SLIDES[CUR], g = loupeGeometry(sl, srcOf(sl));
+  const tileW = sl.kind === 'split' ? g.w / g.n : g.w;
+  const st = $('lstage').getBoundingClientRect();
+  const i = (f.kind === 'tile' ? f.i : 0);
+  /* Where the PHOTOGRAPH sits in the post, which is not always where the post sits. A stack and a
+     split tile are 4:5 by construction and fill the frame edge to edge; a solo is letterboxed inside
+     it, so growing from the viewport's box would make it jump vertically at the moment it starts. */
+  let s0 = view.width / tileW, ox = view.left, oy = view.top;
+  if (f.kind === 'solo' && g.w) {
+    s0 = Math.min(view.width / g.w, view.height / g.h);
+    ox = view.left + (view.width - g.w * s0) / 2;
+    oy = view.top + (view.height - g.h * s0) / 2;
+  }
+
+  $('igWrap').classList.add('leaving');
+  LOUPE.z.scale = s0;
+  LOUPE.z.x = ox - st.left - i * tileW * s0;
+  LOUPE.z.y = oy - st.top;
+  LOUPE.apply(false);
+  requestAnimationFrame(() => {
+    LOUPE.z.x = to.x; LOUPE.z.y = to.y; LOUPE.z.scale = to.scale;
+    LOUPE.apply(true);
+    $('loupe').classList.remove('crossing');
+  });
+  setTimeout(() => { igClose(); $('igWrap').classList.remove('leaving'); }, 300);
 }
 
 /* Build the slides at the size the viewport ACTUALLY is.
