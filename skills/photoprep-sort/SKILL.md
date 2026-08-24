@@ -47,6 +47,15 @@ Look at the frames too. Pairing two landscapes into one 4:5 is a decision about 
 not just shape: two wides of the same walk belong together; a bright beach over a dark interior reads
 as a mistake.
 
+**Then ask how the day actually went, before you order anything.** A folder is not a timeline: files
+sort by name, locations sit in whatever order they were copied, and neither tells you that the cave
+passage came *after* arriving at the temple rather than on the way in. Nothing in the pixels can tell
+you either. This is the one question that reliably produces a correction after the fact — "this was
+placed in the wrong place, it happened after I'd already arrived" — and it costs one sentence to ask
+first. The same goes for anything else only they can know: what the day was about, which frame they
+were most pleased with, whether two near-identical shots are a deliberate pair or one of them is
+surplus.
+
 ## Start the tool
 
 ```bash
@@ -101,10 +110,15 @@ window.__loadOrder({
    composite that arrives solid is a decision smuggled past them.
 3. **`why` is a reason, not a caption.** They can see the photo. "breaks up three portraits" earns
    its line; "sunset over the sea" wastes it.
-4. **Never propose past the limit and hope.** Instagram takes 20 slides. Count before you load — a
+4. **A pair of near-identical frames is a question, not a decision.** Adjacent, they read as a
+   deliberate two-beat; two slides apart they read as a repeat; stacked, they become one slide and
+   one idea; and sometimes only one of them earns a place. All four are legitimate, and which one is
+   right depends on things you cannot see. Propose one and say the others exist, rather than quietly
+   spacing them out and hoping nobody notices.
+5. **Never propose past the limit and hope.** Instagram takes 20 slides. Count before you load — a
    split of 4 costs four of them — and if you are over, propose the pairings that bring it under
    rather than dropping frames on your own.
-5. **The cover is not just position 1.** It is the only slide most people ever see, it reads larger
+6. **The cover is not just position 1.** It is the only slide most people ever see, it reads larger
    in the grid when it is portrait, and it should establish what the post is about. Choose it
    deliberately and say why.
 
@@ -157,9 +171,8 @@ Three things worth handling deliberately:
 - **`setComment` and `setNotes` carry the best feedback**, because ordering critiques are almost
   always about *relationships* — "don't put the two sea views together", "these three are the same
   overlook". Respond to the relationship; don't apply the note to each slide separately.
-- **A comment can be about the day rather than the composition.** "This happened after we already
-  arrived at the temple" is a chronology correction, and nothing in the pixels could have told you.
-  Sequence questions worth asking BEFORE proposing an order, not after.
+- **A comment can be about the day rather than the composition** — a chronology correction rather
+  than a critique of the pairing. Treat it as a signal you did not ask enough before proposing.
 - **`takenOut` is feedback about the selection, not a re-selection.** The choosing pass stays
   committed. Report what came out and why, and let them decide whether the selection should reopen.
 - **A changed composite is the most useful line in the report.** It says the same photographs,
