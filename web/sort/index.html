@@ -530,16 +530,21 @@ kbd {
       </div>
 
       <label style="margin-top:0">Shape</label>
+      <!-- Solo and Split are shapes ONE photo can take. Stack is not a shape, it is a relationship
+           with a second frame, and sitting in this row it read as a mode you could switch to - which
+           is why it never appeared to do anything. It has its own button below, which says what it
+           will actually do and to which frame. -->
       <div class="seg" id="kindSeg">
         <button data-k="solo">▯ Solo</button>
-        <button data-k="stack">⬍ Stack</button>
         <button data-k="split">⬌ Split</button>
       </div>
+      <p class="hint" id="shapeNote" hidden></p>
       <div id="splitBox" hidden>
         <label>Slices <span id="nV">2</span> <span class="hint">— tiles this photo becomes</span></label>
         <input type="range" id="nSlices" min="2" max="5" value="2">
       </div>
-      <div class="row" style="margin-top:8px">
+      <button id="btnPair" style="width:100%; margin-top:8px"></button>
+      <div class="row" style="margin-top:6px">
         <button id="btnSwap">⇅ Swap panels</button>
         <button id="btnCover">① Make cover</button>
       </div>
@@ -1039,18 +1044,33 @@ function renderPanel() {
     $('altBox').hidden = true;
   }
 
-  [...$('kindSeg').children].forEach(b => b.classList.toggle('on', b.dataset.k === sl.kind));
-  /* Stack is not "this slide has two sources" - it is "pair this with the next one", which is the
-     only way the button can do anything at all from a solo. It was disabled precisely when it had
-     work to do, and lit up only when the slide was already a stack and clicking it was a no-op. */
+  const isStack = sl.kind === 'stack';
+  [...$('kindSeg').children].forEach(b => {
+    b.classList.toggle('on', !isStack && b.dataset.k === sl.kind);
+    b.disabled = isStack;                       // a stack has no single-photo shape to choose
+  });
+  $('shapeNote').hidden = !isStack;
+  $('shapeNote').textContent = isStack
+    ? 'Two frames in one 4:5 slide. Break it up to give either its own shape.' : '';
+
+  /* One button, whose LABEL always says exactly what pressing it will do and to which frame. The
+     partner is named, because "stack" without a second name is a question, not an instruction. */
   const partner = SLIDES[CUR + 1];
-  const canPair = sl.kind === 'solo' && partner && canStack(sl, partner);
-  const stackBtn = $('kindSeg').children[1];
-  stackBtn.disabled = sl.kind !== 'stack' && !canPair;
-  stackBtn.title = sl.kind === 'stack' ? 'This slide is already a stack'
-    : canPair ? 'Pair this with ' + (SRC[partner.sources[0]] || {}).name + ' into one 4:5 frame'
-    : partner ? 'The next slide is not a single frame - drag one card onto another instead'
-    : 'Nothing after this to pair it with';
+  const pairable = !isStack && partner && canStack(sl, partner);
+  const pair = $('btnPair');
+  pair.disabled = !isStack && !pairable;
+  if (isStack) {
+    pair.textContent = '✂ Break this stack up';
+    pair.title = 'Both frames go back to being their own slide';
+  } else if (pairable) {
+    pair.textContent = '⬍ Pair with ' + (SRC[partner.sources[0]] || {}).name;
+    pair.title = 'The two become one 4:5 slide - this one on top';
+  } else {
+    pair.textContent = '⬍ Pair with the next slide';
+    pair.title = partner ? 'The next slide is not a single frame — drag one card onto another instead'
+                         : 'Nothing after this to pair it with';
+  }
+
   $('splitBox').hidden = sl.kind !== 'split';
   $('nSlices').value = sl.n || 2;
   $('nV').textContent = sl.n || 2;
@@ -1172,8 +1192,7 @@ function setKind(k) {
   const sl = SLIDES[CUR]; if (!sl) return;
   if (k === sl.kind) return;
   if (k === 'solo') { sl.kind === 'stack' ? unstack(CUR) : unsplit(CUR); return; }
-  if (k === 'split') { if (sl.kind === 'stack') { toast('unstack it first'); return; } setSplit(CUR, sl.n || 2); return; }
-  if (k === 'stack') stackWith(CUR, CUR + 1);
+  if (k === 'split') { if (sl.kind === 'stack') { toast('break the stack up first'); return; } setSplit(CUR, sl.n || 2); }
 }
 
 function swapPanels() {
@@ -1205,6 +1224,10 @@ function cutCurrent() {
 
 $('kindSeg').onclick = e => { const b = e.target.closest('button'); if (b) setKind(b.dataset.k); };
 rng('nSlices', v => { txt('nV', v); setSplit(CUR, Number(v)); });
+$('btnPair').onclick = () => {
+  const sl = SLIDES[CUR]; if (!sl) return;
+  if (sl.kind === 'stack') unstack(CUR); else stackWith(CUR, CUR + 1);
+};
 $('btnSwap').onclick = swapPanels;
 $('btnCover').onclick = toCover;
 $('btnLeft').onclick = () => move(CUR, CUR - 1);
