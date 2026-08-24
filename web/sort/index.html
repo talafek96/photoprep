@@ -250,7 +250,29 @@ body.dragging .slide:hover { border-color:var(--border); }
 /* --- side panel -------------------------------------------------------------------------------- */
 #panel { display:flex; flex-direction:column; padding:0; overflow:hidden;
          background:linear-gradient(var(--surface), color-mix(in oklch, var(--surface) 92%, var(--bg))); }
-#panel .scroll { overflow:auto; padding:16px 17px 20px; }
+#panel .scroll { overflow:auto; padding:16px 17px 20px; flex:1; min-height:0; }
+/* Pinned, so the way out of the pass is always on screen - a submit you have to scroll to find is a
+   submit people press Enter for instead, and then wonder whether anything happened. */
+#panel .foot {
+  flex:none; padding:12px 16px 15px; border-top:1px solid var(--border);
+  background:color-mix(in oklch, var(--bg) 82%, transparent);
+  backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px);
+}
+#panel .foot .row { display:flex; gap:8px; }
+#panel .foot .row > * { flex:1; }
+#panel .foot .hint { margin-top:8px; }
+/* the label leaves upward and a tick arrives from below - it turns "it finished" into something you
+   actually notice, which for the one irreversible action in the tool is worth the eight lines */
+#btnCommit { position:relative; overflow:hidden; }
+#btnCommit.done { background:var(--ok); border-color:var(--ok); }
+#btnCommit .lbl { display:inline-block; transition:transform .3s var(--ease-out), opacity .2s var(--ease-io); }
+#btnCommit.done .lbl { transform:translateY(-140%); opacity:0; }
+#btnCommit .tick {
+  position:absolute; inset:0; display:grid; place-items:center; font-size:15px;
+  transform:translateY(140%); opacity:0;
+  transition:transform .34s var(--ease-out), opacity .2s var(--ease-io);
+}
+#btnCommit.done .tick { transform:none; opacity:1; }
 #panel .seg { display:flex; gap:5px; }
 #panel .seg button { flex:1; padding:7px 4px; font-size:11px; }
 #panel .seg button.on { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); font-weight:650; }
@@ -460,7 +482,6 @@ kbd {
     <span class="sp"></span>
     <button class="fbtn" id="btnUndo" disabled title="Undo the last change (Z)">↺ Undo</button>
     <button class="fbtn" id="btnPreview">▣ Preview as carousel <kbd>V</kbd></button>
-    <button class="fbtn" id="btnCommit">⏎ Send the order back</button>
   </div>
 
   <div id="board">
@@ -560,6 +581,14 @@ kbd {
         <b>underneath</b>. On a card that is already a stack, the half you hover is the half you take.
       </p>
     </fieldset>
+  </div>
+
+  <div class="foot">
+    <div class="row">
+      <button id="btnLoupe">⛶ Full screen <kbd>F</kbd></button>
+      <button id="btnCommit" class="primary"><span class="lbl">Send it back ⏎</span><span class="tick">✓</span></button>
+    </div>
+    <p class="hint" id="commitHint">It asks before it sends. Proposals you never ruled on go back as accepted.</p>
   </div>
 </div>
 
@@ -2147,6 +2176,9 @@ function commit() {
   closeConfirm();
   const r = buildResult();
   window.__result = r;
+  const b = $('btnCommit');
+  b.classList.add('done');
+  setTimeout(() => b.classList.remove('done'), 1600);
   toast('sent back — ' + r.slideCount + ' slides' + (CUT.length ? ', ' + CUT.length + ' taken out' : ''));
   if (window.__runtime && window.__runtime.review) {
     fetch('/feedback?name=sort_' + Date.now() + '.json',
@@ -2155,6 +2187,7 @@ function commit() {
 }
 
 $('btnCommit').onclick = askCommit;
+$('btnLoupe').onclick = loupeOpen;
 $('cCancel').onclick = closeConfirm;
 $('cGo').onclick = commit;
 $('confirmWrap').onpointerdown = e => { if (e.target === $('confirmWrap')) closeConfirm(); };
