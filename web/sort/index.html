@@ -21,7 +21,14 @@ body { grid-template-columns:1fr 352px; }
   --seam:   oklch(1 0 0 / 22%);
 }
 
-#left { display:grid; grid-template-rows:auto auto 1fr auto auto; min-width:0; min-height:0; }
+/* Flex, not grid rows. A `hidden` child does not occupy a grid track, so the moment the selection
+   bar or the bucket is empty every row below it slides up one and inherits the wrong sizing - the
+   board landing in an `auto` track and taking the whole column, the bucket landing in the `1fr` and
+   getting the 17px left over. A flex column has nothing to mis-assign: the board grows, the rest
+   sizes to content, and hiding any of them changes nothing for the others. */
+#left { display:flex; flex-direction:column; min-width:0; min-height:0; }
+#bar, #multiBar, #bucket, #status { flex:none; }
+#board { flex:1; }
 
 /* --- top bar ----------------------------------------------------------------------------------- */
 #bar {
@@ -369,11 +376,42 @@ kbd {
   font-family:var(--mono); font-size:9.5px; letter-spacing:.09em; text-transform:uppercase;
   color:var(--faint);
 }
-#bucket .bLabel { flex:none; }
-#bucket .bLabel b { color:var(--fg); font-size:12px; font-variant-numeric:tabular-nums; margin-left:3px; }
+#bucketToggle { flex:none; }
+#bucketToggle b { color:var(--fg); font-size:12px; font-variant-numeric:tabular-nums; margin-left:3px; }
 #bucket .bHint { flex:none; margin-left:auto; opacity:.7; text-transform:none; letter-spacing:normal;
                  font-family:-apple-system, system-ui, sans-serif; font-size:10.5px; }
 #bucket #shelf { flex:1; min-width:0; overflow-x:auto; flex-wrap:nowrap; scrollbar-width:thin; }
+
+/* Expanded, the bucket stops being a row of stamps and becomes a second board. A frame you took out
+   is still a candidate - the decision to drop it deserves the same look as the decision to keep it,
+   and at 52px you cannot make either. */
+#bucket.open { flex-direction:column; align-items:stretch; gap:8px; max-height:46vh; }
+/* flex:0 1 auto, NOT the flex:1 the collapsed rail uses. In a column flex whose own height is auto,
+   flex-grow with a zero basis resolves to zero - so the tray rendered 17px tall with everything in it
+   laid out inside nothing. The bucket's max-height provides the bound; the shelf sizes to content. */
+#bucket.open #shelf { flex:0 1 auto; min-height:0; flex-wrap:wrap; overflow-y:auto; overflow-x:hidden;
+                      gap:12px; align-content:flex-start; }
+#bucket.open .bHint { margin-left:0; }
+#bucket.open .cut {
+  width:var(--tile-w); height:auto; background:var(--surface); border-radius:var(--radius);
+  display:flex; flex-direction:column; overflow:visible;
+}
+#bucket.open .cut::after { content:none; }
+#bucket.open .cut .cMedia { display:flex; gap:0; background:#000; height:var(--card-h);
+  border-radius:var(--radius) var(--radius) 0 0; overflow:hidden; }
+#bucket.open .cut .cMedia.stack { flex-direction:column; gap:4px; background:transparent; }
+#bucket.open .cut .cMedia .pane { width:100%; height:100%; }
+#bucket.open .cut .cMedia.stack .pane { height:calc((var(--card-h) - 4px) / 2); border-radius:4px; }
+#bucket.open .cut .cFt { padding:5px 8px 7px; }
+#bucket.open .cut .cNm { font-family:var(--mono); font-size:9px; color:var(--faint);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#bucket.open .cut .cWhy { font-size:10.5px; color:var(--warn); line-height:1.4; margin-top:3px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#bucket.open .cut .cRow { display:flex; gap:5px; padding:0 8px 8px; }
+#bucket.open .cut .cRow button { flex:1; font-size:10.5px; padding:5px 4px; }
+#bucket.open .cut .r { display:none; }
+/* small state: the stamps stay stamps */
+#bucket:not(.open) .cut .cMedia, #bucket:not(.open) .cut .cFt, #bucket:not(.open) .cut .cRow { display:none; }
 
 /* --- the cut shelf ------------------------------------------------------------------------------ */
 /* Sorting is not selecting. A frame pulled out here is not silently gone — it lands on a shelf with
@@ -623,7 +661,7 @@ kbd {
        panel where the shelf used to be: the whole point of a bucket is that you can see what is in it
        without going to look. -->
   <div id="bucket" hidden>
-    <span class="bLabel">Taken out <b id="shelfN">0</b></span>
+    <button class="fbtn" id="bucketToggle" title="Show these at a size you can judge">▲ Taken out <b id="shelfN">0</b></button>
     <div id="shelf"></div>
     <span class="bHint">click one to put it back at the end</span>
   </div>
@@ -773,6 +811,7 @@ kbd {
     <span id="lZoom">fit</span>
     <span id="lPos"></span>
     <button class="fbtn" id="lInput" title="What scrolling does in here right now — hold space to do the other one, press S to swap which is which."></button>
+    <button class="fbtn" id="lBack" hidden>↩ Put it back</button>
     <button class="fbtn" id="lCarousel">▣ Carousel <kbd>V</kbd></button>
     <button class="fbtn" id="lClose">✕ Close <kbd>esc</kbd></button>
   </div>
@@ -1192,14 +1231,46 @@ $('warnChip').onclick = () => {
 /* --- the cut shelf ------------------------------------------------------------------------------ */
 function renderShelf() {
   $('bucket').hidden = !CUT.length;
+  if (!CUT.length) $('bucket').classList.remove('open');
   $('shelfN').textContent = CUT.length;
-  $('shelf').innerHTML = CUT.map((c, i) =>
-    '<div class="cut" data-i="' + i + '" title="' + esc(c.name + (c.reason ? ' — ' + c.reason : '')) + '"' +
-    ' style="background-image:url(&quot;' + c.url + '&quot;)">' +
-    (c.reason ? '<span class="r">' + esc(c.reason) + '</span>' : '') + '</div>').join('');
+  const open = $('bucket').classList.contains('open');
+  $('shelf').innerHTML = CUT.map((c, i) => {
+    const srcs = c.srcIds.map(id => SRC[id]).filter(Boolean);
+    const kind = c.kind || 'solo';
+    const panes = kind === 'split' ? (c.n || 2) : kind === 'stack' ? 2 : 1;
+    let media = '';
+    for (let k = 0; k < panes; k++) {
+      const src = kind === 'stack' ? srcs[k] : srcs[0];
+      media += '<div class="pane ' + (kind === 'solo' ? 'contain' : 'cover-fit') + '"' +
+               ' style="background-image:url(&quot;' + paintUrl(src) + '&quot;)"></div>';
+    }
+    return '<div class="cut" data-i="' + i + '"' +
+      ' title="' + esc(c.name + (c.reason ? ' — ' + c.reason : '')) + '"' +
+      (open ? '' : ' style="background-image:url(&quot;' + (srcs[0] ? paintUrl(srcs[0]) : '') + '&quot;)"') + '>' +
+      '<div class="cMedia ' + kind + '">' + media + '</div>' +
+      '<div class="cFt"><div class="cNm">' + esc(c.name) + '</div>' +
+      (c.reason ? '<div class="cWhy">' + esc(c.reason) + '</div>' : '') + '</div>' +
+      '<div class="cRow"><button data-act="look">⛶ Look</button>' +
+      '<button data-act="back">↩ Put back</button></div>' +
+      (c.reason ? '<span class="r">' + esc(c.reason) + '</span>' : '') + '</div>';
+  }).join('');
 }
+
+$('bucketToggle').onclick = () => {
+  const b = $('bucket');
+  b.classList.toggle('open');
+  $('bucketToggle').innerHTML = (b.classList.contains('open') ? '▼' : '▲') +
+    ' Taken out <b id="shelfN">' + CUT.length + '</b>';
+  $('bucket').querySelector('.bHint').textContent = b.classList.contains('open')
+    ? 'look at one, or put it back at the end of the post'
+    : 'click one to put it back at the end';
+  renderShelf();
+};
 $('shelf').onclick = e => {
   const el = e.target.closest('.cut'); if (!el) return;
+  const act = e.target.closest('button');
+  if (act && act.dataset.act === 'look') { lookAtCut(Number(el.dataset.i)); return; }
+  if ($('bucket').classList.contains('open') && !act) return;   // expanded: the buttons decide
   snapshot();
   reflow(() => {
     const c = CUT.splice(Number(el.dataset.i), 1)[0];
@@ -2118,11 +2189,12 @@ const LOUPE = PPLoupe.create({
 const loupeIsOpen = () => LOUPE.isOpen();
 
 function loupeOpen() {
+  LOUPE_CUT = -1;
   if (!SLIDES.length) { toast('nothing to look at yet'); return; }
   LOUPE.open();
   paintLoupe();
 }
-function loupeClose() { LOUPE.close(); }
+function loupeClose() { LOUPE.close(); LOUPE_CUT = -1; }
 
 // The composed slide's real dimensions. The fit, what 100% means, and how a split's slices are cut
 // all derive from these rather than from the card's on-screen size.
@@ -2141,14 +2213,32 @@ function loupeGeometry(sl, srcs) {
   return { w:(src && src.w) || 1600, h:(src && src.h) || 2000, n:1 };
 }
 
+/* The loupe can be pointed at something that is NOT in the post. A frame you took out is still a
+ * candidate, and deciding whether to put it back is exactly the decision that needs a big look - so
+ * the bucket opens into the same viewer rather than a lesser one of its own. */
+let LOUPE_CUT = -1;                       // index into CUT, or -1 for "a slide in the post"
+function lookAtCut(i) {
+  const c = CUT[i]; if (!c) return;
+  LOUPE_CUT = i;
+  LOUPE.open();
+  paintLoupe();
+}
+const cutAsSlide = c => ({ kind:c.kind || 'solo', n:c.n, sources:c.srcIds.slice(),
+                           why:c.reason || '', tags:[], text:'' });
+
 function paintLoupe() {
-  const sl = SLIDES[CUR]; if (!sl) return;
-  const slots = slotsFor(CUR), srcs = srcOf(sl);
-  $('lNo').textContent = slots.count > 1 ? slots.first + '–' + slots.last : slots.first;
+  const cut = LOUPE_CUT >= 0 ? CUT[LOUPE_CUT] : null;
+  const sl = cut ? cutAsSlide(cut) : SLIDES[CUR];
+  if (!sl) return;
+  const slots = cut ? { first:'—', last:'—', count:1 } : slotsFor(CUR);
+  const srcs = srcOf(sl);
+  $('lNo').textContent = cut ? 'OUT' : (slots.count > 1 ? slots.first + '–' + slots.last : slots.first);
   $('lKind').textContent = sl.kind === 'stack' ? '⬍ stack' : sl.kind === 'split' ? '⬌ split ×' + (sl.n || 2) : '▯ solo';
   $('lName').textContent = srcs.map(s => s.name).join('  ·  ') || '—';
   $('lWhy').textContent = sl.why || sl.text || '';
-  $('lPos').textContent = (CUR + 1) + ' of ' + SLIDES.length;
+  $('lPos').textContent = cut ? ((LOUPE_CUT + 1) + ' of ' + CUT.length + ' taken out')
+                              : ((CUR + 1) + ' of ' + SLIDES.length);
+  $('lBack').hidden = !cut;
 
   const g = loupeGeometry(sl, srcs);
   const f = $('lframe');
@@ -2217,6 +2307,11 @@ function toggleLoupeNote(force) {
 // Moving to another slide re-points an open note rather than closing it, so a walk down the sequence
 // with the box up is one continuous act of commenting.
 function walkLoupe(dir) {
+  if (LOUPE_CUT >= 0) {                   // the bucket is the list you are walking
+    LOUPE_CUT = clamp(LOUPE_CUT + dir, 0, CUT.length - 1);
+    paintLoupe();
+    return;
+  }
   setCur(CUR + dir);
   scrollToCur();
   paintLoupe();
@@ -2404,6 +2499,12 @@ $('board').addEventListener('scroll', closeCtx);
 
 $('lClose').onclick = loupeClose;
 $('lCarousel').onclick = () => { loupeClose(); igOpen(); };
+$('lBack').onclick = () => {
+  const i = LOUPE_CUT; if (i < 0) return;
+  loupeClose();
+  const el = $('shelf').querySelector('.cut[data-i="' + i + '"] button[data-act=back]');
+  if (el) el.click();
+};
 $('lInput').onclick = () => {
   const mode = LOUPE.toggleScrollMode();
   toast('scroll now ' + (mode === 'zoom' ? 'zooms' : 'pans'));
@@ -2686,7 +2787,12 @@ function buildResult() {
       removed: CUT.map(c => ({ sources:c.srcIds, cause: c.reason ? 'comment:' + c.reason : 'manual' })),
     },
     // Not a re-selection: the pass stays committed, these come back as feedback ABOUT it.
-    takenOut: CUT.map(c => ({ sources:c.srcIds, name:c.name, reason:c.reason || '' })),
+    // Full source objects, not bare ids. A frame in the bucket is still a photograph the next
+    // session has to be able to FIND - carrying only its id gives a card back with nothing in it.
+    takenOut: CUT.map(c => ({
+      kind:c.kind, n:c.n, why:c.why, name:c.name, reason:c.reason || '',
+      sources: c.srcIds.map(id => ({ id, name:(SRC[id] || {}).name, path:(SRC[id] || {}).path })),
+    })),
     setComment: $('setComment').value.trim(),
     // said about several slides at once rather than duplicated onto each - which is what was said
     setNotes: SETNOTES.map(n => ({ text:n.text, slots:n.ids.map(id => {
@@ -2796,7 +2902,12 @@ function draftPayload() {
       tags: (sl.tags || []).slice(), text: sl.text || '', mute: (sl.mute || []).slice(),
       sources: sl.sources.map(id => ({ id, name:(SRC[id] || {}).name, path:(SRC[id] || {}).path })),
     })),
-    takenOut: CUT.map(c => ({ sources:c.srcIds, name:c.name, reason:c.reason || '' })),
+    // Full source objects, not bare ids. A frame in the bucket is still a photograph the next
+    // session has to be able to FIND - carrying only its id gives a card back with nothing in it.
+    takenOut: CUT.map(c => ({
+      kind:c.kind, n:c.n, why:c.why, name:c.name, reason:c.reason || '',
+      sources: c.srcIds.map(id => ({ id, name:(SRC[id] || {}).name, path:(SRC[id] || {}).path })),
+    })),
   };
 }
 
@@ -2960,12 +3071,13 @@ async function restoreDraft() {
    * they live in has to be listed first: a fresh server has authorised nothing, and /file refuses a
    * path it was never shown. Skip either step and the board comes back complete but entirely black,
    * which reads as the images having been lost rather than never having been asked for. */
-  const dirs = [...new Set(d.slides.flatMap(sl => sl.sources.map(x =>
-    (x.path || '').slice(0, (x.path || '').lastIndexOf('/')))).filter(Boolean))];
+  const allSources = d.slides.flatMap(sl => sl.sources)
+    .concat((d.takenOut || []).flatMap(c => Array.isArray(c.sources) && typeof c.sources[0] === 'object'
+      ? c.sources : []));
+  const dirs = [...new Set(allSources.map(x =>
+    (x.path || '').slice(0, (x.path || '').lastIndexOf('/'))).filter(Boolean))];
   for (const dir of dirs) await fetch('/list?dir=' + encodeURIComponent(dir)).catch(() => {});
-  d.slides.forEach(sl => sl.sources.forEach(x => {
-    if (!x.url && x.path) x.url = '/file?path=' + encodeURIComponent(x.path);
-  }));
+  allSources.forEach(x => { if (!x.url && x.path) x.url = '/file?path=' + encodeURIComponent(x.path); });
 
   loadOrder({ setPrompt:d.setPrompt, slides:d.slides });
   d.slides.forEach((raw, i) => {
@@ -2973,8 +3085,14 @@ async function restoreDraft() {
     sl.tags = raw.tags || []; sl.text = raw.text || '';
     sl.mute = raw.mute || []; sl.ruled = !!raw.ruled;
   });
-  CUT = (d.takenOut || []).map(c => ({ srcIds:c.sources, name:c.name, reason:c.reason,
-                                       url:(SRC[c.sources[0]] || {}).url || '' }));
+  CUT = (d.takenOut || []).map(c => {
+    // older drafts carried bare ids; newer ones carry the photographs themselves
+    const objs = Array.isArray(c.sources) && typeof c.sources[0] === 'object' ? c.sources : [];
+    objs.forEach(addSource);
+    const ids = objs.length ? objs.map(x => x.id) : c.sources;
+    return { srcIds:ids, kind:c.kind, n:c.n, why:c.why, name:c.name, reason:c.reason,
+             url:(SRC[ids[0]] || {}).url || '' };
+  });
   // a draft names slides by slot, so the ids are re-bound to the slides that came back
   SETNOTES = (d.setNotes || []).map((n, i) => ({ id:'sn' + i, text:n.text,
     ids:(n.slides || []).map(k => (SLIDES[k] || {}).id).filter(Boolean) }));

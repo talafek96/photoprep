@@ -379,3 +379,29 @@ It presents as "the custom menu never appears", which sends you looking at the m
 synthetic `contextmenu` dispatched straight at the card passes every time, because nothing in the
 test ever set the capture. Same root cause as `pointerup` reporting the capturing element; the
 lesson generalises to every event that follows a captured press.
+
+## A `hidden` child does not occupy a grid track
+
+**`display:none` removes an element from grid placement entirely, so every sibling after it shifts up
+one track — and silently inherits the sizing meant for something else.**
+
+```css
+/* Wrong - the moment the optional bar is hidden, the board lands in the `auto` track and takes the
+   whole column, and the bucket lands in the `1fr` and gets whatever is left, which is nothing. */
+#left { display:grid; grid-template-rows:auto auto 1fr auto auto; }
+```
+
+```css
+/* Right - a flex column has no positional tracks to mis-assign */
+#left { display:flex; flex-direction:column; }
+#board { flex:1; }
+#bar, #optionalBar, #bucket, #status { flex:none; }
+```
+
+It presents as a panel that renders at the height of its own header with all of its content laid out
+inside nothing, which sends you hunting through the panel's own flex rules — where everything is
+correct. Check the PARENT's track assignment first: log each child's id against its height and see
+whether they still line up with the template.
+
+The same applies to any layout that indexes children positionally, and it only appears when the
+optional element is absent — so it survives every test written while it was on screen.
