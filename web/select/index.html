@@ -1967,16 +1967,19 @@ const LOUPE = PPLoupe.create({
   // A click that dismissed the note has already done its job - it must not ALSO drop you out of the
   // loupe, or closing the box would cost you the frame you were looking at.
   canClose: () => { const ok = !NOTE_DISMISSED; NOTE_DISMISSED = false; return ok; },
-  onInput: () => updateInputTag(),
+  onInput: L => updateInputTag(L),
 });
 const LZ = LOUPE.z;
 
 // The pill says what your WHEEL DOES, not what hardware it thinks you have. 'trackpad' told you
 // nothing about the tool's behaviour and gave no hint it was even a control; a mouse user has no
 // reason to care what it detected, only whether scrolling will zoom or pan.
-function updateInputTag() {
+// Takes the instance rather than reaching for LOUPE, because the shared loupe paints this once from
+// inside create() - at which point the const being assigned is still in its temporal dead zone, and
+// reading it there throws and takes the whole script down with it.
+function updateInputTag(L) {
   const el = $('inputTag'); if (!el) return;
-  const zooms = LOUPE.zooms();
+  const zooms = (L || LOUPE).zooms();
   el.innerHTML = 'scroll: ' + (zooms ? 'zoom' : 'pan') + ' <kbd>S</kbd>';
   el.title = 'Scrolling currently ' + (zooms ? 'zooms' : 'pans') +
              '. Hold space in the loupe to do the other one; press S to swap which is which. ' +

@@ -51,7 +51,10 @@ const PPLoupe = {
 
     const reduce = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    L.isOpen = () => L.root.classList.contains('on');
+    // A loupe mid-close is gone as far as the keyboard is concerned. Counting the 250ms close
+    // animation as "still open" means its key handler goes on swallowing keys that now belong to
+    // whatever it handed over to.
+    L.isOpen = () => L.root.classList.contains('on') && !L.root.classList.contains('closing');
 
     L.setNatural = (w, h) => { L.z.natural = [w, h]; };
 

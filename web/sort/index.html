@@ -285,6 +285,11 @@ kbd {
 #insName { font-size:12px; color:var(--fg); margin:0 0 2px; word-break:break-all; }
 #insWhy { font-size:11px; color:var(--mut); line-height:1.5; margin:0; }
 #insWhy:empty { display:none; }
+/* A flag on a card that only speaks on hover, after a browser-decided pause, is a flag most people
+   never read. Selecting the slide has to be enough. */
+#insWarn { display:grid; gap:6px; margin-top:10px; }
+#insWarn:empty { display:none; }
+#insWarn .wrn { border-left-color:var(--warn); }
 
 /* A proposal is a claim I made. Rejecting it should offer the alternatives, not just undo — the
    question "then what instead?" is the actual decision, and leaving it unanswered is how a rejected
@@ -440,6 +445,12 @@ kbd {
 #igUser { font-weight:600; font-size:12.5px; outline:none; border-bottom:1px dashed transparent; cursor:text; }
 #igUser:hover, #igUser:focus { border-bottom-color:#555; }
 #igHead .sp { flex:1; } #igClose { cursor:pointer; color:#aaa; font-size:15px; padding:0 4px; }
+#igLoupe {
+  background:transparent; border:1px solid #333; color:#aaa; border-radius:100px;
+  padding:3px 9px; font-size:11px; box-shadow:none; margin-right:4px;
+}
+#igLoupe:hover { border-color:#555; background:#141414; color:#fff; }
+#igLoupe kbd { background:#000; border-color:#333; color:#888; margin-left:5px; }
 #igView { position:relative; width:100%; aspect-ratio:4/5; background:#000; overflow:hidden;
           touch-action:pan-y; cursor:grab; user-select:none; }
 #igView.drag { cursor:grabbing; }
@@ -554,6 +565,8 @@ kbd {
       </div>
       <button id="btnCut" style="width:100%; margin-top:6px">✕ Take this out of the post</button>
 
+      <div id="insWarn"></div>
+
       <label>Your comment on this slide</label>
       <textarea id="insText" rows="2" placeholder="what's wrong with it here — wrong slot, wrong partner, wrong order"></textarea>
       <div class="tagRow" id="insTags"></div>
@@ -643,7 +656,9 @@ kbd {
     <div id="igHead">
       <div id="igAv"><i></i></div>
       <b id="igUser" contenteditable="plaintext-only" spellcheck="false" title="Click to edit — this is just the preview's handle">your_handle</b>
-      <span class="sp"></span><span id="igClose" title="Close (Esc)">✕</span>
+      <span class="sp"></span>
+      <button id="igLoupe" title="Look at this slide full screen">⛶ <kbd>F</kbd></button>
+      <span id="igClose" title="Close (Esc)">✕</span>
     </div>
     <div id="igView">
       <div id="igTrack"></div>
@@ -824,7 +839,8 @@ function paintCard(el, sl, i) {
     (slots.first === 1 ? '<span class="kind">cover</span>' : '') +
     '<span class="sp"></span>' +
     (sl.text || (sl.tags && sl.tags.length) ? '<span class="mk" title="You left a comment on this slide">💬</span>' : '') +
-    (warns.length ? '<span class="flag" title="' + esc(warns.map(w => w.text).join(' · ')) + '">⚠</span>' : '');
+    (warns.length ? '<span class="flag" title="' + esc(warns.map(w => w.text).join(' · ')) +
+      ' — click the card to read it">⚠</span>' : '');
   const hdEl = el.querySelector('.hd');
   if (hdEl.innerHTML !== hd) hdEl.innerHTML = hd;
 
@@ -1076,11 +1092,23 @@ function renderPanel() {
   $('btnLeft').disabled = CUR === 0;
   $('btnRight').disabled = CUR === SLIDES.length - 1;
 
+  const ws = warnsFor(sl, CUR);
+  $('insWarn').innerHTML = ws.map(w =>
+    '<div class="wrn" data-k="' + w.k + '"><span>' + esc(w.text) + '</span>' +
+    '<span class="sp"></span><span class="x" title="I know - stop flagging this">✕</span></div>').join('');
+
   $('insText').value = sl.text || '';
   $('insTags').innerHTML = TAGS.map(t =>
     '<button class="tg' + ((sl.tags || []).includes(t.id) ? ' on' : '') + '" data-t="' + t.id + '">' +
     esc(t.t) + '</button>').join('');
 }
+
+$('insWarn').onclick = e => {
+  if (!e.target.classList.contains('x')) return;
+  const sl = SLIDES[CUR]; if (!sl) return;
+  sl.mute = (sl.mute || []).concat(e.target.closest('.wrn').dataset.k);
+  paintCard(CARDS.get(sl.id), sl, CUR); chrome(); renderPanel(); saveState();
+};
 
 $('insTags').onclick = e => {
   const b = e.target.closest('.tg'); if (!b) return;
@@ -1801,6 +1829,13 @@ document.addEventListener('keydown', e => {
     else if (e.key === 'Enter') { e.preventDefault(); commit(); }
     return;
   }
+  if ($('igWrap').classList.contains('on')) {
+    if (e.key === 'Escape') igClose();
+    else if (e.key === 'ArrowLeft') igGo(IG_I - 1);
+    else if (e.key === 'ArrowRight') igGo(IG_I + 1);
+    else if (e.key.toLowerCase() === 'f') { e.preventDefault(); igToLoupe(); }
+    return;
+  }
   if (loupeIsOpen()) {
     if (e.key === 'Escape' || e.key.toLowerCase() === 'f') { e.preventDefault(); loupeClose(); return; }
     if (e.key === 'ArrowLeft')  { e.preventDefault(); setCur(CUR - 1); scrollToCur(); paintLoupe(); return; }
@@ -1811,12 +1846,6 @@ document.addEventListener('keydown', e => {
     if (lk === 's') { e.preventDefault(); $('lInput').onclick(); return; }
     if (e.key === '0') { e.preventDefault(); LOUPE.fit(true); return; }
     if (e.key === '1') { e.preventDefault(); LOUPE.actual(); return; }
-    return;
-  }
-  if ($('igWrap').classList.contains('on')) {
-    if (e.key === 'Escape') igClose();
-    else if (e.key === 'ArrowLeft') igGo(IG_I - 1);
-    else if (e.key === 'ArrowRight') igGo(IG_I + 1);
     return;
   }
   const t = e.target;
@@ -1950,15 +1979,28 @@ let IG_I = 0, IG_FRAMES = [];
 
 function igFrames() {
   const out = [];
-  SLIDES.forEach(sl => {
+  SLIDES.forEach((sl, si) => {
     const srcs = srcOf(sl);
+    // si rides along so the carousel can hand you back to the loupe on the slide you are looking at -
+    // a split contributes several frames and they all belong to the one slide that made them
     if (sl.kind === 'split') {
-      for (let i = 0; i < (sl.n || 2); i++) out.push({ kind:'tile', src:srcs[0], i, n:sl.n || 2 });
+      for (let i = 0; i < (sl.n || 2); i++) out.push({ kind:'tile', src:srcs[0], i, n:sl.n || 2, si });
     } else if (sl.kind === 'stack') {
-      out.push({ kind:'stack', srcs });
-    } else out.push({ kind:'solo', src:srcs[0] });
+      out.push({ kind:'stack', srcs, si });
+    } else out.push({ kind:'solo', src:srcs[0], si });
   });
   return out;
+}
+
+// From the carousel back into the loupe, on whatever slide is on screen. The two views answer
+// different questions - how does it read in the swipe, and is the photograph any good - and you want
+// to cross between them in whichever direction the question came up.
+function igToLoupe() {
+  const f = IG_FRAMES[IG_I];
+  igClose();
+  if (f && f.si != null) setCur(f.si);
+  scrollToCur();
+  loupeOpen();
 }
 
 /* Build the slides at the size the viewport ACTUALLY is.
@@ -2030,6 +2072,7 @@ function igGo(i) {
 }
 $('btnPreview').onclick = igOpen;
 $('igClose').onclick = igClose;
+$('igLoupe').onclick = igToLoupe;
 $('igL').onclick = () => igGo(IG_I - 1);
 $('igR').onclick = () => igGo(IG_I + 1);
 $('igWrap').onpointerdown = e => { if (e.target === $('igWrap')) igClose(); };
