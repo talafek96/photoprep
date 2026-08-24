@@ -1040,6 +1040,7 @@ kbd {
 
 <script src="/shared/runtime.js"></script>
 <script src="/shared/util.js"></script>
+<script src="/shared/loupe.js"></script>
 <script>
 'use strict';
 /* Select — the review sheet.
@@ -1948,16 +1949,29 @@ const toast = makeToast('stMsg');
 /* --- loupe: fullscreen, zoom, pan --------------------------------------------------------------
  * The reason this exists at all: judging a large set from small thumbnails is how good frames get
  * mis-ranked. Verdict keys stay live in here so a call made at 100% doesn't need a trip back. */
-let LZ = { scale:1, x:0, y:0, fit:1, natural:[0,0] };
-let INPUT = 'auto';          // 'auto' | 'mouse' | 'trackpad' — an explicit pin overrides the sniff
-let INPUT_GUESS = 'trackpad';
+/* The fit / zoom / pan / device-sniffing machinery lives in /shared/loupe.js now, so Sort can have
+   the same hands. Everything Select-specific - the note box, the verdict keys, the scoped walk -
+   stays here. LZ is the shared instance's own state object, not a copy, so every existing read of
+   LZ.scale and LZ.fit in this file keeps working untouched. */
+const LOUPE = PPLoupe.create({
+  root: $('loupe'),
+  stage: $('lstage'),
+  content: $('limg'),
+  zoomEl: $('lzoom'),
+  onClose: () => { clearScope(); $('sheet').focus(); },
+  // A click that dismissed the note has already done its job - it must not ALSO drop you out of the
+  // loupe, or closing the box would cost you the frame you were looking at.
+  canClose: () => { const ok = !NOTE_DISMISSED; NOTE_DISMISSED = false; return ok; },
+  onInput: () => updateInputTag(),
+});
+const LZ = LOUPE.z;
 
 // The pill says what your WHEEL DOES, not what hardware it thinks you have. 'trackpad' told you
 // nothing about the tool's behaviour and gave no hint it was even a control; a mouse user has no
 // reason to care what it detected, only whether scrolling will zoom or pan.
 function updateInputTag() {
   const el = $('inputTag'); if (!el) return;
-  const dev = INPUT === 'auto' ? INPUT_GUESS : INPUT;
+  const dev = LOUPE.device();
   el.innerHTML = 'scroll: ' + (dev === 'mouse' ? 'zoom' : 'pan') + ' <kbd>S</kbd>';
   el.title = 'Scrolling currently ' + (dev === 'mouse' ? 'zooms' : 'pans') +
              '. Click or press S to switch. Pinch and ⌘/ctrl+scroll always zoom either way.';
@@ -1996,26 +2010,18 @@ $('loupe').addEventListener('pointerdown', e => {
 function openLoupe(keepScope) {
   if (!keepScope) clearScope();
   if (!C()) return;
-  const L = $('loupe');
-  L.classList.remove('closing');
-  L.classList.add('on');
+  LOUPE.open();
   loadLoupe();
 }
 
 // Leaving runs the entrance in reverse - the photo blurs and shrinks away rather than vanishing.
 // A disappearance with no exit is disorienting: it leaves you unsure whether you closed something
 // or something crashed.
-let CLOSE_T = null;
 function closeLoupe() {
-  const L = $('loupe');
-  if (!L.classList.contains('on') || L.classList.contains('closing')) return;
+  if (!LOUPE.isOpen()) return;
   clearTimeout(NOTE_T); NOTE_T = null;
   $('lnote').hidden = true; $('lnote').classList.remove('closing');
-  const done = () => { L.classList.remove('on', 'closing'); CLOSE_T = null; clearScope(); $('sheet').focus(); };
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return done();
-  L.classList.add('closing');
-  clearTimeout(CLOSE_T);
-  CLOSE_T = setTimeout(done, 250);
+  LOUPE.close();
 }
 
 // The note box, opened with T from inside the loupe. Same field as the side panel's note - there is
@@ -2074,8 +2080,13 @@ function renderLoupeChips(it) {
 function loadLoupe() {
   const it = C(); if (!it) return;
   const img = $('limg');
+  LOUPE.reset();
   img.onload = () => { LZ.natural = [img.naturalWidth, img.naturalHeight]; fitLoupe(false); };
   img.src = it.url;
+  // `onload` does NOT fire when the src is unchanged, and it may not fire for a cached image either.
+  // Without this, reopening the loupe on the frame you just left skips the fit and hands the photo
+  // back wherever you had panned and zoomed it to - which reads as the loupe opening off-centre.
+  if (img.complete && img.naturalWidth) { LZ.natural = [img.naturalWidth, img.naturalHeight]; fitLoupe(false); }
   $('lname').textContent = it.name;
   $('lwhy').textContent = it.why || '';
   const meta = ST[it.state];
@@ -2093,134 +2104,9 @@ function loadLoupe() {
   }
 }
 
-function fitLoupe(animate) {
-  const st = $('lstage'), [w,h] = LZ.natural;
-  if (!w) return;
-  const s = Math.min(st.clientWidth / w, st.clientHeight / h) * 0.94;
-  LZ.fit = s; LZ.scale = s;
-  LZ.x = (st.clientWidth - w * s) / 2;
-  LZ.y = (st.clientHeight - h * s) / 2;
-  applyLoupe(animate);
-}
-
-// `animate` is for DISCRETE jumps only - double-click, the 0 and 1 keys. Continuous input (wheel,
-// pinch, drag) must stay instant: a transition chasing a live gesture always lags behind the finger,
-// which reads as broken rather than smooth. Any such event also clears the transition, so a jump
-// still in flight is cancelled the moment you take over.
-function applyLoupe(animate) {
-  const img = $('limg');
-  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  img.style.transition = (animate && !reduce) ? 'transform .42s cubic-bezier(.16,1,.3,1)' : 'none';
-  img.style.transform = 'translate(' + LZ.x + 'px,' + LZ.y + 'px) scale(' + LZ.scale + ')';
-  const pct = Math.round(LZ.scale * 100);
-  $('lzoom').textContent = Math.abs(LZ.scale - LZ.fit) < 0.001 ? 'fit' : pct + '%';
-}
-
-function zoomAt(cx, cy, factor, animate) {
-  const st = $('lstage').getBoundingClientRect();
-  const px = cx - st.left, py = cy - st.top;
-  const ns = clamp(LZ.scale * factor, LZ.fit * 0.5, 12);
-  // keep the point under the cursor fixed
-  LZ.x = px - (px - LZ.x) * (ns / LZ.scale);
-  LZ.y = py - (py - LZ.y) * (ns / LZ.scale);
-  LZ.scale = ns;
-  applyLoupe(animate);
-}
-
-(function wireLoupe() {
-  const st = $('lstage');
-  // A bare wheel means opposite things on the two devices, and the browser fires the SAME event for
-  // both, so it has to be inferred:
-  //   mouse    -> wheel = zoom, drag = pan          (a wheel is the natural zoom)
-  //   trackpad -> pinch = zoom, two-finger = pan    (a two-finger scroll must not zoom)
-  //   either   -> ctrl+wheel = zoom, drag = pan     (the universal desktop convention)
-  //
-  // The tells: a mouse wheel is coarse and quantised (deltaMode LINE/PAGE, or a large whole-number
-  // deltaY) and never reports deltaX. A trackpad sends small fractional deltas and drifts sideways.
-  // The guess LATCHES rather than being recomputed per event, so one ambiguous scroll can't flip the
-  // behaviour mid-gesture. It is a heuristic - some Windows precision touchpads report coarse deltas
-  // like a mouse - so the loupe footer shows what it decided and lets you pin it.
-  function sniff(e) {
-    if (INPUT !== 'auto') return INPUT;
-    if (e.deltaMode !== 0) { INPUT_GUESS = 'mouse'; }
-    else if (e.deltaX !== 0 || !Number.isInteger(e.deltaY)) { INPUT_GUESS = 'trackpad'; }
-    else if (Math.abs(e.deltaY) >= 50) { INPUT_GUESS = 'mouse'; }
-    updateInputTag();
-    return INPUT_GUESS;
-  }
-
-  st.addEventListener('wheel', e => {
-    e.preventDefault();
-    const dev = sniff(e);
-    // exp() keeps the zoom perceptually even regardless of how big a delta the device reports.
-    //
-    // The SIGN has to come from the hardware, not the mode. Two fingers up on a trackpad reports
-    // deltaY POSITIVE (natural scrolling) and should zoom IN; a mouse wheel rolled forward reports
-    // deltaY NEGATIVE and should also zoom in. One formula cannot serve both, so the sniffed device
-    // picks the direction while the pill picks zoom-vs-pan.
-    if (e.ctrlKey || dev === 'mouse') {
-      const k = e.ctrlKey ? 0.012 : 0.003;
-      // a real pinch (ctrl+wheel) always follows the mouse convention
-      const dir = (!e.ctrlKey && INPUT_GUESS === 'trackpad') ? 1 : -1;
-      zoomAt(e.clientX, e.clientY, Math.exp(dir * e.deltaY * k));
-    } else {
-      LZ.x -= e.deltaX;
-      LZ.y -= e.deltaY;
-      applyLoupe();
-    }
-  }, { passive:false });
-
-  // double-click toggles fit <-> 100% at the cursor, as in every image viewer
-  st.addEventListener('dblclick', e => {
-    e.preventDefault();
-    if (Math.abs(LZ.scale - LZ.fit) < 0.001) zoomAt(e.clientX, e.clientY, 1 / LZ.scale, true);
-    else fitLoupe(true);
-  });
-
-  // -webkit-user-drag is not honoured everywhere (Firefox), so cancel the drag outright as well.
-  st.addEventListener('dragstart', e => e.preventDefault());
-
-  let drag = null, moved = 0, downOnPhoto = false;
-  st.addEventListener('pointerdown', e => {
-    e.preventDefault();
-    drag = { x:e.clientX, y:e.clientY, ox:LZ.x, oy:LZ.y };
-    moved = 0;
-    // Where the press STARTED is the only reliable signal: setPointerCapture retargets pointerup to
-    // the stage, so a click squarely on the photo still reports the stage as its target and would be
-    // read as "clicked outside".
-    downOnPhoto = (e.target === $('limg'));
-    st.setPointerCapture(e.pointerId); st.classList.add('drag');
-  });
-  st.addEventListener('pointermove', e => {
-    if (!drag) return;
-    moved = Math.max(moved, Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y));
-    LZ.x = drag.ox + (e.clientX - drag.x);
-    LZ.y = drag.oy + (e.clientY - drag.y);
-    applyLoupe();
-  });
-  const end = () => {
-    // Click the empty space around the photo to leave. Two guards: the press must not have started
-    // on the photo, and it must not have moved (or a pan that ended off the edge would dump you out).
-    const wasClick = moved < 5 && !downOnPhoto;
-    drag = null; st.classList.remove('drag');
-    // A click that dismissed the note has already done its job - it must not ALSO drop you out of
-    // the loupe, or closing the box would cost you the frame you were looking at.
-    if (wasClick && !NOTE_DISMISSED) closeLoupe();
-    NOTE_DISMISSED = false;
-  };
-  st.addEventListener('pointerup', end);
-  st.addEventListener('pointercancel', () => { drag = null; st.classList.remove('drag'); });
-  // Safari emits gesturestart/change instead of ctrl+wheel
-  let gScale = 1;
-  st.addEventListener('gesturestart', e => { e.preventDefault(); gScale = e.scale; }, { passive:false });
-  st.addEventListener('gesturechange', e => {
-    e.preventDefault();
-    zoomAt(e.clientX, e.clientY, e.scale / gScale);
-    gScale = e.scale;
-  }, { passive:false });
-
-  addEventListener('resize', () => { if ($('loupe').classList.contains('on')) fitLoupe(false); });
-})();
+function fitLoupe(animate) { LOUPE.fit(animate); }
+function applyLoupe(animate) { LOUPE.apply(animate); }
+function zoomAt(cx, cy, factor, animate) { LOUPE.zoomAt(cx, cy, factor, animate); }
 
 /* --- navigation + keys -------------------------------------------------------------------------- */
 // While the loupe is walking one shared comment's frames, that group IS the list - the sheet's filter
@@ -2439,10 +2325,8 @@ $('gnoteWrap').onpointerdown = e => { if (e.target === $('gnoteWrap')) closeSetN
 function toggleScrollMode() {
   // A plain two-way switch. The old three-state auto/mouse/trackpad cycle made you press it twice
   // to get back to where you were and never showed which state was which.
-  const nowMouse = (INPUT === 'auto' ? INPUT_GUESS : INPUT) === 'mouse';
-  INPUT = nowMouse ? 'trackpad' : 'mouse';
-  updateInputTag();
-  toast('scroll now ' + (INPUT === 'mouse' ? 'zooms' : 'pans'));
+  const mode = LOUPE.toggleScrollMode();
+  toast('scroll now ' + (mode === 'mouse' ? 'zooms' : 'pans'));
 }
 $('inputTag').onclick = toggleScrollMode;
 updateInputTag();
