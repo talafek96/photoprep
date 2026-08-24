@@ -126,7 +126,9 @@ window.__loadOrder({
 
 Say what they are looking at — how many slides, which decisions are still dashed, what the tool
 flagged — and then wait. **Don't drive the page while they are in it.** Synthetic keystrokes hit real
-bindings, and `Enter` ends the pass.
+bindings, and `Enter` ends the pass. Never commit on their behalf, and never re-`__loadOrder` a board
+they have started arranging — it replaces the whole sequence. Sort is the one tool that autosaves
+(`feedback/sort-draft.json`), so read the draft to answer a question rather than reloading to check.
 
 Worth telling them once, because most of it is not discoverable from a static board:
 
