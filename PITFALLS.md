@@ -260,3 +260,30 @@ is no free space to centre within), so a portrait photo in a wide viewer looks w
 correct vertically — which reads as a bug in the horizontal maths. And logging the model is no help,
 because the model is right; only `getBoundingClientRect()` on the real element shows it. Measure the
 gap on BOTH sides and compare, rather than checking the computed offset against the container.
+
+## Re-inserting a DOM node restarts its CSS animations
+
+**`appendChild` / `insertBefore` on a node that is ALREADY a child detaches and re-attaches it, and
+re-attaching restarts every CSS animation on that element.** So the innocent-looking "put them all in
+order" pass replays every card's entrance animation, and a board of twenty flashes as one.
+
+```js
+// Wrong - touches every node, so every card re-enters on any reorder
+items.forEach(it => container.appendChild(nodeFor(it)));
+
+// Right - the standard minimal-move walk: only insert a node that is not already where it belongs
+let cursor = container.firstChild;
+items.forEach(it => {
+  const el = nodeFor(it);
+  if (el === cursor) { cursor = el.nextSibling; return; }
+  container.insertBefore(el, cursor);
+});
+```
+
+Worth a belt-and-braces too: retire the entrance animation once it has run
+(`el.addEventListener('animationend', () => el.style.animation = 'none', {once:true})`), so no future
+move of the node can replay it however it happens.
+
+The symptom is described as "everything reloaded" or "the images flickered", which sends you looking
+at image loading and caching — but nothing reloaded, and a network panel showing zero requests is the
+clue that it is the animations restarting rather than the content.

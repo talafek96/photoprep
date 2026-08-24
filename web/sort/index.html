@@ -763,6 +763,9 @@ function cardFor(sl) {
   el.className = 'slide';
   el.dataset.id = sl.id;
   el.innerHTML = '<div class="hd"></div><div class="media"></div><div class="brk" hidden></div><div class="ft"></div>';
+  // A card enters once. After that the animation is retired outright, so that no future move of the
+  // node - however it happens - can replay it.
+  el.addEventListener('animationend', () => { el.style.animation = 'none'; }, { once:true });
   CARDS.set(sl.id, el);
   return el;
 }
@@ -828,14 +831,26 @@ function paintCard(el, sl, i) {
 
 const tagLabel = id => (TAGS.find(t => t.id === id) || { t:id }).t;
 
-// Membership and order only. appendChild MOVES an existing node, so one pass in sequence order both
-// adds the new cards and puts every card in its slot - without ever recreating the one being dragged.
+/* Membership and order only - and it moves the FEWEST nodes it can, which matters far more than it
+ * sounds. Re-inserting a node that is already a child detaches and re-attaches it, and re-attaching
+ * restarts every CSS animation on it. So a blanket "append them all in order" pass replays the
+ * entrance animation on the entire board, which is what "all the cards reloaded" looks like when you
+ * let go of a drag.
+ *
+ * The standard minimal-move walk: hold a cursor at the current DOM position, and only insert a card
+ * when it is not already the node sitting there. A drop that moved one card touches one node.
+ */
 function layout() {
   const board = $('board');
   $('empty').hidden = SLIDES.length > 0;
   const live = new Set(SLIDES.map(s => s.id));
   CARDS.forEach((el, id) => { if (!live.has(id)) { el.remove(); CARDS.delete(id); } });
-  SLIDES.forEach(sl => board.appendChild(cardFor(sl)));
+  let cursor = $('empty').nextSibling;
+  SLIDES.forEach(sl => {
+    const el = cardFor(sl);
+    if (el === cursor) { cursor = el.nextSibling; return; }
+    board.insertBefore(el, cursor);
+  });
 }
 
 function repaint() { SLIDES.forEach((sl, i) => paintCard(CARDS.get(sl.id), sl, i)); }
