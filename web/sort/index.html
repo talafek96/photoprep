@@ -63,6 +63,32 @@ body { grid-template-columns:1fr 352px; }
 /* --- the board --------------------------------------------------------------------------------- */
 /* A wrapping storyboard, not a single scrolling row. Twenty slides in one row means the ending is
    off-screen while you judge the opening, and the whole point is to feel the sequence at once. */
+/* The selection bar only exists when a selection does - a permanently visible row of controls for
+   something you are usually not doing is just a narrower board. */
+#multiBar {
+  display:flex; align-items:center; gap:8px; padding:8px 14px;
+  border-bottom:1px solid var(--border); background:var(--accent-soft);
+  font-family:var(--mono); font-size:9.5px; letter-spacing:.09em; text-transform:uppercase;
+  color:var(--accent); position:relative; z-index:9;
+}
+#multiBar b { font-size:12px; color:var(--fg); font-variant-numeric:tabular-nums; }
+#multiBar .fbtn { margin-left:auto; }
+#multiBar .fbtn + .fbtn { margin-left:0; }
+.slide.multi { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); }
+/* lit because you are hovering the comment that is about them */
+.slide.inNote { border-color:var(--ok); box-shadow:0 0 0 2px var(--ok); }
+
+#setNotes .sn { border-top:1px solid var(--border); padding:8px 0 6px; cursor:pointer; }
+#setNotes .sn:first-child { border-top:0; }
+#setNotes .sn:hover .snText { color:var(--fg); }
+#setNotes .snText { font-size:11.5px; line-height:1.5; color:var(--mut); }
+#setNotes .snWho {
+  font-family:var(--mono); font-size:9px; letter-spacing:.06em; text-transform:uppercase;
+  color:var(--faint); margin-top:4px; display:flex; align-items:center; gap:6px;
+}
+#setNotes .snDel { margin-left:auto; color:var(--faint); padding:0 3px; }
+#setNotes .snDel:hover { color:var(--danger); }
+
 #board {
   display:flex; flex-wrap:wrap; align-content:flex-start; gap:14px;
   padding:18px; overflow:auto; min-height:0; background:var(--sunken);
@@ -346,6 +372,21 @@ kbd {
  * Committing ends the pass and sends it back. Enter is far too easy to hit by accident — that has
  * happened, mid-review, and cost someone their sitting. So it asks, and the ask doubles as the last
  * look at what is actually going out. */
+#gnoteWrap {
+  position:fixed; inset:0; z-index:76; display:grid; place-items:center;
+  background:oklch(0.11 0.004 70 / 62%); backdrop-filter:blur(6px);
+  animation:fade .18s var(--ease-out) both;
+}
+#gnote {
+  width:min(520px, calc(100% - 32px)); padding:16px 18px 18px;
+  background:var(--surface); border:1px solid var(--border-strong); border-radius:var(--radius-lg);
+  box-shadow:0 26px 60px -20px oklch(0 0 0 / 75%), var(--highlight);
+  animation:pop .24s var(--ease-out) both;
+}
+#gnote h4 { margin:0 0 3px; font-size:14px; font-weight:600; }
+#gnote .sub { margin:0 0 10px; font-size:11.5px; color:var(--mut); }
+#gnote textarea { margin-bottom:10px; }
+
 #confirmWrap {
   position:fixed; inset:0; z-index:75; display:grid; place-items:center;
   background:oklch(0.11 0.004 70 / 62%); backdrop-filter:blur(6px);
@@ -520,6 +561,12 @@ kbd {
     <button class="fbtn" id="btnPreview">▣ Preview as carousel <kbd>V</kbd></button>
   </div>
 
+  <div id="multiBar" hidden>
+    <b id="multiN">0</b> slides selected
+    <button class="fbtn" id="multiNote">💬 Comment on these together <kbd>C</kbd></button>
+    <button class="fbtn" id="multiClear">Clear <kbd>esc</kbd></button>
+  </div>
+
   <div id="board">
     <div id="empty">
       <b>Nothing to sequence yet.</b>
@@ -550,6 +597,12 @@ kbd {
       <p class="hint">Ordering critiques are usually about <b>relationships</b>, not single slides. This is
          where the useful ones live.</p>
     </fieldset>
+    <fieldset id="setNotesBox" hidden>
+      <legend>About several slides together</legend>
+      <div id="setNotes"></div>
+      <p class="hint">Hover one to light the slides it is about; click to select them again.</p>
+    </fieldset>
+
     <fieldset id="insBox">
       <legend>Slide <span id="insNo"></span></legend>
       <p id="insName">—</p>
@@ -632,6 +685,18 @@ kbd {
       <button id="btnCommit" class="primary"><span class="lbl">Send it back ⏎</span><span class="tick">✓</span></button>
     </div>
     <p class="hint" id="commitHint">It asks before it sends. Proposals you never ruled on go back as accepted.</p>
+  </div>
+</div>
+
+<div id="gnoteWrap" hidden>
+  <div id="gnote" role="dialog" aria-modal="true">
+    <h4>Comment on <span id="gnoteWho"></span></h4>
+    <p class="sub" id="gnoteHint"></p>
+    <textarea id="gnoteText" rows="3" placeholder="these three are the same overlook · don't run these two together"></textarea>
+    <div class="row">
+      <button id="gnoteCancel">Cancel <kbd>esc</kbd></button>
+      <button id="gnoteSave" class="primary">Save comment</button>
+    </div>
   </div>
 </div>
 
@@ -747,6 +812,13 @@ let SRC = {};                   // id -> { id, name, url, path, w, h, group }
 let SLIDES = [];                // the sequence
 let CUT = [];                   // { srcIds:[], reason, name, url }
 let CUR = 0;
+let MULTI = new Set();          // slide ids in the current multi-selection
+let ANCHOR = -1;                // where a shift-range starts from
+/* Comments about SEVERAL slides at once. Ordering critiques are mostly relational - "these three are
+   the same overlook", "don't run these two together" - and saying that once about the set of slides
+   it is true of is not the same as writing it on each of them separately. Select learned this; the
+   shape is deliberately identical. */
+let SETNOTES = [];              // [{ id, ids:[slideId], text }]
 let SET_PROMPT = '';
 let PROPOSED = null;            // snapshot taken at load; the diff is measured against it
 let SPEC = null;
@@ -863,6 +935,8 @@ function paintCard(el, sl, i) {
   const srcs = srcOf(sl);
   const warns = warnsFor(sl, i);
   el.classList.toggle('on', i === CUR);
+  el.classList.toggle('multi', MULTI.has(sl.id));
+  el.classList.toggle('inNote', !!NOTE_HL && NOTE_HL.includes(sl.id));
   el.classList.toggle('cover', slots.first === 1);
   el.classList.toggle('proposed', !!sl.proposed && !sl.ruled);
 
@@ -919,6 +993,19 @@ function paintCard(el, sl, i) {
 
 const tagLabel = id => (TAGS.find(t => t.id === id) || { t:id }).t;
 
+let NOTE_HL = null;             // slide ids lit because you are hovering their shared comment
+
+function paintMulti() {
+  CARDS.forEach((el, id) => {
+    el.classList.toggle('multi', MULTI.has(id));
+    el.classList.toggle('inNote', !!NOTE_HL && NOTE_HL.includes(id));
+  });
+  const n = MULTI.size;
+  $('multiBar').hidden = n < 2;
+  $('multiN').textContent = n;
+  renderPanel();
+}
+
 /* Membership and order only - and it moves the FEWEST nodes it can, which matters far more than it
  * sounds. Re-inserting a node that is already a child detaches and re-attaches it, and re-attaching
  * restarts every CSS animation on it. So a blanket "append them all in order" pass replays the
@@ -954,6 +1041,7 @@ function chrome() {
   $('stOpen').textContent = SLIDES.filter(s => s.proposed && !s.ruled).length;
   renderWarnings();
   renderShelf();
+  renderSetNotes();
 }
 
 function render() { layout(); repaint(); chrome(); }
@@ -1700,6 +1788,20 @@ $('board').addEventListener('pointerdown', e => {
   if (e.target.closest('button, textarea, input')) return;
   const i = SLIDES.findIndex(s => s.id === card.dataset.id);
   if (i < 0) return;
+  if (e.shiftKey && ANCHOR >= 0) {
+    const [lo, hi] = ANCHOR < i ? [ANCHOR, i] : [i, ANCHOR];
+    for (let k = lo; k <= hi; k++) MULTI.add(SLIDES[k].id);
+    setCur(i); paintMulti();
+    DRAG = null; return;                      // a range is a selection, never the start of a drag
+  }
+  if (e.metaKey || e.ctrlKey) {
+    if (!MULTI.size && SLIDES[CUR]) MULTI.add(SLIDES[CUR].id);
+    MULTI.has(SLIDES[i].id) ? MULTI.delete(SLIDES[i].id) : MULTI.add(SLIDES[i].id);
+    ANCHOR = i; setCur(i); paintMulti();
+    DRAG = null; return;
+  }
+  if (MULTI.size) { MULTI.clear(); paintMulti(); }
+  ANCHOR = i;
   setCur(i);
   const pane = e.target.closest('.pane');
   DRAG = {
@@ -1866,6 +1968,10 @@ document.addEventListener('keydown', e => {
     if (e.key === 'Escape') { el.blur(); if (noteIsUp()) toggleLoupeNote(false); }
     return;
   }
+  if (!$('gnoteWrap').hidden) {
+    if (e.key === 'Escape') { e.preventDefault(); closeSetNote(); }
+    return;
+  }
   if (!$('confirmWrap').hidden) {
     if (e.key === 'Escape') { e.preventDefault(); closeConfirm(); }
     else if (e.key === 'Enter') { e.preventDefault(); commit(); }
@@ -1910,10 +2016,11 @@ document.addEventListener('keydown', e => {
   else if (k >= '2' && k <= '5' && SLIDES[CUR] && SLIDES[CUR].kind === 'split') setSplit(CUR, Number(k));
   else if (k === 'a') { if (!$('ruleBox').hidden) $('ruleOk').click(); }
   else if (k === 'x') { e.preventDefault(); cutCurrent(); }
-  else if (k === 'c') { e.preventDefault(); $('insText').focus(); }
+  else if (k === 'c') { e.preventDefault(); MULTI.size > 1 ? openSetNote() : $('insText').focus(); }
   else if (k === 'z') { e.preventDefault(); undo(); }
   else if (k === 'v') { e.preventDefault(); igOpen(); }
   else if (k === 'f') { e.preventDefault(); loupeOpen(); }
+  else if (e.key === 'Escape' && MULTI.size) { e.preventDefault(); MULTI.clear(); paintMulti(); }
   else if (e.key === 'Enter') { e.preventDefault(); askCommit(); }
 });
 
@@ -2082,6 +2189,83 @@ $('loupe').addEventListener('pointerdown', e => {
   toggleLoupeNote(false);
   NOTE_DISMISSED = true;
 }, true);
+
+/* --- comments about several slides at once ---------------------------------------------------- */
+const sameSet = (a, b) => a.length === b.length && a.every(id => b.indexOf(id) >= 0);
+const noteForExactly = ids => SETNOTES.find(n => sameSet(n.ids, ids));
+
+function openSetNote() {
+  const ids = [...MULTI];
+  if (ids.length < 2) { toast('select two or more slides first'); return; }
+  // Writing about the same set twice EDITS what you already said rather than stacking a second
+  // opinion beside it - two notes about one group is a thing you have to reconcile later.
+  const existing = noteForExactly(ids);
+  NOTE_EDIT = existing || { id:'sn' + Date.now(), ids, text:'' };
+  $('gnoteWho').textContent = ids.map(id => {
+    const sl = SLIDES.find(x => x.id === id);
+    return sl ? slotsFor(SLIDES.indexOf(sl)).first : '?';
+  }).sort((a, b) => a - b).join(', ');
+  $('gnoteText').value = NOTE_EDIT.text || '';
+  $('gnoteHint').textContent = existing
+    ? 'editing what you already said about exactly these - clear it to remove'
+    : 'one comment about them together, not copied onto each';
+  $('gnoteSave').textContent = existing ? 'Save changes' : 'Save comment';
+  $('gnoteWrap').hidden = false;
+  $('gnoteText').focus();
+}
+function closeSetNote() { $('gnoteWrap').hidden = true; NOTE_EDIT = null; }
+let NOTE_EDIT = null;
+
+function saveSetNote() {
+  if (!NOTE_EDIT) return;
+  const t = $('gnoteText').value.trim();
+  const at = SETNOTES.indexOf(NOTE_EDIT);
+  if (!t) { if (at >= 0) SETNOTES.splice(at, 1); }
+  else { NOTE_EDIT.text = t; if (at < 0) SETNOTES.push(NOTE_EDIT); }
+  closeSetNote();
+  renderSetNotes(); saveState();
+  toast(t ? 'saved about ' + NOTE_EDIT.ids.length + ' slides together' : 'comment removed');
+}
+
+function renderSetNotes() {
+  $('setNotesBox').hidden = !SETNOTES.length;
+  $('setNotes').innerHTML = SETNOTES.map((n, i) => {
+    const slots = n.ids.map(id => {
+      const sl = SLIDES.find(x => x.id === id);
+      return sl ? slotsFor(SLIDES.indexOf(sl)).first : null;
+    }).filter(Boolean).sort((a, b) => a - b);
+    return '<div class="sn" data-i="' + i + '">' +
+      '<div class="snText">' + esc(n.text) + '</div>' +
+      '<div class="snWho">slides ' + (slots.join(', ') || '—') +
+      '<span class="snDel" title="Delete this comment">✕</span></div></div>';
+  }).join('');
+}
+
+$('setNotes').onclick = e => {
+  const row = e.target.closest('.sn'); if (!row) return;
+  const n = SETNOTES[Number(row.dataset.i)]; if (!n) return;
+  if (e.target.classList.contains('snDel')) {
+    SETNOTES.splice(Number(row.dataset.i), 1);
+    renderSetNotes(); saveState(); toast('comment removed');
+    return;
+  }
+  MULTI = new Set(n.ids.filter(id => SLIDES.some(s => s.id === id)));
+  paintMulti();
+  const first = SLIDES.findIndex(s => MULTI.has(s.id));
+  if (first >= 0) { setCur(first); scrollToCur(); }
+};
+$('setNotes').onmouseover = e => {
+  const row = e.target.closest('.sn'); if (!row) return;
+  const n = SETNOTES[Number(row.dataset.i)];
+  NOTE_HL = n ? n.ids : null; paintMulti();
+};
+$('setNotes').onmouseleave = () => { NOTE_HL = null; paintMulti(); };
+
+$('multiNote').onclick = openSetNote;
+$('multiClear').onclick = () => { MULTI.clear(); paintMulti(); };
+$('gnoteCancel').onclick = closeSetNote;
+$('gnoteSave').onclick = saveSetNote;
+$('gnoteWrap').onpointerdown = e => { if (e.target === $('gnoteWrap')) closeSetNote(); };
 
 $('lClose').onclick = loupeClose;
 $('lCarousel').onclick = () => { loupeClose(); igOpen(); };
@@ -2366,6 +2550,10 @@ function buildResult() {
     // Not a re-selection: the pass stays committed, these come back as feedback ABOUT it.
     takenOut: CUT.map(c => ({ sources:c.srcIds, name:c.name, reason:c.reason || '' })),
     setComment: $('setComment').value.trim(),
+    // said about several slides at once rather than duplicated onto each - which is what was said
+    setNotes: SETNOTES.map(n => ({ text:n.text, slots:n.ids.map(id => {
+      const i = SLIDES.findIndex(s => s.id === id); return i < 0 ? null : slotsFor(i).first;
+    }).filter(Boolean) })),
     slides,
   };
 }
@@ -2426,7 +2614,7 @@ function saveState() {
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify({
         ts:Date.now(), spec:SPEC, src:SRC, slides:SLIDES, cut:CUT, proposed:PROPOSED,
-        setPrompt:SET_PROMPT, setComment:$('setComment').value,
+        setNotes:SETNOTES, setPrompt:SET_PROMPT, setComment:$('setComment').value,
       }));
     } catch (e) { /* quota or private mode — not worth interrupting the pass over */ }
     postDraft();
@@ -2461,6 +2649,7 @@ function draftPayload() {
     setPrompt: SET_PROMPT, setComment: $('setComment').value,
     slideCount: totalSlides(),
     // the same shape __loadOrder takes, so a draft can simply be loaded back
+    setNotes: SETNOTES.map(n => ({ text:n.text, slides:n.ids.map(id => SLIDES.findIndex(s => s.id === id)) })),
     slides: SLIDES.map(sl => ({
       kind: sl.kind, n: sl.n, why: sl.why, proposed: !!sl.proposed, ruled: !!sl.ruled,
       tags: (sl.tags || []).slice(), text: sl.text || '', mute: (sl.mute || []).slice(),
@@ -2475,6 +2664,7 @@ function restoreState() {
   try { d = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); } catch (e) { return false; }
   if (!d || !d.slides || !d.slides.length) return false;
   SRC = d.src || {}; SLIDES = d.slides; CUT = d.cut || []; PROPOSED = d.proposed || null;
+  SETNOTES = d.setNotes || [];
   SET_PROMPT = d.setPrompt || '';
   SPEC = d.spec || null;
   $('setPrompt').textContent = SET_PROMPT || (SLIDES.length + ' slides.');
@@ -2588,6 +2778,19 @@ async function restoreDraft() {
   if (!window.__runtime || !window.__runtime.review) return false;
   const d = await fetch('/feedback?name=' + DRAFT).then(r => r.ok ? r.json() : null).catch(() => null);
   if (!d || !d.slides || !d.slides.length) return false;
+
+  /* A draft carries PATHS, not urls - a url is only meaningful against a running server, and the
+   * whole point of the draft is that it outlives one. So the urls are rebuilt here, and every folder
+   * they live in has to be listed first: a fresh server has authorised nothing, and /file refuses a
+   * path it was never shown. Skip either step and the board comes back complete but entirely black,
+   * which reads as the images having been lost rather than never having been asked for. */
+  const dirs = [...new Set(d.slides.flatMap(sl => sl.sources.map(x =>
+    (x.path || '').slice(0, (x.path || '').lastIndexOf('/')))).filter(Boolean))];
+  for (const dir of dirs) await fetch('/list?dir=' + encodeURIComponent(dir)).catch(() => {});
+  d.slides.forEach(sl => sl.sources.forEach(x => {
+    if (!x.url && x.path) x.url = '/file?path=' + encodeURIComponent(x.path);
+  }));
+
   loadOrder({ setPrompt:d.setPrompt, slides:d.slides });
   d.slides.forEach((raw, i) => {
     const sl = SLIDES[i]; if (!sl) return;
@@ -2596,6 +2799,9 @@ async function restoreDraft() {
   });
   CUT = (d.takenOut || []).map(c => ({ srcIds:c.sources, name:c.name, reason:c.reason,
                                        url:(SRC[c.sources[0]] || {}).url || '' }));
+  // a draft names slides by slot, so the ids are re-bound to the slides that came back
+  SETNOTES = (d.setNotes || []).map((n, i) => ({ id:'sn' + i, text:n.text,
+    ids:(n.slides || []).map(k => (SLIDES[k] || {}).id).filter(Boolean) }));
   $('setComment').value = d.setComment || '';
   render(); renderPanel();
   const mins = Math.round((Date.now() - Date.parse(d.savedAt)) / 60000);
