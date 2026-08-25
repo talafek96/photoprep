@@ -51,6 +51,12 @@
   <h1>Layout — collage candidates</h1>
   <p class="sub" id="counter">No candidates.</p>
 
+  <fieldset data-review-only><legend>About the whole batch</legend>
+    <textarea id="setComment" rows="3" placeholder="the two temple frames shouldn't be stacked · stop cropping so tight · these all want more sky"></textarea>
+    <p class="hint">For anything that isn't about one candidate — a habit to change, a pairing that
+       doesn't work, how the set reads together.</p>
+  </fieldset>
+
   <fieldset><legend>Candidate</legend>
     <div class="row"><button id="prev">‹ Prev</button><button id="next">Next ›</button></div>
     <label>Name (also the output filename)</label>
@@ -195,6 +201,8 @@ function layout(){ const c=CC(); if(!c)return; const {W,H}=dispDims(c); cv.width
   let h=ah,w=h*W/H; if(w>aw){w=aw;h=w*H/W;} cv.style.width=w+'px'; cv.style.height=h+'px'; render(ctx,W,H,c,false); }
 addEventListener('resize',layout);
 new ResizeObserver(()=>layout()).observe(document.getElementById('stage'));
+// draw() drives the draft, and typing never redraws the canvas - so say so explicitly
+document.getElementById('setComment').addEventListener('input',()=>markDirty());
 
 // ---------- interaction ----------
 function toCv(e){ const b=cv.getBoundingClientRect(); return {x:(e.clientX-b.left)*cv.width/b.width,y:(e.clientY-b.top)*cv.height/b.height}; }
@@ -383,7 +391,7 @@ async function exportApproved(){ if(!CANDS.length)return; const ext=exportFmt===
     items.push(Object.assign({exported:saved.length>0, saved:saved.map(s=>s.saved), out:saved.map(s=>s.out), bytes:saved.reduce((a,s)=>a+(s.bytes||0),0), dims:{W,H}},common)); }
   buildStrip(); if(CC())switchCand(curC);
   const exported=items.filter(x=>x.exported), rejected=items.filter(x=>!x.approved), withNotes=items.filter(x=>x.comment), incomplete=items.filter(x=>!x.complete);
-  window.__result={ tool:'layout', format:exportFmt, quality:exportQ, onExist:PPSave.onExist, dest:PPSave.destLabel(), count:items.length, exportedCount:exported.length, rejectedCount:rejected.length, items, ts:Date.now() };
+  window.__result={ tool:'layout', format:exportFmt, quality:exportQ, onExist:PPSave.onExist, dest:PPSave.destLabel(), count:items.length, exportedCount:exported.length, rejectedCount:rejected.length, setComment:(document.getElementById('setComment').value||'').trim(), items, ts:Date.now() };
   PPSave.postFeedback('layout_'+window.__result.ts+'.json', window.__result);   // review mode only
   const mb=exported.reduce((a,x)=>a+(x.bytes||0),0)/1048576;
   document.getElementById('expTag').textContent='✓ exported '+exported.length+'/'+items.length+' candidate(s) · '+mb.toFixed(1)+'MB'+(rejected.length?' · '+rejected.length+' rejected':'')+(incomplete.length?' · '+incomplete.length+' incomplete':'')+(withNotes.length?' · '+withNotes.length+' note(s)':''); toast('done'); }
@@ -426,7 +434,7 @@ function markDirty(){
 }
 const unitDraft=u=>({src:u.src||'',scale:u.scale,ox:u.ox,oy:u.oy,overlay:u.overlay,orient:u.orient});
 function draftPayload(){ return { tool:'layout', draft:true, savedAt:new Date().toISOString(),
-  dest:PPSave.destLabel(), cur:curC,
+  dest:PPSave.destLabel(), cur:curC, setComment:(document.getElementById('setComment').value||''),
   candidates:CANDS.map(c=>({ name:c.name, mode:c.mode, ratio:c.ratio, gutter:c.gutter, bg:c.bg,
     approved:c.approved, comment:c.comment, outName:c.outName||'',
     P:c.P.map(unitDraft), S:Object.assign(unitDraft(c.S),{n:c.S.n}) })) }; }
@@ -459,6 +467,7 @@ async function restoreDraft(){
   if(!out.length) return false;
   CANDS=out; curC=-1; switchCand(Math.min(d.cur||0,CANDS.length-1));
   if(d.dest) window.__setDest(d.dest);
+  document.getElementById('setComment').value=d.setComment||'';
   RESTORED=true;
   const mins=Math.round((Date.now()-Date.parse(d.savedAt))/60000);
   toast('picked up your framing from disk'+(mins>1?', '+mins+' min old':'')+(dropped?' ('+dropped+' dropped - dragged-in files can\'t be restored)':''));
