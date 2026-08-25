@@ -231,6 +231,7 @@ function panUnit(u,dx,dy){ const im=u.img, r=rectFor(u), s=Math.max(r.w/im.width
 let SPACE=false;
 const typing=el=>!!el&&(/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName||'')||el.isContentEditable);
 addEventListener('keydown',e=>{ if(e.code!=='Space'||e.repeat||typing(e.target)||SPACE)return;
+  if(e.metaKey||e.ctrlKey||e.altKey)return;      // Cmd-Space is Spotlight, not our pan
   SPACE=true; cv.classList.add('pan'); e.preventDefault(); });
 addEventListener('keyup',e=>{ if(e.code==='Space'){ SPACE=false; cv.classList.remove('pan'); } });
 // a lost keyup - alt-tab away mid-hold - would otherwise leave it stuck panning forever
@@ -246,7 +247,9 @@ cv.addEventListener('wheel',e=>{ if(!CC())return; const pt=toCv(e), u=unitAt(pt)
   draw(); },{passive:false});
 cv.addEventListener('pointermove',e=>{ if(drag||!CC())return; const idx=idxAt(toCv(e)), u=hoverUnit(CC(),idx), ni=(u&&u.img)?idx:-1; if(ni!==hoverIdx){ hoverIdx=ni; draw(); } });
 cv.addEventListener('pointerleave',()=>{ if(hoverIdx!==-1){ hoverIdx=-1; draw(); } });
-window.addEventListener('keydown',e=>{ if(hoverIdx<0||!CC()||document.getElementById('igWrap').classList.contains('on'))return; const u=hoverUnit(CC(),hoverIdx); if(!u||e.key.toLowerCase()!=='o')return; e.preventDefault();
+window.addEventListener('keydown',e=>{ if(hoverIdx<0||!CC()||document.getElementById('igWrap').classList.contains('on'))return; const u=hoverUnit(CC(),hoverIdx); if(!u||e.key.toLowerCase()!=='o')return;
+  if(e.metaKey||e.ctrlKey)return;                 // Cmd-O is the browser's, not the overlay cycle
+  e.preventDefault();
   if(e.shiftKey){ u.orient=((u.orient||0)+1)%4; } else { const ids=OVERLAYS.map(o=>o[0]), i=ids.indexOf(u.overlay||'none'); u.overlay=ids[(i+1)%ids.length]; syncOvSel(); } draw(); });
 
 // ---------- files + dup detection ----------

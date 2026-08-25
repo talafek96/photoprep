@@ -254,6 +254,7 @@ const PPLoupe = {
     };
     addEventListener('keydown', e => {
       if (e.key !== ' ' || !L.isOpen()) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;   // Cmd-Space is Spotlight, not the pan hold
       const t = e.target;
       if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable)) return;
       e.preventDefault();                       // or the page scrolls underneath

@@ -2118,10 +2118,17 @@ addEventListener('keydown', e => {
   if (e.key === 'Escape' && open && noteUp) { toggleLoupeNote(false); return; }
   if (e.key === 'Escape' && open) { closeLoupe(); return; }
   if (e.key === 'Escape' && MULTI.size) { MULTI.clear(); render(); return; }
-  if ((e.metaKey || e.ctrlKey) && k === 'a') {
-    e.preventDefault();
-    vis().forEach(x => MULTI.add(x.id));       // everything the current filter+sort shows
-    render();
+
+  /* A Ctrl/Cmd chord belongs to the BROWSER (copy, paste, reload, find) or to a chord we explicitly
+     implement - never to the bare single-letter shortcuts below. Routing it into them meant Cmd+C
+     fired `c` and opened a comment box instead of copying, leaving no way to get text out of the
+     tool at all. Claim only what we handle; let the rest reach the browser untouched. */
+  if (e.metaKey || e.ctrlKey) {
+    if (k === 'a') {
+      e.preventDefault();
+      vis().forEach(x => MULTI.add(x.id));     // everything the current filter+sort shows
+      render();
+    }
     return;
   }
   if (e.key === 'ArrowRight') { e.preventDefault(); move(1); return; }

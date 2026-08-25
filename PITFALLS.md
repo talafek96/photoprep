@@ -442,3 +442,25 @@ Two details that make a restored draft actually work:
 - **Re-authorise the folders before rebuilding.** A `/file?path=` url means nothing to a freshly
   started server, which refuses paths it was never shown via `/list`. Skip that and the board comes
   back complete but entirely black, which reads as the photos having been lost.
+
+## A modifier chord must be gated BEFORE the overlay branches, not after
+
+Sort's key router already ended with `if (e.metaKey || e.ctrlKey) return;` — and Cmd+C still opened a
+comment box, because that line sat *below* the loupe and carousel branches. With the loupe open, `c`
+was consumed several branches earlier and the guard was never reached. Select had no guard at all.
+
+The result was that copying anything out of the tools was impossible: every Cmd chord fell through to
+the bare single-letter shortcut of the same name.
+
+A guard that only covers the tail of a router covers almost nothing. Put the chord gate immediately
+after the "is the user typing" check and before every overlay branch, and have it claim only the
+chords the tool actually implements:
+
+```js
+if (e.metaKey || e.ctrlKey) {
+  if (k === 'z') { e.preventDefault(); undo(); }    // only what we really handle
+  return;                                           // everything else is the browser's
+}
+```
+
+The same class of bug bites bare `Space` handlers, which grab Cmd+Space (Spotlight) unless they check.
